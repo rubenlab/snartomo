@@ -1,0 +1,1061 @@
+#!/bin/bash
+
+###############################################################################
+# SNARTomoClassic performs the following steps for tilt series:
+#   1. MotionCor2
+#   2. CTFFIND
+#   3. Topaz denoising
+#   4. _S_orts tilt-series micrographs from lowest tilt (most negative) to highest
+#   5. _N_ewstack (from IMOD) to generate a sorted stack 
+#   6. _AR_e_TOMO_ to compute reconstruction
+#
+# Changelog:
+#   2022-08-12 (trs) -- added JANNI denoising (UNTESTED)
+#   2022-08-02 (trs & tcc) -- AreTomo 1.2.5 now the default
+#   2022-05-07 (trs) -- shares functions with SNARTomoPACE
+#   2022-03-12 (trs) -- can read pixel size, other info, from MDOC file
+#   2022-03-09 (trs) -- added Topaz 2D denoising option
+#   2022-02-28 (trs) -- can compute reconstruciton using IMOD instead of AreTomo
+#   2022-01-28 (trs) -- writes command line to output directory
+#   2021-12-12 (trs) -- added argument-parser
+#
+###############################################################################
+
+function program_info() {
+  echo "Running: SNARTomoClassic"
+  echo "Modified 2022-12-08"
+  date
+  echo 
+}
+
+function print_usage() {
+  echo "USAGE:   $(basename $0) --gain_file <gain_file> <options>"
+  echo "DRY RUN: $(basename $0) --gain_file <gain_file> <options> --testing"
+  echo
+  echo "To list options & defaults, type:"
+  echo "  $(basename $0) --help"
+  echo
+  echo "Program expects input tilt series of the form:"
+  echo "  {arbitrary_tilt_series_name}_{tiltSeriesIndex}_{angle}_{date}.eer"
+  echo "The arbitrary_tilt_series_name can have underscores, but"
+  echo "  tiltSeriesIndex, angle, and date cannot."
+  echo
+}
+
+function howto_stop() {
+  echo "TO END PROCESSING"
+  echo "  Program computes a reconstruction of a tilt series when a new tilt series begins."
+  echo "  However, the last tilt series will generally not be followed by any additional files."
+  echo "  The program will run for the duration set with the parameter 'max_minutes'."
+  echo "  To end the program early, create a random EER file in the input directory,"
+  echo "    which will start the last reconstruction, e.g.:"
+  echo "    touch {eer_dir}/done.eer"
+  echo
+  echo "BEGIN"
+}
+
+#################### Filenames ####################
+
+# Inputs
+input_dir=frames                                   # Input directory for EER movies
+mdoc_file=None                                     # Input MDOC file (to read pixel size, etc.)
+log_file=log-snartomo.txt                          # Log file
+outdir=SNARTomo                                    # Output top-level directory
+
+# Outputs (relative to ${outdir})
+cmd_file=commands.txt                              # Output commands file (in ${outdir})
+set_file=settings.txt                              # Output settings file (in ${outdir})
+rawdir=1-EER                                       # directory where raw EER files will go
+micdir=2-MotionCor2                                # MotionCor directory
+mc2_logs=Logs                                      # directory for resource and MotionCor log files
+ctfdir=3-CTFFIND4                                  # CTFFIND directory
+topazdir=4-Topaz                                   # Topaz directory
+recdir=5-Tomo                                      # Reconstruction directory
+imgdir=Images                                      # Image directory
+thumbdir=Thumbnails                                # Central sections of tomograms
+
+#################### Parameters ###################
+
+# General parameters
+max_minutes=600                                   # Maximum run time, minutes
+wait_interval=4                                   # Looks for new micrographs every N seconds
+apix=-1.00                                        # A/px
+voltage=300.0                                     # F20: 200, Krios: 300
+gpus="0"                                          # list of GPUs to use, delimited by spaces
+verbosity=4                                       # verbosity level
+#                                                 #   0: prints nothing
+#                                                 #   1: overall summary
+#                                                 #   2: prints summary for each tomogram 
+#                                                 #   3: prints warnings 
+#                                                 #   4: lists each micrograph 
+#                                                 #   5: prints commands for each micrograph
+#                                                 #   6: prints summary of IMOD & AreTomo info
+#                                                 #   7: prints full MotionCor/CTFFIND/IMOD/AreTomo info
+#                                                 #   8: extra debug info
+
+# MotionCor2
+# # motioncor2_exe=/home/rubsak-admin/local/motioncor/MotionCor2
+frame_file=motioncor-frame.txt                    # Frames file
+mcor_patches="0 0"                                # number of patches in x y, delimited by spaces
+reffrm=1                                          # (boolean) reference frame (0: first, 1: middle)
+SplitSum=0                                        # (boolean) split frames into even & odd half-sets (1: yes)
+min_frames=400                                    # minimum number of EER frames before warning
+max_frames=1200                                   # maximum number of EER frames before warning
+
+# CTFFIND
+# # ctffind4_bin=/home/rubsak-admin/local/ctffind/4.1.14/bin
+cs=2.7                                            # F20: 2.0, Krios: 2.7
+ac=0.07                                           # 300.0 amplitude contrast: 0.07-0.1 for cryo data, 0.14-0.2 for neg.stain data
+boxSz=512                                         # box size
+resL=30.0                                         # low resolution limit for CTF fitting (Angstrom)
+resH=9.0                                          # high resolution limit for CTF fitting (Angstrom)
+defL=30000.0                                      # minimal defocus value to consider during fitting (Angstrom)
+defH=70000.0                                      # maximal defocus value to consider during fitting (Angstrom)
+dStep=500.0                                       # defocus step
+dAst=100.0                                        # astigmatism restraint
+
+# JANNI
+do_janni=false                                    # run Topaz denoise
+# janni_exe=/home/rubsak-admin/local/miniconda3/4.10.3/envs/janni/bin/janni_denoise.py
+# janni_model=/home/rubsak-admin/local/janni/gmodel_janni_20190703.h5
+# janni_env=janni_cpu                               # JANNI conda environment
+janni_overlap=24                                  # overlap between patches, pixels
+janni_batch=4                                     # number of patches predicted in parallel
+
+# TOPAZ
+# # topaz_exe=/home/rubsak-admin/local/miniconda3/4.10.3/envs/topaz/bin/topaz
+# # topaz_env=topaz                                   # Topaz conda environment
+do_topaz=false                                    # Run Topaz denoise
+topaz_patch=2048                                  # Patch size
+topaz_time=5m                                     # maximum duration, Topaz sometimes hangs
+
+# IMOD
+# # imod_bin=/usr/local/IMOD/bin                      # IMOD directory
+do_etomo=false                                    # Run IMOD reconstruction
+batch_directive=batchDirective.adoc               # IMOD batchruntomo directive file
+
+# AreTomo parameters
+# # aretomo_exe=/home/rubsak-admin/local/aretomo/1.2.5/AreTomo_1.2.5_Cuda112_08-01-2022
+bin_factor=8                                      # binning factor
+vol_zdim=1600                                     # z-dimension for volume
+rec_zdim=1000                                     # z-dimension for 3D reconstruction
+tilt_axis=86.0                                    # estimate for tilt-axis direction
+dark_tol=0.7                                      # tolerance for dark images
+tilt_cor=1                                        # (boolean) tilt-correct (1: yes, 0: no)
+bp_method=1                                       # reconstruction method (1: weighted backprojection, 0: SART)
+flip_vol=1                                        # (boolean) flip coordinates axes (1: yes, 0: no)
+transfile=1                                       # (boolean) generate IMOD XF files
+are_patches="0 0"                                 # number of patches in x & y (slows down alignment)
+are_time=30m                                      # maximum duration, AreTomo sometimes hangs
+
+################ END BATCH HEADER ################
+
+function main() {
+  
+  # BASH arrays can't returned, so declare them here
+  declare -A original_vars
+  declare -a var_sequence
+  declare -A vars
+  
+  do_pace=false
+  check_env
+  parse_command_line "${@}"
+  check_args 0
+  
+  # Check if testing
+  check_testing
+  
+  if [[ "${vars[testing]}" == true ]] || [[ "${vars[log]}" == "" ]] || [[ "${verbose}" -eq 0 ]]; then
+    if [[ "${verbose}" -ge 1 ]]; then
+      echo "Not writing log file"
+    fi
+    
+    do_real_work "${@}"
+  else
+    if [[ "${verbose}" -ge 1 ]]; then
+      echo "Writing to log file: ${vars[log]}"
+      do_real_work "${@}" 2>&1 | tee -a "${vars[log]}"
+    fi
+  fi
+}
+
+function do_real_work() {
+###############################################################################
+#   Function:
+#     Does the "real" work
+#   
+#   Passed arguments:
+#     ${@} : command-line arguments
+###############################################################################
+
+  if [[ "${verbose}" -ge 1 ]]; then
+    program_info
+    print_usage
+  fi
+  
+  if [[ "${verbose}" -ge 7 ]]; then
+    print_arguments
+  fi
+  
+  validate_inputs
+  initialize_vars
+
+  create_directories "${@}"
+  check_gain_format
+  
+  if [[ "${verbose}" -ge 1 ]]; then
+    echo -e "Looking for files in '${vars[eer_dir]}/' for up to ${vars[max_minutes]} minutes\n"
+    howto_stop
+  fi
+
+  mic_counter=0
+
+  while (( $(echo "$SECONDS < $max_seconds" | bc) )) ; do
+    new_files=($(get_new_files "${vars[eer_dir]}" ".eer"))
+
+    for fn in "${new_files[@]}" ; do
+      # Does the file end with .eer?
+      if [[ "$fn" =~ .*eer$ ]]; then 
+        parse_filename
+    
+        # Check termination flag
+        if [[ "$kill_all_humans" == false ]]; then 
+          check_new_tilt_series
+          motioncor2_serial "${fn}"
+#           move_micrograph
+          ctffind4_serial
+        else
+          break
+        fi
+      fi
+      # End EER IF-THEN
+    done
+    # End new-file loop
+    
+    # Check termination flag
+    if [[ "$kill_all_humans" == true ]]; then 
+      break
+    fi
+    
+    # Checks every N seconds when we've run out of files
+    sleep "${vars[wait]}"
+  done
+  # End while loop
+  
+  # Close last tomogram list
+  check_time
+  compute_tomogram
+  summary_info
+}
+# End main()
+
+function check_env() {
+###############################################################################
+#   Function:
+#     Sources shared functions from central SNARTomo directory
+#     
+#   Global variables:
+#     do_pace
+#     
+###############################################################################
+
+  if [[ "${SNARTOMO_DIR}" == "" ]]; then
+    echo -e "\nERROR!! Environmental variable 'SNARTOMO_DIR' undefined!"
+    echo      "  Set variable with: export SNARTOMO_DIR=<path_to_snartomo_files>"
+    echo -e   "  Exiting...\n"
+    exit
+  else
+    source "${SNARTOMO_DIR}/snartomo-shared.bash"
+    source "${SNARTOMO_DIR}/argumentparser_dynamic.sh"
+    
+    if [[ "${do_pace}" != false ]]; then
+      source "${SNARTOMO_DIR}/gpu_resources.bash"
+    fi
+  fi
+}
+
+function parse_command_line() {
+###############################################################################
+#   Function:
+#     Parses command line
+#   
+#   Passed arguments:
+#     ${@} : command-line arguments
+#   
+#   Global variables:
+#     OPTION_SEP : (from argumentparser_dynamic.sh) hopefully-unique separator for variable fields
+#     original_vars : non-associative array, before cleaning
+#     var_sequence : associative array, maintaining the order of the variables
+#     commandline_args : command-line arguments, may be modified
+#     vars : final options array
+#     ARGS : command-line arguments not accounted for as options will be here
+#     verbose : shortened copy of vars[verbosity]
+#   
+###############################################################################
+  
+  add_section "REQUIRED SETTINGS" "These files/directories are required."
+  add_argument "eer_dir" "${input_dir}" "Input EER directory" "DIR"
+  add_argument "gain_file" "" "Input gain file" "ANY"
+  add_argument "frame_file" "${frame_file}" "Input MotionCor2 frame file" "ANY"
+  
+  add_section "GLOBAL SETTINGS" "These settings affect multiple steps."
+  add_argument "mdoc_file" "${mdoc_file}" "Input MDOC file" "ANY"
+  add_argument "apix" "${apix}" "Pixel size, A/px" "FLOAT"
+  add_argument "outdir" "${outdir}" "Output directory" "ANY"
+  add_argument "verbosity" "${verbosity}" "Verbosity level (0..8) (3 or 2 recommended for testing mode)" "INT"
+  add_argument "testing" "false" "Testing flag" "BOOL"
+  add_argument "overwrite" "false" "Flag to overwrite pre-existing output directory" "BOOL"
+  add_argument "debug" "false" "Flag for debugging" "BOOL"
+  add_argument "log" "${log_file}" "Output log file (not used in testing mode)" "ANY"
+  add_argument "max_minutes" "${max_minutes}" "Maximum run time, minutes" "INT"
+  add_argument "wait" "${wait_interval}" "Interval to check for new micrographs, seconds" "INT"
+  add_argument "kv" "${voltage}" "Voltage, kV" "FLOAT"
+  add_argument "gpus" "${gpus}" "GPUs to use (space-delimited if more than one)" "ANY"
+
+  # MotionCor2
+  add_section "MOTIONCOR2 SETTINGS" "Settings for motion-correction."
+  add_argument "motioncor_exe" "${MOTIONCOR2_EXE}" "MotionCor2 executable" "ANY"
+  add_argument "do_dosewt" "false" "Flag to perform dose-weighting" "BOOL"
+  add_argument "mcor_patches" "${mcor_patches}" "Number of patches in x y, delimited by spaces" "ANY"
+  add_argument "do_outstack" "false" "Flag to write aligned stacks" "BOOL"
+  add_argument "do_splitsum" "false" "Flag to split frames into even & odd half-sets" "BOOL"
+  add_argument "split_sum" "${SplitSum}" "(DEPRECATED) Split frames into even & odd half-sets (0: no, 1: yes)" "INT"
+  add_argument "reffrm" "${reffrm}" "Reference frame (0: first, 1: middle)" "INT"
+  add_argument "min_frames" "${min_frames}" "Minimum number of EER frames before warning" "INT"
+  add_argument "max_frames" "${max_frames}" "Maximum number of EER frames before warning" "INT"
+
+  # CTFFIND
+  add_section "CTFFIND4 SETTINGS" "Settings for CTF estimation."
+  add_argument "ctffind_dir" "${CTFFIND4_BIN}" "CTFFIND executable directory" "ANY"
+  add_argument "cs" "${cs}" "Spherical aberration constant (F20: 2.0, Krios: 2.7)" "FLOAT"
+  add_argument "ac" "${ac}" "Amplitude contrast (0.07-0.1 for cryo data, 0.14-0.2 for neg.stain data)" "FLOAT"
+  add_argument "box" "${boxSz}" "Tile size for power-spectrum calculation" "INT"
+  add_argument "res_lo" "${resL}" "Low-resolution limit for CTF fitting, Angstroms" "FLOAT"
+  add_argument "res_hi" "${resH}" "High-resolution limit for CTF fitting, Angstroms" "FLOAT"
+  add_argument "df_lo" "${defL}" "Minimum defocus value to consider during fitting, Angstroms" "FLOAT"
+  add_argument "df_hi" "${defH}" "Maximum defocus value to consider during fitting, Angstroms" "FLOAT"
+  add_argument "df_step" "${dStep}" "Defocus search step during fitting, Angstroms" "FLOAT"
+  add_argument "ast_step" "${dAst}" "Astigmatism search step during fitting, Angstroms" "FLOAT"
+
+  # JANNI
+  add_section "JANNI SETTINGS" "Settings for JANNI denoise."
+  add_argument "do_janni" "${do_janni}" "Denoise micrographs using JANNI" "BOOL"
+#   add_argument "janni_env" "${janni_env}" "JANNI conda environment" "ANY"
+#   add_argument "janni_exe" "${janni_exe}" "JANNI executable" "ANY"
+#   add_argument "janni_model" "${janni_model}" "JANNI general model" "ANY"
+  add_argument "janni_batch" "${janni_batch}" "Number of patches predicted in parallel" "INT"
+  add_argument "janni_overlap" "${janni_overlap}" "Overlap between patches, pixels" "INT"
+
+  # TOPAZ
+  add_section "TOPAZ SETTINGS" "Settings for denoising."
+  add_argument "do_topaz" "${do_topaz}" "Denoise micrographs using Topaz" "BOOL"
+# #   add_argument "topaz_exe" "${topaz_exe}" "Topaz executable" "ANY"
+  add_argument "topaz_patch" "${topaz_patch}" "Patch size for Topaz denoising" "INT"
+  add_argument "topaz_env" "${TOPAZ_ENV}" "Topaz conda environment" "ANY"
+
+  # IMOD
+  add_section "IMOD SETTINGS" "Settings for IMOD: restacking and optional eTomo reconstruction."
+  add_argument "imod_dir" "${IMOD_BIN}" "IMOD executable directory" "ANY"
+  add_argument "do_etomo" "${do_etomo}" "Compute reconstruction using IMOD" "BOOL"
+  add_argument "batch_directive" "${batch_directive}" "IMOD eTomo batch directive file" "ANY"
+
+  # AreTomo parameters
+  add_section "ARETOMO SETTINGS" "Reconstruction will be computed either with AreTomo (default) or IMOD."
+  add_argument "aretomo_exe" "${ARETOMO_EXE}" "AreTomo executable" "ANY"
+  add_argument "bin" "${bin_factor}" "Binning factor for reconstruction" "INT"
+  add_argument "vol_zdim" "${vol_zdim}" "z-dimension for volume" "INT"
+  add_argument "rec_zdim" "${rec_zdim}" "z-dimension for 3D reconstruction" "INT"
+  add_argument "tilt_axis" "${tilt_axis}" "Estimate for tilt-axis direction, degrees" "FLOAT"
+  add_argument "dark_tol" "${dark_tol}" "Tolerance for dark images (0.0-1.0)" "FLOAT"
+  add_argument "tilt_cor" "${tilt_cor}" "Tilt-correction flag (1: yes, 0: no)" "INT"
+  add_argument "bp_method" "${bp_method}" "Reconstruction method (1: weighted backprojection, 0: SART)" "INT"
+  add_argument "flip_vol" "${flip_vol}" "Flag to flip coordinates axes (1: yes, 0: no)" "INT"
+  add_argument "transfile" "${transfile}" "Flag to generate IMOD XF files (1: yes, 0: no)" "INT"
+  add_argument "are_patches" "${are_patches}" "Number of patches in x & y (delimited by spaces)" "ANY"
+  add_argument "are_time" "${are_time}" "Maximum duration (AreTomo sometimes hangs)" "ANY"
+
+  dynamic_parser "${@}"
+  
+  # We're going to use this variable a lot
+  verbose="${vars[verbosity]}"
+  
+  # For PACE-compatibility
+  gpu_num="${vars[gpus]}"
+}
+
+function add_argument() {
+###############################################################################
+#   Function:
+#     Adds single argument
+#   
+#   Add arguments with the following form:
+#     add_argument "OPTION_NAME" "DEFAULT_VALUE" "OPTION DESCRIPTION" "OPTION_TYPE"
+#   Quotes are required.
+#   
+#   Valid option types are:
+#     INT : integer
+#     UINT : unsigned integer
+#     FLOAT : floating point
+#     BOOL : Boolean
+#     FILE : filename, must exist
+#     DIR : directory, must exist
+#     REGEX : integer
+#     ANY : arbitrary
+#   Unassigned options will be assigned to array ARGS.
+#   
+#   Global variables:
+#     original_vars : non-associative array
+#     var_sequence : associative array, maintaining the order of the variables
+#     argument_idx : index for ARGUMENTS key
+#   
+###############################################################################
+        
+    local key=$1
+    local default=$2
+    local description=$3
+    local type=$4
+    
+    original_vars[${key}]="${default} ${OPTION_SEP} ${description} ${OPTION_SEP} ${type}"
+    var_sequence+=(${key})
+    
+    # Remember index for "arguments" key
+    if [[ ${key} = ARGUMENTS ]]; then
+        argument_idx=$(( ${#var_sequence[@]} - 1 ))
+    fi
+}
+
+function print_arguments() {
+    regex_split="^\(.*\)${OPTION_SEP}\(.*\)${OPTION_SEP}\(.*\)$"
+    local section_counter=0
+    
+    echo -e "\n=== Input Settings, Value, Description ==="
+
+    # Suppress keys
+    for var_idx in "${!var_sequence[@]}"
+    do
+        # Check if there are any remaining section headings
+        if [[ "${#section_vars[@]}" -gt "${section_counter}" ]]; then
+            # Check if next section index is current var index
+            if [[ "${section_sequence[${section_counter}]}" == "${var_idx}" ]]; then
+                section_name=`echo ${section_vars[${var_idx}]} | awk -F" ${OPTION_SEP} " '{print $1}'`
+                echo -e "${section_name}"
+                let "section_counter++"
+            fi
+        fi
+        
+        key="${var_sequence[${var_idx}]}"
+        description="$(echo "${original_vars[${key}]}" | sed "s|${regex_split}|\2|g")"
+        echo -e "  --${key} \t${vars[${key}]} \t${description}"
+    done
+}
+
+function add_section() {
+###############################################################################
+#   Function:
+#     Adds single argument
+#   
+#   Add sections with the following form:
+#     add section "SECTION NAME" "SECTION DESCRIPTION"
+#   Quotes are required.
+#   
+#   Global variables:
+#     var_sequence : associative array, maintaining the order of the variables
+#     section_vars : non-associative array
+#     section_sequence : records position of the sections
+#   
+###############################################################################
+    
+    # Positional arguments
+    local section_name=$1
+    local description=$2
+    
+    local curr_idx=${#var_sequence[@]}
+    local curr_str="${section_name} ${OPTION_SEP} ${description}"
+    
+    # Update arrays
+    section_sequence+=(${curr_idx})
+    section_vars[${curr_idx}]="${curr_str}"
+    
+#     # DIAGNOSTIC
+#     echo -e "${#section_vars[@]}" "${#section_sequence[@]}" "${curr_idx}" "${section_vars[${curr_idx}]}"
+}
+
+function initialize_vars() {
+###############################################################################
+#   Function:
+#     Initializes data structures
+#   
+#   Global variables:
+#     old_state
+#     new_state
+#     prev_name
+#     mcorr_mic_array
+#     denoise_array
+#     stripped_angle_array
+#     tomo_counter
+#     kill_all_humans
+#     max_seconds
+#
+###############################################################################
+  
+  old_state=.old_state
+  new_state=.new_state
+  prev_name=""
+  declare -A mcorr_mic_array=()
+  declare -A denoise_array=()
+  declare -A stripped_angle_array
+  tomo_counter=0
+  kill_all_humans=false
+  
+  # Create a blank file of previously-known micrographs
+  rm $old_state
+  touch $old_state
+  
+  max_seconds=`echo "${vars[max_minutes]}"*60 | bc`
+}
+
+function get_new_files() {
+###############################################################################
+#   Function:
+#     Splits directory name and extension from filename
+#   
+#   Adapted from Markus Stabrin
+#   
+#   Global variables:
+#     old_state
+#     new_state
+#   Local variables:
+#     $1 : input directory
+#     $2 : file extension
+###############################################################################
+
+    local input_dir=${1}
+    local suffix=${2}
+
+    ls -tr ${input_dir}/*${suffix} > "${new_state}" 2>/dev/null
+    comm -13 "${old_state}" "${new_state}" 2>/dev/null
+    cp "${new_state}" "${old_state}"
+}
+
+function parse_filename() {
+###############################################################################
+#   Function:
+#     Parses filenames
+#   
+#   Global variables:
+#     vars
+#     stem_eer
+#     fn
+#     cor_mic
+#     dns_mic
+#     outdir
+#     mc2_logs
+#     stem_mrc
+#     angle
+#     tilt_idx
+#     tomo_name
+#     kill_all_humans
+#     
+###############################################################################
+  
+  # Cut directory name and extension (last period-delimited string)
+  stem_eer=$(basename $fn | rev | cut -d. -f2- | rev)
+  cor_mic="${vars[outdir]}/${micdir}/${stem_eer}_mic.mrc"
+  dns_mic="${vars[outdir]}/${topazdir}/${stem_eer}_mic.mrc"
+  ali_out="${vars[outdir]}/${micdir}/${mc2_logs}/${stem_eer}_mic.out"
+
+  # Remove extension (last period-delimited string)
+  stem_mrc=$(file_stem "$cor_mic")
+  # (Syntax adapted from https://unix.stackexchange.com/a/64673)
+  
+  # Remove last two underscore-delimited strings (${date}_mic)
+  local wo_date=`echo $stem_mrc | rev | cut -d_ -f3- | rev`
+  
+  # Remove next underscore-delimited string (angle)
+  angle=$(echo $wo_date | rev | cut -d_ -f1 | rev)
+  
+  # Remove next underscore-delimited string (tilt-series index)
+  tilt_idx=$(echo $wo_date | rev | cut -d_ -f2 | rev | bc)
+  # Using bc to convert to number: https://stackoverflow.com/a/11268537
+
+#   echo "    TESTING $stem_eer '$tilt_idx' '$angle'"
+  
+  # Remove remaining underscore-delimited string (tomogram name)
+  tomo_name=`echo $wo_date | rev | cut -d_ -f3- | rev`
+  
+  # If the filename is illegal, the index is possibly not an integer (https://stackoverflow.com/a/19116862)
+  if ! [[ $tilt_idx =~ ^[-+]?[0-9]+$ ]] ; then
+    if [[ "$verbose" -ge 2 ]]; then
+      echo -e "WARNING! Filename '$fn' is being parsed incorrectly."
+      echo    "  Make sure that you are using the correct naming convention."
+      echo    "  Maybe you're simply terminating the run."
+      
+      echo -e "\nTERMINATING! (after next reconstruction)"
+      date
+    fi
+    kill_all_humans=true
+  else
+    # Update number of remaining files
+    if [[ "$verbose" -ge 4 ]]; then
+      # Adapted from https://stackoverflow.com/a/33891876/3361621
+      remaining_files=$(ls 2> /dev/null -Ubad -- "${vars[eer_dir]}"/*.eer | wc -w)
+      let "mic_counter++"
+      
+      if [[ "${vars[testing]}" == false ]]; then
+        echo -e "    Found $fn     \tmicrograph #${mic_counter}, ${remaining_files} remaining"
+      else
+        echo -e "    Found $fn     \tmicrograph #${mic_counter} of ${remaining_files}"
+      fi
+    fi
+  fi
+  # End illegal-filename IF-THEN
+  
+  if [[ "$verbose" -ge 7 ]]; then
+    echo      "    Filename: '$fn'"
+    echo      "    MRC w/o extension: '$stem_mrc'"
+    echo      "    Should remove date: '$wo_date'"
+    echo      "    Should be angle: '$angle'"
+    echo      "    Should be tilt index: '$tilt_idx'"
+    echo      "    Tilt series stem: '$tomo_name'"
+    echo -e   "    Termination flag: '$kill_all_humans'\n"
+  fi
+}
+
+function move_micrograph() {
+###############################################################################
+#   Function:
+#     Moves micrograph so that it isn't processed again
+#   
+#   Positional variables:
+#     1) filename
+#   
+#   Global variables:
+#     kill_all_humans
+#     vars
+#     verbose
+#     rawdir
+#     
+###############################################################################
+  
+  fn=$1
+  
+  # Check termination flag
+  if [[ "$kill_all_humans" == false ]]; then
+#     echo "fn: ${fn}"  # TESTING
+      
+    # Sanity check
+    if [[ ! "$fn" =~ .*eer$ ]]; then 
+      echo    "WARNING: Filename '$fn' doesn't end in '.eer'"
+      echo -e "         Continuing...\n"
+    fi
+    
+    # Move micrograph to output directory so that it isn't processed again
+    if [[ "${vars[testing]}" == false ]]; then
+      if [[ "$verbose" -ge 5 ]]; then
+        echo -e "\n    `mv -v $fn "${vars[outdir]}"/$rawdir/`\n"
+      else
+        mv $fn "${vars[outdir]}"/$rawdir/
+      fi
+    
+    else
+      vprint "    TESTING mv -v $fn "${vars[outdir]}"/$rawdir/" "5+"
+    fi
+    # End testing IF-THEN
+    
+  fi
+  # End continue IF-THEN
+}
+
+function check_new_tilt_series() {
+###############################################################################
+#   Function:
+#     1) Checks for up tilt series
+#     2) Updates info for current tilt series
+#   
+#   Global variables:
+#     prev_name
+#     tomo_name
+#     verbose
+#     vars : command-line arguments
+#     mcorr_mic_array
+#     denoise_array
+#     tilt_idx
+#     cor_mic
+#     stripped_angle_array
+#     angle
+#     
+###############################################################################
+  
+  # Check if new tomogram
+  if [[ "$prev_name" != "$tomo_name"  ]]; then
+    if [[ "$prev_name" != "" ]]; then
+      # Write restack images and compute tomogram
+      compute_tomogram
+    fi
+    
+    if [[ "$verbose" -ge 3 ]]; then
+      if [[ ! -z "$tomo_name" ]]; then
+        echo "  Found multiple micrographs starting with '$tomo_name*', possibly tilt series"
+      fi
+    fi
+  fi
+  # End new-tomogram IF-THEN
+
+  # Append micrograph filename to array
+  if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
+    denoise_array[$tilt_idx]=$dns_mic
+  fi
+  
+#   echo "    TESTING: '$tilt_idx' $dns_mic $angle"
+  mcorr_mic_array[$tilt_idx]=$cor_mic
+  
+  # Angle array (with same index keys) will be used to sort
+  stripped_angle_array[${tilt_idx}]="${angle}"
+  
+  # Update
+  prev_name=$tomo_name
+}
+
+function motioncor2_serial() {
+###############################################################################
+#   Function:
+#     Wrapper for MotionCor2
+#     Default behavior is to NOT overwrite pre-existing outputs.
+#   
+#   Positional variables:
+#     1) EER filename
+#     
+#   Calls functions:
+#     run_motioncor
+#     check_frames
+#   
+#   Global variables:
+#     vars
+#     kill_all_humans
+#     cor_mic
+#     verbose
+#     testing
+#     ali_out
+#     fn (OUTPUT)
+#     gpu_num
+#     
+###############################################################################
+  
+  fn=$1
+#   
+  # Check termination flag
+  if [[ "$kill_all_humans" == false ]]; then
+    if [[ "${vars[testing]}" == false ]]; then
+      # Check if output already exists
+      if [[ ! -e $cor_mic ]]; then
+        # Check number of frames
+        check_frames
+        
+        # Update number of remaining files
+        if [[ "$verbose" -ge 5 ]]; then
+          echo "    Running MotionCor2 on '$fn', micrograph #${mic_counter}, ${remaining_files} remaining"
+          
+          # Show command line without running MotionCor
+          run_motioncor "${fn}" "${gpu_num}"
+        fi
+        
+        local mc2_cmd=$(run_motioncor "${fn}" "$gpu_num")
+        
+        if [[ "$verbose" -le 6 ]]; then
+          # Suppress warning: "TIFFReadDirectory: Warning, Unknown field with tag 65001 (0xfde9) encountered."
+          ${mc2_cmd} 2> /dev/null 1> $ali_out
+        
+        # Full output
+        else
+          ${mc2_cmd} 2>&1 | tee $ali_out
+        fi
+          
+        # Sanity check
+        if [[ ! -f "$cor_mic" ]]; then
+          echo    "    WARNING! MotionCor2 output $cor_mic does not exist!"
+          echo -e "             Continuing...\n"
+          
+          return
+        
+        # Output exists
+        else
+          # Print notable MotionCor2 information to screen
+          if [[ "$verbose" -ge 7 ]]; then
+            echo ""
+            echo "    Finished MotionCor2 on micrograph $fn"
+            echo "    `grep 'Total time' $ali_out`"
+            echo ""
+          fi
+          
+          move_micrograph "${fn}"
+        fi
+        # End output-exists IF-THEN
+      
+      # If pre-exising output
+      else
+        echo    "    WARNING: MotionCor2 output $cor_mic already exists"
+        echo -e "             Skipping...\n"
+        
+        move_micrograph "${fn}"
+      fi
+      # End preexisting-file IF-THEN
+    
+    # Testing
+    else
+      if [[ "$verbose" -ge 5 ]]; then
+        run_motioncor "${fn}" "${gpu_num}"
+      fi
+    fi
+    # End testing mode
+  fi
+  # End continue IF-THEN
+}
+
+function ctffind4_serial() {
+###############################################################################
+#   Function:
+#     1) Wrapper for CTFFIND4
+#     2) Generates 1D profile
+#   
+#   Global variables:
+#     stem_eer
+#     kill_all_humans
+#     ctf_mrc (OUTPUT)
+#     cor_mic
+#     verbose
+#     do_pace
+#     mic_counter (used in Classic mode only)
+#     remaining_files (used in Classic mode only)
+#     outdir
+#     
+###############################################################################
+
+  local ctf_out="${vars[outdir]}/${ctfdir}/${stem_eer}_ctf.out"
+  local ctf_txt="${vars[outdir]}/${ctfdir}/${stem_eer}_ctf.txt"
+  local ctf_summary="${vars[outdir]}/${ctfdir}/SUMMARY_CTF.txt"
+  local avg_rot="${vars[outdir]}/${ctfdir}/${stem_eer}_ctf_avrot.txt"
+  ctf_mrc="${vars[outdir]}/${ctfdir}/${stem_eer}_ctf.mrc"
+  
+  # Check termination flag
+  if [[ "$kill_all_humans" == false ]]; then
+    if [[ "${vars[testing]}" == false ]]; then
+      
+      # Sanity check: Look for existing CTFFIND output
+      if [[ ! -e $ctf_mrc ]]; then
+        
+        vprint "    Running CTFFIND4 on $cor_mic, micrograph #${mic_counter}, ${remaining_files} remaining" "5+"
+        
+        # Print command
+        if [[ "$verbose" -ge 5 ]]; then
+          run_ctffind4 "false"
+        fi
+
+        if [[ "$verbose" -ge 7 ]]; then
+          run_ctffind4 "true" 2>&1 | tee $ctf_out
+        else
+          run_ctffind4 "true" > $ctf_out 2> /dev/null
+        fi
+
+        # Print notable CTF information to screen
+        if [[ "$verbose" -eq 6 ]]; then
+          echo ""
+          grep "values\|good" $ctf_out | sed 's/^/    /'
+          # (prepends spaces to output)
+          echo ""
+        fi
+        
+        if [[ -f "$avg_rot" ]]; then
+          if [[ "$verbose" -ge 5 ]]; then
+            echo "    Running: ctffind_plot_results.sh $avg_rot"
+          fi
+          "${vars[ctffind_dir]}"/ctffind_plot_results.sh $avg_rot 1> /dev/null
+          \rm /tmp/tmp.txt 2> /dev/null
+          # (Temp file may cause problems if lying around)
+        else
+          echo    "WARNING! CTFFIND4 output $avg_rot does not exist!"
+          echo -e "         Continuing...\n"
+          
+          return
+        fi
+
+        # Write last line of CTF text output to summary
+        if [[ -f "$ctf_txt" ]]; then
+          echo -e "${stem_eer}:    \t$(tail -n 1 $ctf_txt)" >> ${ctf_summary}
+        else
+          echo    "WARNING! CTFFIND4 output $ctf_txt does not exist!"
+        fi
+        
+        if [[ "$verbose" -ge 5 ]] && [[ "${do_pace}" != true ]]; then
+          remaining_files=`ls 2>/dev/null -Ubad -- "${vars[eer_dir]}"/*.eer | wc -w`
+          echo -e "\n    Finished CTFFIND4 on $cor_mic, micrograph #${mic_counter}, ${remaining_files} remaining"
+          echo -e   "    `date`\n"
+        fi
+
+      else
+        echo    "    WARNING: CTFFIND4 output $ctf_mrc already exists"
+        echo -e "             Skipping...\n"
+      fi
+      # End preexisting-file IF-THEN
+    
+    else
+      if [[ "$verbose" -ge 5 ]]; then
+        echo ""
+        run_ctffind4 "false"
+        echo ""
+      fi
+    fi
+    # End testing IF-THEN
+  fi
+  # End continue IF-THEN
+}
+
+function compute_tomogram() {
+###############################################################################
+#   Function:
+#     1) Run IMOD's newstack command
+#     2) Compute tomographic recontruction with AreTomo
+#     3) Closes and re-initializes arrays
+#     
+#     Default behavior is to OVERWRITE pre-existing outputs.
+#   
+#   Global variables:
+#     vars
+#     mcorr_mic_array
+#     denoise_array
+#     tomo_dir
+#     recdir
+#     prev_name
+#     tomo_root
+#     outdir
+#     angles_list
+#     stripped_angle_array
+#     
+###############################################################################
+  
+  # Check length of array (https://unix.stackexchange.com/a/193042)
+  local num_mics=${#mcorr_mic_array[@]}
+  if [[ "$num_mics" -eq 1 ]]; then
+    if [[ "$verbose" -ge 2 ]]; then
+      echo "  Found only 1 micrograph of form '$prev_name*' (`basename $fn`)"
+      echo "  Skipping tomogram reconstruction..."
+    fi
+    return
+  fi
+  
+  # Create subdirectory for each tomogram (even in testing mode)
+  tomo_dir="${recdir}/${prev_name}"
+  
+  if [[ "$verbose" -ge 2 ]]; then
+    mkdir -pv "${vars[outdir]}"/${tomo_dir} | sed 's/^/  /'
+  else
+    mkdir -p "${vars[outdir]}"/${tomo_dir}
+  fi
+  
+  # Output files
+  tomo_root="${vars[outdir]}/${tomo_dir}/${prev_name}"
+  local mcorr_list="${tomo_root}_mcorr.txt"
+  local denoise_list="${tomo_root}_topaz.txt"
+  angles_list="${tomo_root}_newstack.rawtlt"
+  
+  # Write new IMOD list file (overwrites), starting with number of images
+  echo ${#mcorr_mic_array[*]} > $mcorr_list
+
+  # Optionally denoise
+  if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]] ; then
+    # Write micrograph list
+    echo ${#denoise_array[*]} > $denoise_list
+    
+    if [[ "${vars[do_janni]}" == true ]]; then
+      janni_denoise
+    elif [[ "${vars[do_topaz]}" == true ]]; then
+      topaz_denoise
+    fi
+  fi
+    
+  vprint "" "2+"
+# #   sort_array_keys
+  write_angles_lists
+  vprint "" "2+"
+  
+  # Restack micrographs from lowest angle (most negative) to highest
+  imod_restack
+  
+  if [[ "${vars[do_etomo]}" == false ]]; then
+    wrapper_aretomo "${num_mics}" "${vars[gpus]}"
+  else
+    wrapper_etomo "${prev_name}" "${num_mics}"
+  fi
+
+  # Increment tomogram counter
+  let "tomo_counter++"
+  
+  # Re-initialize arrays
+  declare -A mcorr_mic_array=()
+  declare -A denoise_array=()
+  declare -A stripped_angle_array
+}
+
+function check_time() {
+###############################################################################
+#   Function:
+#     Checks elapsed time
+#   
+###############################################################################
+  
+  if [[ "$kill_all_humans" == false ]]; then 
+    echo -e "\nProgram timed out at `date`" "1+"
+    kill_all_humans=true
+  fi
+}
+
+function summary_info() {
+###############################################################################
+#   Function:
+#     Prints summary info
+#   
+#   Global variables:
+#     verbose
+#     tomo_counter
+#     remaining_files
+#     testing
+#   
+###############################################################################
+  
+  if [[ "$verbose" -ge 1 ]]; then
+    vprint "" "2="
+    echo "Found $tomo_counter tilt series in total"
+    echo "DONE!"
+    date
+    echo ""
+  fi
+      
+  # Check if there are remaining files (excluding the dummy file)
+  let "remaining_files--"
+  if [[ "$verbose" -ge 2 ]] && [[ "${vars[testing]}" == false ]]; then
+    if [[ "$remaining_files" -ge 2 ]]; then
+      echo "WARNING! There are $remaining_files EER files remaining (excluding the dummy file)"
+      echo "         Are you sure you know what your (sic.) doing?"
+      echo ""
+    fi
+  fi
+}
+
+function DUMMY_FUNCTION() {
+###############################################################################
+#   Function:
+#     FUNCTION
+#   
+#   Calls functions:
+#   
+#   Global variables:
+###############################################################################
+  
+  return
+}
+
+###############################################################################
+
+main "$@"
+# "$@" passes command line parameters to main() (https://unix.stackexchange.com/a/449508)
+
+exit
