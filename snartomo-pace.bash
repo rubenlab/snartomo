@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2022-12-09"
+  echo "Modified 2023-01-04"
   date
   echo 
 }
@@ -34,7 +34,7 @@ function print_usage() {
 
 #################### Filenames ####################
 
-shared_libs=snartomo-shared.bash              # Shared libraries
+shared_libs=snartomo-shared.bash                   # Shared libraries
 input_dir=frames                                   # Input directory for EER movies
 frame_file=motioncor-frame.txt                     # Frames file
 outdir=SNARTomoPACE                                # Output top-level directory
@@ -84,16 +84,11 @@ dAst=100.0                                        # Astigmatism restraint
 
 # JANNI
 do_janni=false                                    # Run Topaz denoise
-# # janni_exe=janni_denoise.py                        # JANNI executable
-# # janni_model=/home/rubsak-admin/local/janni/gmodel_janni_20190703.h5
-# # janni_env=janni_cpu                               # JANNI conda environment
 janni_overlap=24                                  # Overlap between patches, pixels
 janni_batch=4                                     # Number of patches predicted in parallel
 
 # TOPAZ
 do_topaz=false                                    # Run Topaz denoise
-# # topaz_exe=/home/rubsak-admin/local/miniconda3/4.10.3/envs/topaz/bin/topaz
-# # topaz_env=topaz                                   # Topaz conda environment
 topaz_patch=2048                                  # Patch size
 topaz_time=5m                                     # Maximum duration, Topaz sometimes hangs
 
@@ -113,7 +108,6 @@ do_ruotnocon=false                                # Remove bad contours
 rnc_sd=3.0                                        # Contours with residuals greater than this multiple of sigma will be removed
 
 # AreTomo parameters
-# # aretomo_exe=/home/rubsak-admin/local/aretomo/1.2.5/AreTomo_1.2.5_Cuda112_08-01-2022
 bin_factor=8                                      # Binning factor
 vol_zdim=1600                                     # z-dimension for volume
 rec_zdim=1000                                     # z-dimension for 3D reconstruction
@@ -293,16 +287,12 @@ function parse_command_line() {
   # JANNI
   add_section "JANNI SETTINGS" "Settings for JANNI denoise."
   add_argument "do_janni" "${do_janni}" "Denoise micrographs using JANNI" "BOOL"
-#   add_argument "janni_env" "${JANNI_ENV}" "JANNI conda environment" "ANY"
-#   add_argument "janni_exe" "${janni_exe}" "JANNI executable" "ANY"
-#   add_argument "janni_model" "${JANNI_MODEL}" "JANNI general model" "ANY"
   add_argument "janni_batch" "${janni_batch}" "Number of patches predicted in parallel" "INT"
   add_argument "janni_overlap" "${janni_overlap}" "Overlap between patches, pixels" "INT"
 
   # TOPAZ
   add_section "TOPAZ SETTINGS" "Settings for Topaz denoise."
   add_argument "do_topaz" "${do_topaz}" "Denoise micrographs using Topaz" "BOOL"
-# #   add_argument "topaz_exe" "${topaz_exe}" "Topaz executable" "ANY"
   add_argument "topaz_patch" "${topaz_patch}" "Patch size for Topaz denoising" "INT"
   add_argument "topaz_env" "${TOPAZ_ENV}" "Topaz conda environment" "ANY"
 
@@ -1304,7 +1294,6 @@ function distribute_motioncor() {
       # Read number of EERs (once)
       if [[ "${eers_found}" == "" ]]; then
         local eers_found=$(cat ${eers_done})
-# #         echo -e "eers_found : $eers_found\n"
       else
         local num_mics="${#mic_array[@]}"  # shouldn't need to recount
         
@@ -1326,8 +1315,6 @@ function distribute_motioncor() {
   
   # While loop will finish either when last image has been processed or when time limit reached
   check_completion "${num_mics}" "${eers_found}" "MotionCor2" "${mcor_done}" "$start_time"
-# #   vprint "\n$(date +"$time_format"): MotionCor2 completed on ${num_mics} files" "1+" "${main_log}"
-# #   echo "${num_mics}" > "${mcor_done}"
   
   # TESTING
   echo -e "$(ls --full-time ${mcor_done})    \t$(cat ${mcor_done})" >> "${debug_log}"
@@ -2769,7 +2756,7 @@ function tomogram_parallel() {
         
         wrapper_etomo "${tomo_base}" "${ts_mics}" "-start 6" "false" >> "${tomo_log}"
       else
-        wrapper_etomo "${tomo_base}" "${ts_mics}" "false" >> "${tomo_log}"
+        wrapper_etomo "${tomo_base}" "${ts_mics}" "" "false" >> "${tomo_log}"
       fi
     fi
     # End AreTomo-vs-eTomo IF-THEN

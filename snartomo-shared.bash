@@ -116,7 +116,7 @@ function create_directories() {
   # End PACE IF-THEN
     
   # Write command line to output directory
-  echo "$0 ${@}" >> "${vars[outdir]}/${cmd_file}"
+  echo -e "$0 ${@}\n" >> "${vars[outdir]}/${cmd_file}"
   print_arguments > "${vars[outdir]}/${set_file}"
   
   if [[ "${verbose}" -ge 1 ]]; then
@@ -1723,7 +1723,7 @@ function imod_restack() {
   if [[ "${vars[testing]}" == false ]]; then
     # Check if output already exists
     if [[ ! -e $reordered_stack ]]; then
-      vprint "  Running: newstack -filei $imod_list -ou $reordered_stack" "3+" "=${outlog}"
+      vprint "  Running: newstack -filei $imod_list -ou $reordered_stack\n" "3+" "=${outlog}"
       
       if [[ "$verbose" -ge 8 ]]; then
         "${vars[imod_dir]}"/newstack -filei $imod_list -ou $reordered_stack 2>&1 | tee $newstack_log
