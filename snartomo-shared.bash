@@ -760,22 +760,29 @@ function check_exe() {
       
       # Check if file exists
       if [[ -e "${mc2_tempfile}" ]]; then
-        # Get owner
-        tempfile_owner=$(stat -c '%U' "${mc2_tempfile}")
+        # Try to remove it
+        \rm -r ${mc2_tempfile} 2> /dev/null
         
-        # Check if you own MotionCor's temporary file
-        if [[ "${tempfile_owner}" != "$(whoami)" ]]; then
-          if [[ "${vars[testing]}" == false ]]; then
-            validated=false
-            vprint "  ERRORR!! ${mc2_tempfile} owned by ${tempfile_owner} and not you!" "1+" "${outlog}"
-            vprint "    MotionCor writes a temporary file called '${mc2_tempfile}'." "2+" "${outlog}"
-            vprint "    Get the owner to delete this file." "2+" "${outlog}"
-          else
-            vprint "  WARNING! ${mc2_tempfile} owned by ${tempfile_owner} and not you" "1+" "${outlog}"
-            vprint "    MotionCor writes a temporary file called '${mc2_tempfile}'" "2+" "${outlog}"
+        # Check if it still exists
+        if [[ -e "${mc2_tempfile}" ]]; then
+          # Get owner
+          tempfile_owner=$(stat -c '%U' "${mc2_tempfile}")
+          
+          # Check if you own MotionCor's temporary file
+          if [[ "${tempfile_owner}" != "$(whoami)" ]]; then
+            if [[ "${vars[testing]}" == false ]]; then
+              validated=false
+              vprint "  ERROR!! ${mc2_tempfile} owned by ${tempfile_owner} and not you!" "1+" "${outlog}"
+              vprint "    MotionCor writes a temporary file called '${mc2_tempfile}'." "2+" "${outlog}"
+              vprint "    Get the owner to delete this file." "2+" "${outlog}"
+            else
+              vprint "  WARNING! ${mc2_tempfile} owned by ${tempfile_owner} and not you" "1+" "${outlog}"
+              vprint "    MotionCor writes a temporary file called '${mc2_tempfile}'" "2+" "${outlog}"
+            fi
           fi
+          # End not-owner IF-THEN
         fi
-        # End not-owner IF-THEN
+        # End still-exists IF-THEN
       fi
       # End file-exists IF-THEN
       

@@ -23,7 +23,7 @@
 
 function program_info() {
   echo "Running: SNARTomoClassic"
-  echo "Modified 2022-12-08"
+  echo "Modified 2023-01-05"
   date
   echo 
 }
@@ -94,7 +94,6 @@ verbosity=4                                       # verbosity level
 #                                                 #   8: extra debug info
 
 # MotionCor2
-# # motioncor2_exe=/home/rubsak-admin/local/motioncor/MotionCor2
 frame_file=motioncor-frame.txt                    # Frames file
 mcor_patches="0 0"                                # number of patches in x y, delimited by spaces
 reffrm=1                                          # (boolean) reference frame (0: first, 1: middle)
@@ -103,7 +102,6 @@ min_frames=400                                    # minimum number of EER frames
 max_frames=1200                                   # maximum number of EER frames before warning
 
 # CTFFIND
-# # ctffind4_bin=/home/rubsak-admin/local/ctffind/4.1.14/bin
 cs=2.7                                            # F20: 2.0, Krios: 2.7
 ac=0.07                                           # 300.0 amplitude contrast: 0.07-0.1 for cryo data, 0.14-0.2 for neg.stain data
 boxSz=512                                         # box size
@@ -116,26 +114,19 @@ dAst=100.0                                        # astigmatism restraint
 
 # JANNI
 do_janni=false                                    # run Topaz denoise
-# janni_exe=/home/rubsak-admin/local/miniconda3/4.10.3/envs/janni/bin/janni_denoise.py
-# janni_model=/home/rubsak-admin/local/janni/gmodel_janni_20190703.h5
-# janni_env=janni_cpu                               # JANNI conda environment
 janni_overlap=24                                  # overlap between patches, pixels
 janni_batch=4                                     # number of patches predicted in parallel
 
 # TOPAZ
-# # topaz_exe=/home/rubsak-admin/local/miniconda3/4.10.3/envs/topaz/bin/topaz
-# # topaz_env=topaz                                   # Topaz conda environment
 do_topaz=false                                    # Run Topaz denoise
 topaz_patch=2048                                  # Patch size
 topaz_time=5m                                     # maximum duration, Topaz sometimes hangs
 
 # IMOD
-# # imod_bin=/usr/local/IMOD/bin                      # IMOD directory
 do_etomo=false                                    # Run IMOD reconstruction
 batch_directive=batchDirective.adoc               # IMOD batchruntomo directive file
 
 # AreTomo parameters
-# # aretomo_exe=/home/rubsak-admin/local/aretomo/1.2.5/AreTomo_1.2.5_Cuda112_08-01-2022
 bin_factor=8                                      # binning factor
 vol_zdim=1600                                     # z-dimension for volume
 rec_zdim=1000                                     # z-dimension for 3D reconstruction
@@ -770,6 +761,10 @@ function motioncor2_serial() {
           ${mc2_cmd} 2>&1 | tee $ali_out
         fi
           
+        # Remove temp file
+        local mc2_tempfile="/tmp/MotionCor2_FreeGpus.txt"
+        \rm -r ${mc2_tempfile} 2> /dev/null
+        
         # Sanity check
         if [[ ! -f "$cor_mic" ]]; then
           echo    "    WARNING! MotionCor2 output $cor_mic does not exist!"
