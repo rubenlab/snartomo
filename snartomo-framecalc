@@ -1,0 +1,271 @@
+#!/bin/bash
+# # set -u  # error if variable undefined
+
+###############################################################################
+# Function:
+#   Generates MotionCor frames file
+#
+# Changelog:
+#   2022-11-28 (trs) -- created
+#   
+###############################################################################
+
+function program_info() {
+  echo "Running: SNARTomoFrameCalculator"
+  echo "Modified 2022-12-08"
+  date
+  echo 
+}
+
+function print_usage() {
+  echo "USAGE:     $(basename $0) <dose_options> <other_options>"
+  echo
+  echo "To list options & defaults, type:"
+  echo "  $(basename $0) --help"
+}
+
+#################### Parameters ###################
+
+shared_libs=snartomo-shared-8dec.bash  # Shared libraries
+frame_file=motioncor-frame.txt          # Frames file
+combined_dose=0.15                      # Dose per combined MotionCor frame, electrons per square Angstrom
+verbosity=2                             # Verbosity level
+
+
+################ END BATCH HEADER ################
+
+# Outline (multiline comment)
+: '
+main
+  shared.check_env
+  parse_command_line
+    argparser.dynamic_parser
+  check_img_dose
+  check_frm_dose
+  build_frames_file
+'
+
+function parse_command_line() {
+###############################################################################
+#   Function:
+#     Parses command line
+#   
+#   Passed arguments:
+#     ${@} : command-line arguments
+#   
+#   Global variables:
+#     OPTION_SEP : (from argumentparser_dynamic.sh) hopefully-unique separator for variable fields
+#     original_vars : non-associative array, before cleaning
+#     var_sequence : associative array, maintaining the order of the variables
+#     commandline_args : command-line arguments, may be modified
+#     vars : final options array
+#     verbose : shortened copy of vars[verbosity]
+#   
+###############################################################################
+  
+  add_argument "dose_per_img" "-1" "Dose per image, electrons per square Angstrom" "FLOAT"
+  add_argument "dose_per_ts" "-1" "Dose per tilt series, electrons per square Angstrom (requires MDOC file)" "FLOAT"
+  add_argument "mdoc_file" "None" "MDOC file, required if dose provided per tilt series or if EER example not provided" "ANY"
+  add_argument "num_frames" "-1" "Number of frames per EER movie" "INT"
+  add_argument "eer_file" "None" "Example EER file, required if neither MDOC file nor number of frames provided" "ANY"
+  add_argument "dose_per_combined" "${combined_dose}" "Dose per combined MotionCor frame, electrons per square Angstrom" "FLOAT"
+  add_argument "frame_file" "${frame_file}" "Output MotionCor2 frame file" "ANY"
+  add_argument "verbosity" "${verbosity}" "Verbosity level (0..3)" "INT"
+
+  dynamic_parser "${@}"
+#   print_vars
+#   printf "'%s'\n" "${ARGS[@]}" ; exit
+  
+  verbose="${vars[verbosity]}"
+}
+
+function main() {
+###############################################################################
+#   Passed arguments:
+#     ${@} : command-line arguments
+#   
+###############################################################################
+  
+  # BASH arrays can't be returned, so declare them here
+  declare -A original_vars
+  declare -a var_sequence
+  declare -A vars
+# #   declare -a ARGS
+  
+  check_env
+  parse_command_line "${@}"
+# #   print_vars ; exit  # TESTING
+  
+  if [[ "${verbose}" -ge 2 ]]; then
+    program_info
+    print_usage
+    check_args "0"
+  fi
+  
+  if [[ "${verbose}" -ge 3 ]]; then
+    print_arguments
+  else
+    echo
+  fi
+  
+  vprint "Calculating dose..." "2+"
+  check_img_dose
+  check_frm_dose
+  build_frames_file
+}
+
+function check_env() {
+###############################################################################
+#   Functions:
+#     Checks whether environmental variable SNARTOMO_DIR is set
+#     Sources shared functions from central SNARTomo directory
+#     
+###############################################################################
+
+  if [[ "${SNARTOMO_DIR}" == "" ]]; then
+    echo -e "\nERROR!! Environmental variable 'SNARTOMO_DIR' undefined!"
+    echo      "  Set variable with: export SNARTOMO_DIR=<path_to_snartomo_files>"
+    echo -e   "  Exiting...\n"
+    exit
+  else
+    source "${SNARTOMO_DIR}/${shared_libs}"
+    source "${SNARTOMO_DIR}/argumentparser_dynamic.sh"
+  fi
+}
+
+function check_img_dose() {
+###############################################################################
+#   Function:
+#     FUNCTION
+#   
+#   Calls function:
+#     vprint
+#   
+#   Global variables:
+#     vars
+#   
+###############################################################################
+  
+  if [[ "${vars[dose_per_img]}" == "-1" ]] && [[ "${vars[dose_per_ts]}" == "-1" ]] ; then
+    echo -e   "ERROR!! Either dose per image (--dose_per_img) or dose per tilt series (--dose_per_ts) must be specified!"
+    echo -e   "  If dose per tilt series is specified, then an MDOC file (--mdoc_file) must be provided.\n"
+    exit
+  fi
+  
+  if [[ "${vars[dose_per_ts]}" != "-1" ]] ; then
+    # Make sure MDOC exists
+    if ! [[ -f "${vars[mdoc_file]}" ]]; then
+      echo -e "ERROR!! If dose per tilt series is specified, then an MDOC file (--mdoc_file) must be provided!\n"
+      exit
+    else
+      local ts_mics=$(grep SubFramePath "${vars[mdoc_file]}" | wc -l)
+      vars[dose_per_img]=$(bc -l <<< "${vars[dose_per_ts]}"/"${ts_mics}")
+# #       echo "dose_per_img: '${dose_per_img}'"
+      local dose_str=$(printf "%.3f" "${vars[dose_per_img]}")
+      vprint "  Dose per image: ${dose_str} electrons per square Angstrom, calculated from ${ts_mics} images in MDOC ${vars[mdoc_file]}" "2+"
+    fi
+  else
+    vprint "  Dose per image: ${vars[dose_per_img]}, provided by user" "2+"
+  fi
+}
+
+function check_frm_dose() {
+###############################################################################
+#   Function:
+#     FUNCTION
+#   
+#   Positional variables:
+#   
+#   Calls functions:
+#     check_exe
+#     vprint
+#   
+#   Global variables:
+#     vars
+#   
+###############################################################################
+  
+  if [[ "${vars[num_frames]}" == "-1" ]] ; then
+    if [[ "${vars[eer_file]}" != "None" ]] ; then
+      # Make sure file exists
+      if ! [[ -f "${vars[eer_file]}" ]]; then
+        echo -e "\nERROR!! EER file '${vars[eer_file]}' provided, but does not exist!\n"
+        exit
+      else
+        check_exe "$(which header)" "IMOD header executable"
+# #         header "${vars[eer_file]}"
+        local section_line=$(header "${vars[eer_file]}" | grep sections)
+        vars[num_frames]=$(echo $section_line | rev | cut -d" " -f1 | rev)
+#         local num_sections=$(echo $section_line | rev | cut -d" " -f1 | rev)
+#         echo "num_sections: '${num_sections}'"
+      fi
+      
+      # If EER file not provided
+    else
+      # Make sure MDOC file is provided
+      if ! [[ -f "${vars[mdoc_file]}" ]]; then
+        echo -e "ERROR!! If neither an EER file nor number of frames is provided, then an MDOC file (--mdoc_file) must be provded!\n"
+        exit
+      else
+        # Get last entry from MDOC
+        vars[num_frames]=$(grep NumSubFrames "${vars[mdoc_file]}" | tail -n 1 | cut -d" " -f3)
+      fi
+      # End MDOC IF-THEN
+      
+    fi
+    # End EER IF-THEN
+    
+  fi
+  
+  vprint "  Number of frames: ${vars[num_frames]}" "2+"
+  
+}
+
+function build_frames_file() {
+###############################################################################
+#   Function:
+#     FUNCTION
+#   
+#   Calls functions:
+#     vprint
+#   
+#   Global variables:
+#     vars
+#   
+###############################################################################
+  
+  local dose_per_frame=$(bc -l <<< "${vars[dose_per_img]}"/"${vars[num_frames]}")
+# #   echo "dose_per_frame: '${dose_per_frame}'"
+  local dose_str=$(printf "%8.6f" "${dose_per_frame}")
+# #   echo "dose_str: '${dose_str}'"
+  local num_frames=$(bc -l <<< "${vars[dose_per_combined]}"/"$dose_per_frame")
+# #   echo "num_frames : '${num_frames}'"
+#   printf '%.*f\n' 0 $num_frames
+  local frames_int=$(printf '%.*f\n' 0 $num_frames)
+  local frames_rnd=$(printf '%.*f\n' 3 $num_frames)
+  vprint "  Merged frames: $frames_int (${vars[dose_per_combined]}/$dose_str=$frames_rnd)" "2+"
+  
+  local frames_line="${vars[num_frames]} $frames_int $dose_str"
+  vprint "\nWriting '$frames_line' to ${vars[frame_file]}\n" "1+"
+  echo $frames_line > ${vars[frame_file]}
+}
+
+function DUMMY_FUNCTION() {
+###############################################################################
+#   Function:
+#     FUNCTION
+#   
+#   Positional variables:
+#   
+#   Calls functions:
+#   
+#   Global variables:
+#   
+###############################################################################
+  
+  return
+}
+
+########################################################################################
+
+main "$@"
