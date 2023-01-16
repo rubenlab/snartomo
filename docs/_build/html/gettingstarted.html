@@ -1,0 +1,186 @@
+
+<!DOCTYPE html>
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
+
+    <title>Getting Started &#8212; SNARTomo  documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css" />
+    <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+    <script src="_static/jquery.js"></script>
+    <script src="_static/underscore.js"></script>
+    <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+    <script src="_static/doctools.js"></script>
+    <script src="_static/sphinx_highlight.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="Welcome to SNARTomo’s documentation!" href="index.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="getting-started">
+<h1>Getting Started<a class="headerlink" href="#getting-started" title="Permalink to this heading">¶</a></h1>
+<section id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Permalink to this heading">¶</a></h2>
+<p>SNARTomo assumes prior installation of MotionCor2, CTFFIND4, IMOD, and optionally AreTomo, Topaz, and JANNI.</p>
+<ol class="arabic simple">
+<li><p>Create conda environment</p></li>
+</ol>
+<p><code class="docutils literal notranslate"><span class="pre">conda</span> <span class="pre">create</span> <span class="pre">--name</span> <span class="pre">snartomo</span> <span class="pre">python=3.7</span> <span class="pre">matplotlib</span> <span class="pre">scipy</span> <span class="pre">--yes</span></code></p>
+<ol class="arabic simple" start="2">
+<li><p>Copy <code class="docutils literal notranslate"><span class="pre">snartomo.bashrc.template</span></code> to <code class="docutils literal notranslate"><span class="pre">snartomo.bashrc</span></code>, and edit with valid paths. For example:</p></li>
+</ol>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>#!/bin/bash
+
+# Modified 2022-12-08
+
+##### PLEASE DEFINE THE FOLLOWING #####
+
+export SNARTOMO_ENV=&quot;snartomo&quot;                                                                 # SNARTomo conda environment
+export DENOISE_GPU=&quot;false&quot;                                                                     # Denoise (Topaz or JANNI) using GPUs
+export MOTIONCOR2_EXE=&quot;/home/tapu/local/motioncor2/1.4.5/MotionCor2_1.4.5_Cuda101-10-22-2021&quot;  # MotionCor2 exectuable
+export CTFFIND4_BIN=&quot;/home/tapu/local/ctffind/4.1.14/bin&quot;                                      # CTFFIND4 directory (not executable)
+export JANNI_ENV=&quot;janni_pb320&quot;                                                                 # JANNI conda environment
+export JANNI_MODEL=&quot;/home/tapu/local/janni/gmodel_janni_20190703.h5&quot;                           # JANNI &quot;h5&quot; model file
+export TOPAZ_ENV=&quot;topaz&quot;                                                                       # TOPAZ conda environment
+export IMOD_BIN=&quot;/usr/local/IMOD/bin&quot;                                                          # IMOD executable directory
+export ARETOMO_EXE=&quot;/home/tapu/local/aretomo/1.2.5/AreTomo_1.2.5_Cuda101_08-01-2022&quot;           # AreTomo executable
+
+##### YOU SHOULDN&#39;T NEED TO MODIFY ANYTHING BELOW THIS LINE #####
+
+if [[ &quot;${BASH_SOURCE[0]}&quot; == &quot;${0}&quot; ]]; then
+  echo -e &quot;\nERROR! Script &#39;${BASH_SOURCE[0]}&#39; is being executed!&quot;
+  echo -e   &quot;  Please run it with: source ${BASH_SOURCE[0]}\n&quot;
+else
+  echo &quot;script ${BASH_SOURCE[0]} is being sourced...&quot;
+  conda activate ${SNARTOMO_ENV}
+
+  export SNARTOMO_DIR=&quot;$(dirname $BASH_SOURCE)&quot;
+  export PATH=&quot;$PATH:$SNARTOMO_DIR&quot;
+
+  echo -e &quot;\nAdded &#39;$SNARTOMO_DIR&#39; to PATH\n&quot;
+fi
+</pre></div>
+</div>
+</section>
+<section id="inputs">
+<h2>Inputs<a class="headerlink" href="#inputs" title="Permalink to this heading">¶</a></h2>
+<section id="frame-file">
+<h3>Frame file<a class="headerlink" href="#frame-file" title="Permalink to this heading">¶</a></h3>
+<p><em>NEW! (2022-11-28)</em> – SNARTomoFrameCalc generates this file, given a few inputs.</p>
+<p>The frame file is used by MotionCor2 for dose-weighting. It is a text file containing the following three values, separated by spaces:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>The number of frames to include</p></li>
+<li><p>The number of EER frames to merge in each motion-corrected frame</p></li>
+<li><p>The dose per EER frame</p></li>
+</ul>
+</div></blockquote>
+<p>The first value will probably simply be the total number of frames collected. However, you might limit the number frames to include if, for example, your exposure was too long, and you want to keep only the least radiation-damaged frames.</p>
+<p>For the second value, a reasonable rule of thumb is to accumulate 0.15-0.20 electrons per Å <sup>2</sup>. For example, at a dose of 3e/Å <sup>2</sup> distributed over 600 frames, the dose per EER frame would be 0.005. To accumulate 0.15e/Å <sup>2</sup>, you would need to merge 0.15/(3/600) = 30 frames. The line in the frame file would thus be:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="mi">600</span> <span class="mi">30</span> <span class="mf">0.005</span>
+</pre></div>
+</div>
+<p>In theory, a frames file can have multiple lines, if for example the first N frames were to be handled differently than the next M frames. However, we haven’t tested this functionality yet.</p>
+</section>
+<section id="gain-file">
+<h3>Gain file<a class="headerlink" href="#gain-file" title="Permalink to this heading">¶</a></h3>
+<p>The gain file is used to compensate for systematic errors in the camera.</p>
+<p>The gain file can either be in TIFF or MRC format. If it’s in TIFF format, SNARTomo will automatically convert it to MRC for use with MotionCor2.</p>
+</section>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">SNARTomo</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#inputs">Inputs</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#frame-file">Frame file</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#gain-file">Gain file</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="index.html" title="previous chapter">Welcome to SNARTomo’s documentation!</a></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2023, Tapu Shaikh.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 5.3.0</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+      |
+      <a href="_sources/gettingstarted.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
