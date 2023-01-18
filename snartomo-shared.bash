@@ -1016,18 +1016,18 @@ function check_mc2() {
     vprint "  WARNING! Syntax '--split_sum=1' is deprecated." "1+" "${outlog}"
     vprint "    Use 'do_splitsum' instead. Continuing..." "1+" "${outlog}"
   fi
-  
-  # Check how many GPUs were requested
-  num_gpus=$(echo ${vars[gpus]} | wc -w)
-  
-  if [[ "$num_gpus" -gt 3 ]]; then
-    if [[ "${vars[testing]}" == true ]]; then
-      vprint "  WARNING! Please reduce the number of GPUs from ${num_gpus} to 3 or fewer. Continuing..." "1+" "${outlog}"
-    else
-      validated=false
-      vprint "  ERROR!! Please reduce the number of GPUs from ${num_gpus} to 3 or fewer!" "0+" "${outlog}"
-    fi
-  fi
+#   
+#   # Check how many GPUs were requested
+#   num_gpus=$(echo ${vars[gpus]} | wc -w)
+#   
+#   if [[ "$num_gpus" -gt 3 ]]; then
+#     if [[ "${vars[testing]}" == true ]]; then
+#       vprint "  WARNING! Please reduce the number of GPUs from ${num_gpus} to 3 or fewer. Continuing..." "1+" "${outlog}"
+#     else
+#       validated=false
+#       vprint "  ERROR!! Please reduce the number of GPUs from ${num_gpus} to 3 or fewer!" "0+" "${outlog}"
+#     fi
+#   fi
 }
 
 function howto_frame() {
@@ -1905,12 +1905,12 @@ function wrapper_aretomo() {
         fi
         
         return
+      
+      # Tomogram found
+      else
+        get_central_slice ${tomogram_3d}
       fi
       # End do-reconstruct IF-THEN
-    
-    # Tomogram found
-    else
-      get_central_slice ${tomogram_3d}
     fi
     # End do-reconstruction IF-THEN
   
@@ -1987,10 +1987,9 @@ function get_central_slice() {
 #   Positional variable:
 #     1) tomogram name
 #     
-#   Global variable:
+#   Global variables:
 #     vars
 #     tomo_dir
-#     recdir
 #     verbose
 #     imgdir
 #     thumbdir
