@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-01-05"
+  echo "Modified 2023-01-19"
   date
   echo 
 }
@@ -44,7 +44,7 @@ outdir=SNARTomoPACE                                # Output top-level directory
 # General parameters
 LAST_TILT=-999.9                                  # Last (not highest) tilt angle in tilt series
 tilt_tolerance=0.2                                # Angle difference of last tilt +/- this value will signal end of series
-max_minutes=100                                   # Maximum run time, minutes
+max_minutes=200                                   # Maximum run time, minutes
 search_interval=2                                 # Monitors files & resources every N seconds
 apix=-1.00                                        # A/px
 voltage=300.0                                     # F20: 200, Krios: 300
@@ -365,23 +365,31 @@ function main() {
   print2log "print_arguments" "7+" "${set_file}"
   
   validate_inputs "${main_log}"
-  target_array=$(ls ${vars[target_files]} | sort -n 2> /dev/null)
+  
+# #   target_array=$(ls ${vars[target_files]} | sort -n 2> /dev/null)
+  mapfile -t target_array < <(ls ${vars[target_files]} 2> /dev/null)
+  local num_targets="${#target_array[*]}"
+# #   printf "'%s'\n" "${target_array[@]}" ; exit
   
   check_gain_format "${main_log}"
   
   # Loop through targets files
-  for current_target in ${target_array} ; do
+  for target_idx in ${!target_array[@]} ; do
+    local current_target="${target_array[$target_idx]}"
+    
     initialize_vars
     declare -a mdoc_array=()  # needs to be initialized here
     
     # Easier to dump the current target file into "vars"
     vars[target_file]="${current_target}"
   
+    local const_msg="Looking for files in target file '${vars[target_file]}' ($((${target_idx} + 1))/${num_targets})"
     if [[ "${vars[last_tilt]}" != "${LAST_TILT}" ]] ; then
-      vprint "\n$(date +"$time_format"): Looking for files in target file '${vars[target_file]}' until a tilt angle of ${vars[last_tilt]} is reached, for up to ${vars[max_minutes]} minutes\n" "1+" "${main_log} =${file_log}"
+      vprint "\n$(date +"$time_format"): ${const_msg} until a tilt angle of ${vars[last_tilt]} is reached, for up to ${vars[max_minutes]} minutes" "1+" "${main_log} =${file_log}"
     else
-      vprint "\n$(date +"$time_format"): Looking for files in target file '${vars[target_file]}' for up to ${vars[max_minutes]} minutes\n" "1+" "${main_log} =${file_log}"
+      vprint "\n$(date +"$time_format"): ${const_msg} for up to ${vars[max_minutes]} minutes" "1+" "${main_log} =${file_log}"
     fi
+# #     vprint "\n" "1+"
       
     # Parse PACE targets file
     targets_init
@@ -627,10 +635,6 @@ function initialize_vars() {
   declare -A mcorr_array=()
   declare -A denoise_array=()
   declare -A angle_array=()
-# #   declare -a mdoc_array=()  # needs to be declared in calling function for some reason
-  
-#   tomo_counter=0
-#   kill_all_humans=false
   
   max_seconds=$(echo "${vars[max_minutes]}"*60 | bc)
   cor_ext="_mic.mrc"
@@ -662,7 +666,11 @@ function targets_init() {
     
     # Cut at '=' ('xargs' removes whitespace)
     local mdoc_file="$(dirname ${vars[target_file]})/$(echo $no_crlfs | cut -d'=' -f 2 | xargs).mdoc"
-    mdoc_array+=(${mdoc_file})
+    if [[ -e $mdoc_file ]]; then
+      mdoc_array+=(${mdoc_file})
+    else
+      vprint "$(date +"$time_format"): WARNING! MDOC file '${mdoc_file}' does not exist. Skipping..." "1+" "${main_log} =${warn_log}"
+    fi
     
     # Save previous version of MDOC file
     local old_mdoc=$(get_backup_name "${mdoc_file}")
@@ -825,7 +833,8 @@ function eers_init() {
   eer_array=()
       
   # While loop will finish either when last image has been collected or when time limit reached
-  vprint "\n$(date +"$time_format"): Found initial ${eer_counter} EERs from targets file '${vars[target_file]}', last angle ${eer_angle}" "1+" "${main_log}"
+# #   vprint "\n" "1+"
+  vprint "$(date +"$time_format"): Found initial ${eer_counter} EERs from targets file '${vars[target_file]}', last angle ${eer_angle}" "1+" "${main_log}"
 }
 
 function get_new_entries() {
@@ -887,6 +896,7 @@ function parse_targets() {
 #   Global variables:
 #     vars
 #     do_parallel
+#     mdoc_array
 #     main_log
 #   
 ###############################################################################
@@ -1267,7 +1277,7 @@ function distribute_motioncor() {
         
         # Append to list
         if [[ "${do_parallel}" == true ]]; then
-          file_lock "${ctf_mics}" "10" "${FUNCNAME[0]}"
+          file_lock "${ctf_mics}" "12" "${FUNCNAME[0]}"
           local mic_lock=${lock_file}
         fi
         
@@ -1433,10 +1443,10 @@ function motioncor_parallel() {
   
   # Make sure output exists
   if [[ ! -f "$cor_mic" ]]; then
-    vprint "\n$(date +"$time_format"): WARNING! MotionCor2 output '$cor_mic' does not exist" "2+" "${main_log} =${warn_log}"
-    vprint "             Command line was:" "2+" "${main_log}"
-    vprint "             ${mc2_cmd}" "2+" "${main_log}"
-    vprint "             Re-adding to queue\n" "2+" "${main_log}"
+    vprint "\n$(date +"$time_format"): WARNING! MotionCor2 output '$cor_mic' does not exist" "2+" "${warn_log}"
+    vprint "             Command line was:" "2+" "${warn_log}"
+    vprint "             ${mc2_cmd}" "2+" "${warn_log}"
+    vprint "             Re-adding to queue\n" "2+" "${warn_log}"
     
     # Add to EER list (TODO: function)
     
@@ -1811,7 +1821,8 @@ function read_init() {
     touch "${output_list}"
   fi
   
-  vprint "\n$(date +"$time_format"): Found ${old_counter} pre-existing ${output_type} out of ${num_input_files} ${input_program} files" "1+" "${main_log}"
+  vprint "\n" "1+"
+  vprint "$(date +"$time_format"): Found ${old_counter} pre-existing ${output_type} out of ${num_input_files} ${input_program} files" "1+" "${main_log}"
 }
 
 function eer_to_mic() {
@@ -2227,7 +2238,7 @@ function distribute_ctffind() {
     
     # Print only one warning message per micrograph
     if [[ "${warn_msg}" != "" ]]; then
-      vprint "$warn_msg" "0+" "${main_log} =${warn_log}"
+      vprint "$warn_msg" "0+" "${warn_log}"
       
       # Don't exit if in serial mode
       if [[ "${do_parallel}" == true ]] ; then
@@ -2360,7 +2371,7 @@ function check_completion() {
       vprint   "                       To resume, don't use '--overwrite flag'" "0+" "${main_log} =${warn_log}"
     fi
     
-    vprint "                       Exiting ${program_name} for target file '${vars[target_file]}'...\n" "0+" "${main_log} =${warn_log}"
+    vprint "                       Exiting ${program_name} for target file '${vars[target_file]}'\n" "0+" "${main_log} =${warn_log}"
     exit
   fi
 }
@@ -2446,7 +2457,13 @@ function compute_tomograms() {
   
   # Initialize slot array
   declare -A slot_array
-  for slot_num in $(seq "${slot_list[@]}") ; do
+#   echo "2449 : $(seq ${#slot_list[@]})"
+#   for i in "${!slot_list[@]}"; do 
+#     printf "%s\t%s\n" "$i" "${slot_list[$i]}"
+#   done
+#   exit
+  
+  for slot_num in $(seq "${#slot_list[@]}") ; do
     slot_array[${slot_num}]="FREE"
   done
   declare -p slot_array > ${recon_status}
@@ -2462,13 +2479,13 @@ function compute_tomograms() {
   
   vprint "" "1+" "${main_log}"
   
-    local start_time=$SECONDS
-    while (( $(( $SECONDS - $start_time )) < $max_seconds )) ; do
+  local start_time=$SECONDS
+  while (( $(( $SECONDS - $start_time )) < $max_seconds )) ; do
     # Read slot state
     source ${recon_status}
     
     # Loop through slots
-    for slot_num in $(seq "${slot_list[@]}") ; do
+    for slot_num in $(seq "${#slot_list[@]}") ; do
       # Check if slot is free
       if [[ "${slot_array[${slot_num}]}" == "FREE" ]]; then
         # Get MDOC filename
@@ -2497,7 +2514,13 @@ function compute_tomograms() {
           # Easier to delete from associative array
           new_tomos[${mdoc_file}]="$(to_tempname ${mdoc_file})"
           
-          tomogram_parallel "${mdoc_file}" "${slot_num}" &
+          # Make sure MDOC exists
+          if [[ ! -e $mdoc_file ]]; then
+            vprint "$(date +"$time_format"): WARNING! MDOC file '${mdoc_file}' does not exist. Skipping..." "1+" "${main_log} =${warn_log}"
+            let "num_mdocs--"
+          else
+            tomogram_parallel "${mdoc_file}" "${slot_num}" &
+          fi
           
 #         else
 #           echo "mdoc_file is empty"
@@ -2600,204 +2623,196 @@ function tomogram_parallel() {
   tomo_root="${vars[outdir]}/${tomo_dir}/${tomo_base}"
   local tomo_log="${tomo_root}_snartomo.log"
   
+  mcorr_list="${tomo_root}_mcorr.txt"
+  denoise_list="${tomo_root}_denoise.txt"
+  angles_list="${tomo_root}_newstack.rawtlt"
+  local ctf_summary="${vars[outdir]}/${tomo_dir}/SUMMARY_CTF.txt"
+  local dose_list="${tomo_root}_dose.txt"
+  local dose_plot="${vars[outdir]}/${imgdir}/${dose_imgdir}/${tomo_base}_dose_fit.png"
+  local good_angles_file="${tomo_root}_goodangles.txt"
+  local dose_log="${tomo_root}_dosefit.log"
   
-  # Make sure MDOC exists
-  if [[ ! -e $mdoc_file ]]; then
-    vprint "$(date +"$time_format"): WARNING! MDOC file '${mdoc_file}' does not exist. Skipping..." "1+" "${main_log} =${warn_log} =${tomo_log}"
+  declare -a stripped_angle_array=()
+  declare -a mcorr_mic_array=()
+  declare -a denoise_array=()
+  
+  if [[ "${vars[do_janni]}" == true ]]; then
+    local mic_type="JANNI-denoised micrographs"
+  elif [[ "${vars[do_topaz]}" == true ]]; then
+    local mic_type="Topaz-denoised micrographs"
   else
-    mcorr_list="${tomo_root}_mcorr.txt"
-    denoise_list="${tomo_root}_denoise.txt"
-    angles_list="${tomo_root}_newstack.rawtlt"
-    local ctf_summary="${vars[outdir]}/${tomo_dir}/SUMMARY_CTF.txt"
-    local dose_list="${tomo_root}_dose.txt"
-    local dose_plot="${vars[outdir]}/${imgdir}/${dose_imgdir}/${tomo_base}_dose_fit.png"
-    local good_angles_file="${tomo_root}_goodangles.txt"
-    local dose_log="${tomo_root}_dosefit.log"
-    
-    declare -a stripped_angle_array=()
-    declare -a mcorr_mic_array=()
-    declare -a denoise_array=()
-    
-    if [[ "${vars[do_janni]}" == true ]]; then
-      local mic_type="JANNI-denoised micrographs"
-    elif [[ "${vars[do_topaz]}" == true ]]; then
-      local mic_type="Topaz-denoised micrographs"
-    else
-      local mic_type="micrographs"
-    fi
-    
-    mkdir -p "${vars[outdir]}/${tomo_dir}"
-    touch ${ctf_summary}
-    
-    # Parse MDOC (awk notation from Tat)
-    mapfile -t mdoc_angle_array < <( grep "TiltAngle" "${mdoc_file}" | awk '{print $3}' | sed 's/\r//' )
-    mapfile -t eer_array < <( grep "SubFramePath" "${mdoc_file}" | awk '{print $3}' | sed 's/\r//' )
-    mapfile -t dose_rate_array < <( grep "DoseRate" "${mdoc_file}" | awk '{print $3}' | sed 's/\r//' )
-    # TODO: Sanity check that arrays have same length
-    
-    # Clean up pre-existing files
-    rm ${dose_list} 2> /dev/null
-    
-    # Loop through angles
-    for mdoc_idx in "${!mdoc_angle_array[@]}"; do 
-      # Get EER filename
-      eer_file=$(echo ${eer_array[${mdoc_idx}]##*[/\\]} )
-      
-      # Get motion-corrected micrograph name
-      local stem_eer=$(echo ${eer_file} | rev | cut -d. -f2- | rev)
-      local mc2_mic="${vars[outdir]}/${micdir}/${stem_eer}${cor_ext}"
-      
-      # Check that motion-corrected micrograph exists
-      if [[ -f "$mc2_mic" ]]; then
-        printf "%2d  %5.1f  %6.3f\n" "$mdoc_idx" "${mdoc_angle_array[${mdoc_idx}]}" "${dose_rate_array[${mdoc_idx}]}" >> ${dose_list}
-        
-        stripped_angle_array+=(${mdoc_angle_array[${mdoc_idx}]})
-        
-        # Append to micrograph lists
-        mcorr_mic_array+=($mc2_mic)
-        denoise_array+=(${vars[outdir]}/${denoisedir}/${stem_eer}${cor_ext})
-        
-        # Write CTF summary
-        if [[ "${vars[testing]}" == false ]] ; then
-          local ctf_txt="${vars[outdir]}/${ctfdir}/${stem_eer}_ctf.txt"
-          echo -e "${stem_eer}:    \t$(tail -n 1 $ctf_txt)" >> ${ctf_summary}
-        fi
-  #       else
-  #         echo "WARNING: $mc2_mic doesn't exist"
-      fi
-    done
-    # End angles loop
-    
-    # TODO: Move to function
-    if [[ ! -f "${dose_list}" ]]; then
-        vprint "\nWARNING! Dose list '${dose_list}' not found" "0+" "${main_log} =${warn_log}"
-        vprint "  Continuing...\n" "0+" "${main_log} =${warn_log}"
-    else
-      dosefit_cmd="$(echo dose_discriminator.py \
-        ${dose_list} \
-        --min_dose ${vars[dosefit_min]} \
-        --max_residual ${vars[dosefit_resid]} \
-        --dose_plot ${dose_plot} \
-        --good_angles ${good_angles_file} \
-        --screen_verbose ${verbose} \
-        --log_file ${dose_log} \
-        --log_verbose ${vars[dosefit_verbose]} | xargs)"
-      
-      vprint "\n  $dosefit_cmd\n" "1+" "=${tomo_log}"
-      local error_code=$(${SNARTOMO_DIR}/$dosefit_cmd 2>&1)
-      
-      if [[ "$error_code" == *"Error"* ]] ; then
-        echo -e "\nERROR!!"
-        echo -e "${error_code}\n"
-        echo -e "Conda environments: initial '$init_conda', current '$CONDA_DEFAULT_ENV'"
-        echo -e "  Maybe this is the wrong environment?\n"
-        exit
-      else
-        vprint "$error_code" "1+" "=${tomo_log}"
-      fi
-      # End error IF-THEN
-        
-      mapfile -t sorted_keys < $good_angles_file
-    fi
-    # End dose-list IF-THEN
-    
-    # Clean up pre-existing files
-    rm ${angles_list} ${mcorr_list} ${denoise_list} 2> /dev/null
-    
-    # Write new IMOD list file (overwrites), starting with number of images
-    echo ${#sorted_keys[*]} > $mcorr_list
-    if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]] ; then
-      echo ${#sorted_keys[*]} > $denoise_list
-    fi
-    
-    # Write sorted micrograph filenames
-    for idx in ${sorted_keys[@]} ; do
-      echo    "${stripped_angle_array[${idx}]}" >> $angles_list
-      echo -e "${mcorr_mic_array[$idx]}\n/" >> $mcorr_list
-      if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
-        echo -e "${denoise_array[$idx]}\n/" >> $denoise_list
-      fi
-    done  
-    
-    local ts_mics="${#stripped_angle_array[*]}"
-    vprint "  Wrote list of ${ts_mics} angles to $angles_list" "2+" "=${tomo_log}"
-    vprint "  Wrote list of ${#mcorr_mic_array[*]} images to $mcorr_list" "2+" "=${tomo_log}"
-    if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
-      vprint "  Wrote list of ${#denoise_array[*]} images to $denoise_list" "2+" "=${tomo_log}"
-    fi
-    
-    vprint "" "2+" "=${tomo_log}"
-
-    # Clean up
-    unset mcorr_mic_array
-    unset denoise_array
-    unset stripped_angle_array
-    
-    # Optionally denoise
-    if [[ "${vars[do_janni]}" == true ]]; then
-      janni_denoise "${tomo_log}"
-    elif [[ "${vars[do_topaz]}" == true ]]; then
-      topaz_denoise "${tomo_log}"
-    fi
-      
-    imod_restack "${tomo_log}"
-    
-    vprint "$(date +"$time_format"): Start computing 3D reconstruction from ${mic_type} from MDOC file '${mdoc_file}' on slot #${slot_num}" "1+" "=${file_log} =${tomo_log} =${rec_log}"
-    
-    if [[ "${vars[do_etomo]}" == false ]]; then
-      wrapper_aretomo "${ts_mics}" "${slot_num}" "false" >> "${tomo_log}"
-    else
-      # If removing bad contours
-      if [[ "${vars[do_ruotnocon]}" == true ]]; then
-        local fid_file="${vars[outdir]}/${tomo_dir}/${tomo_base}_newstack.fid"
-        
-        wrapper_etomo "${tomo_base}" "${ts_mics}" "-end 6" "false" >> "${tomo_log}"
-        ruotnocon_wrapper "${tomo_dir}" "${tomo_base}" >> "${tomo_log}"
-        
-        if [[ "${vars[testing]}" == false ]] ; then
-          vprint "$(date +"$time_format"): Removed ${num_bad_residuals} contours based on residuals" "1+" "=${tomo_log}"
-        fi
-        
-        wrapper_etomo "${tomo_base}" "${ts_mics}" "-start 6" "false" >> "${tomo_log}"
-      else
-        wrapper_etomo "${tomo_base}" "${ts_mics}" "" "false" >> "${tomo_log}"
-      fi
-    fi
-    # End AreTomo-vs-eTomo IF-THEN
-    
-    # If dose list is missing, tomogram_3d isn't defined until here
-    if [[ ! -f "${dose_list}" ]]; then
-      # So that calling function doesn't stall
-      touch "${tomogram_3d}"
-    fi
-    
-    # Sanity check
-    if [[ -f "$tomogram_3d" ]]; then
-      vprint "$(date +"$time_format"): Finished computing 3D reconstruction from MDOC file '${mdoc_file}'" "1+" "=${file_log} =${tomo_log}"
-      vprint "" "1+" "=${tomo_log}"
-    fi
-    
-    # In testing mode, add a delay
-    if [[ "${vars[testing]}" == true ]]; then
-      if [[ "${vars[slow]}" == true ]]; then
-        sleep $(( (RANDOM % 8) + 3 ))
-      fi
-      
-      touch "${tomogram_3d}"
-    fi
-        
-    # Append log file (need to lock?)
-    cat $tomo_log >> ${rec_log}
-    
-    # Free slot
-    if [[ "${do_parallel}" == true ]] ; then
-      resource_liberate "${recon_status}" "${slot_num}" "1" "0"
-    fi
-    
-    touch "$(to_tempname ${mdoc_file})"
-    
+    local mic_type="micrographs"
   fi
-  # End MDOC-exists IF-THEN
+  
+  mkdir -p "${vars[outdir]}/${tomo_dir}"
+  touch ${ctf_summary}
+  
+  # Parse MDOC (awk notation from Tat)
+  mapfile -t mdoc_angle_array < <( grep "TiltAngle" "${mdoc_file}" | awk '{print $3}' | sed 's/\r//' )
+  mapfile -t eer_array < <( grep "SubFramePath" "${mdoc_file}" | awk '{print $3}' | sed 's/\r//' )
+  mapfile -t dose_rate_array < <( grep "DoseRate" "${mdoc_file}" | awk '{print $3}' | sed 's/\r//' )
+  # TODO: Sanity check that arrays have same length
+  
+  # Clean up pre-existing files
+  rm ${dose_list} 2> /dev/null
+  
+  # Loop through angles
+  for mdoc_idx in "${!mdoc_angle_array[@]}"; do 
+    # Get EER filename
+    eer_file=$(echo ${eer_array[${mdoc_idx}]##*[/\\]} )
+    
+    # Get motion-corrected micrograph name
+    local stem_eer=$(echo ${eer_file} | rev | cut -d. -f2- | rev)
+    local mc2_mic="${vars[outdir]}/${micdir}/${stem_eer}${cor_ext}"
+    
+    # Check that motion-corrected micrograph exists
+    if [[ -f "$mc2_mic" ]]; then
+      printf "%2d  %5.1f  %6.3f\n" "$mdoc_idx" "${mdoc_angle_array[${mdoc_idx}]}" "${dose_rate_array[${mdoc_idx}]}" >> ${dose_list}
+      
+      stripped_angle_array+=(${mdoc_angle_array[${mdoc_idx}]})
+      
+      # Append to micrograph lists
+      mcorr_mic_array+=($mc2_mic)
+      denoise_array+=(${vars[outdir]}/${denoisedir}/${stem_eer}${cor_ext})
+      
+      # Write CTF summary
+      if [[ "${vars[testing]}" == false ]] ; then
+        local ctf_txt="${vars[outdir]}/${ctfdir}/${stem_eer}_ctf.txt"
+        echo -e "${stem_eer}:    \t$(tail -n 1 $ctf_txt)" >> ${ctf_summary}
+      fi
+#       else
+#         echo "WARNING: $mc2_mic doesn't exist"
+    fi
+  done
+  # End angles loop
+  
+  # TODO: Move to function
+  if [[ ! -f "${dose_list}" ]]; then
+      vprint "\nWARNING! Dose list '${dose_list}' not found" "0+" "${main_log} =${warn_log}"
+      vprint "  Continuing...\n" "0+" "${main_log} =${warn_log}"
+  else
+    dosefit_cmd="$(echo dose_discriminator.py \
+      ${dose_list} \
+      --min_dose ${vars[dosefit_min]} \
+      --max_residual ${vars[dosefit_resid]} \
+      --dose_plot ${dose_plot} \
+      --good_angles ${good_angles_file} \
+      --screen_verbose ${verbose} \
+      --log_file ${dose_log} \
+      --log_verbose ${vars[dosefit_verbose]} | xargs)"
+    
+    vprint "\n  $dosefit_cmd\n" "1+" "=${tomo_log}"
+    local error_code=$(${SNARTOMO_DIR}/$dosefit_cmd 2>&1)
+    
+    if [[ "$error_code" == *"Error"* ]] ; then
+      echo -e "\nERROR!!"
+      echo -e "${error_code}\n"
+      echo -e "Conda environments: initial '$init_conda', current '$CONDA_DEFAULT_ENV'"
+      echo -e "  Maybe this is the wrong environment?\n"
+      exit
+    else
+      vprint "$error_code" "1+" "=${tomo_log}"
+    fi
+    # End error IF-THEN
+      
+    mapfile -t sorted_keys < $good_angles_file
+  fi
+  # End dose-list IF-THEN
+  
+  # Clean up pre-existing files
+  rm ${angles_list} ${mcorr_list} ${denoise_list} 2> /dev/null
+  
+  # Write new IMOD list file (overwrites), starting with number of images
+  echo ${#sorted_keys[*]} > $mcorr_list
+  if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]] ; then
+    echo ${#sorted_keys[*]} > $denoise_list
+  fi
+  
+  # Write sorted micrograph filenames
+  for idx in ${sorted_keys[@]} ; do
+    echo    "${stripped_angle_array[${idx}]}" >> $angles_list
+    echo -e "${mcorr_mic_array[$idx]}\n/" >> $mcorr_list
+    if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
+      echo -e "${denoise_array[$idx]}\n/" >> $denoise_list
+    fi
+  done  
+  
+  local ts_mics="${#stripped_angle_array[*]}"
+  vprint "  Wrote list of ${ts_mics} angles to $angles_list" "2+" "=${tomo_log}"
+  vprint "  Wrote list of ${#mcorr_mic_array[*]} images to $mcorr_list" "2+" "=${tomo_log}"
+  if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
+    vprint "  Wrote list of ${#denoise_array[*]} images to $denoise_list" "2+" "=${tomo_log}"
+  fi
+  
+  vprint "" "2+" "=${tomo_log}"
+
+  # Clean up
+  unset mcorr_mic_array
+  unset denoise_array
+  unset stripped_angle_array
+  
+  # Optionally denoise
+  if [[ "${vars[do_janni]}" == true ]]; then
+    janni_denoise "${tomo_log}"
+  elif [[ "${vars[do_topaz]}" == true ]]; then
+    topaz_denoise "${tomo_log}"
+  fi
+    
+  imod_restack "${tomo_log}"
+  
+  vprint "$(date +"$time_format"): Start computing 3D reconstruction from ${mic_type} from MDOC file '${mdoc_file}' on slot #${slot_num}" "1+" "=${file_log} =${tomo_log} =${rec_log}"
+  
+  if [[ "${vars[do_etomo]}" == false ]]; then
+    wrapper_aretomo "${ts_mics}" "${slot_num}" "false" >> "${tomo_log}"
+  else
+    # If removing bad contours
+    if [[ "${vars[do_ruotnocon]}" == true ]]; then
+      local fid_file="${vars[outdir]}/${tomo_dir}/${tomo_base}_newstack.fid"
+      
+      wrapper_etomo "${tomo_base}" "${ts_mics}" "-end 6" "false" >> "${tomo_log}"
+      ruotnocon_wrapper "${tomo_dir}" "${tomo_base}" >> "${tomo_log}"
+      
+      if [[ "${vars[testing]}" == false ]] ; then
+        vprint "$(date +"$time_format"): Removed ${num_bad_residuals} contours based on residuals" "1+" "=${tomo_log}"
+      fi
+      
+      wrapper_etomo "${tomo_base}" "${ts_mics}" "-start 6" "false" >> "${tomo_log}"
+    else
+      wrapper_etomo "${tomo_base}" "${ts_mics}" "" "false" >> "${tomo_log}"
+    fi
+  fi
+  # End AreTomo-vs-eTomo IF-THEN
+  
+  # If dose list is missing, tomogram_3d isn't defined until here
+  if [[ ! -f "${dose_list}" ]]; then
+    # So that calling function doesn't stall
+    touch "${tomogram_3d}"
+  fi
+  
+  # Sanity check
+  if [[ -f "$tomogram_3d" ]]; then
+    vprint "$(date +"$time_format"): Finished computing 3D reconstruction from MDOC file '${mdoc_file}'" "1+" "=${file_log} =${tomo_log}"
+    vprint "" "1+" "=${tomo_log}"
+  fi
+  
+  # In testing mode, add a delay
+  if [[ "${vars[testing]}" == true ]]; then
+    if [[ "${vars[slow]}" == true ]]; then
+      sleep $(( (RANDOM % 8) + 3 ))
+    fi
+    
+    touch "${tomogram_3d}"
+  fi
+      
+  # Append log file (need to lock?)
+  cat $tomo_log >> ${rec_log}
+  
+  # Free slot
+  if [[ "${do_parallel}" == true ]] ; then
+    resource_liberate "${recon_status}" "${slot_num}" "1" "0"
+  fi
+  
+  touch "$(to_tempname ${mdoc_file})"
 }
 
 function DUMMY_FUNCTION() {
