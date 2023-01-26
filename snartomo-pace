@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-01-19"
+  echo "Modified 2023-01-26"
   date
   echo 
 }
@@ -2399,6 +2399,7 @@ function compute_tomograms() {
 #     ctfdir
 #     verbose
 #     tomo_list
+#     etomo_out
 #     
 #   Calls functions:
 #     vprint
@@ -2516,7 +2517,10 @@ function compute_tomograms() {
           
           # Make sure MDOC exists
           if [[ ! -e $mdoc_file ]]; then
-            vprint "$(date +"$time_format"): WARNING! MDOC file '${mdoc_file}' does not exist. Skipping..." "1+" "${main_log} =${warn_log}"
+            vprint    "$(date +"$time_format"): WARNING! MDOC file '${mdoc_file}' does not exist. " "1+" "${main_log} =${warn_log}"
+            vprint    "         Continuing...\n" "1+" "${main_log} =${warn_log}"
+            
+            # Don't look for this output
             let "num_mdocs--"
           else
             tomogram_parallel "${mdoc_file}" "${slot_num}" &
@@ -2546,11 +2550,26 @@ function compute_tomograms() {
         # Remove temp file
         rm "${temp_mdoc}"
         
-        # Add to in-core cumulative array
-        tomo_array+=("${mdoc_key}")
+        mdoc2tomo "${mdoc_key}"
+#         echo "etomo_out : '$etomo_out'"
+#         echo "tomogram_3d : '$tomogram_3d'"
         
-        # Append to list
-        echo "${mdoc_key}" >> "${tomo_list}"
+        # If tomo doesn't exist...
+        if [[ -e $tomogram_3d ]]; then
+          # Add to in-core cumulative array
+          tomo_array+=("${mdoc_key}")
+          
+          # Append to list
+          echo "${mdoc_key}" >> "${tomo_list}"
+        else
+          vprint   "WARNING! eTomo output '$tomogram_3d' does not exist!" "1+" "${main_log} =${warn_log}"
+          cat ${etomo_out} | grep -Ev 'quit|Beginning|ABORT|failures|^$' | sed 's/^/         /' | tee -a ${main_log} ${warn_log}
+          vprint  "\n         Continuing...\n" "1+" "${main_log} =${warn_log}"
+          
+          # Don't look for this output
+          let "num_mdocs--"
+        fi
+        
 #       else
 #         echo "Doesn't exist: '${mdoc_key}' '${temp_mdoc}'"
       fi

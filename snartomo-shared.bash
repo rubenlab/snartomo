@@ -1936,6 +1936,46 @@ function wrapper_aretomo() {
   vprint "" "2+"
 }
 
+
+function mdoc2tomo() {
+###############################################################################
+#   Function:
+#     Construct filename from tomographic reconstruction from MDOC file
+#   
+#   Positional variables:
+#     1. MDOC filename (can be full path)
+#   
+#   Global variables:
+#     vars
+#     tomo_base
+#     recdir
+#     tomo_dir
+#     tomo_root
+#     tomogram_3d (returned)
+#   
+#   Returns:
+#     tomogram_3d
+#     
+###############################################################################
+  
+  local mdoc_file=$1
+  
+  # MDOC might have dots other than extension
+  tomo_base="$(basename ${mdoc_file%.mrc.mdoc})"
+  
+  tomo_dir="${recdir}/${tomo_base}"
+  tomo_root="${vars[outdir]}/${tomo_dir}/${tomo_base}"
+  
+  if [[ "${vars[do_etomo]}" == true ]]; then
+    tomogram_3d="${vars[outdir]}/${tomo_dir}/${tomo_base}_newstack_full_rec.mrc"
+    etomo_out="${vars[outdir]}/${tomo_dir}/${tomo_base}_std.out"
+  else
+    tomogram_3d="${tomo_root}_aretomo.mrc"
+  fi
+  
+# #   echo $tomogram_3d
+}
+
 function run_aretomo() {
 ###############################################################################
 #   Function:
@@ -2113,6 +2153,7 @@ function wrapper_etomo() {
   fi
   local do_reconstruct=true
   
+  local etomo_out="${vars[outdir]}/${tomo_dir}/${tomo_base}_std.out"
   local run_cmd="batchruntomo -RootName ${tomo_base}_newstack -CurrentLocation ${vars[outdir]}/${tomo_dir} -DirectiveFile ${vars[batch_directive]} ${more_flags}"
   tomogram_3d="${vars[outdir]}/${tomo_dir}/${tomo_base}_newstack_full_rec.mrc"
   
@@ -2144,18 +2185,17 @@ function wrapper_etomo() {
 
       # Full screen output
       if [[ "$verbose" -ge 7 ]]; then
-        ${vars[imod_dir]}/${run_cmd}
+        ${vars[imod_dir]}/${run_cmd} | tee ${etomo_out}
       
       # Quiet mode
       elif [[ "$verbose" -le 1 ]]; then
-        ${vars[imod_dir]}/${run_cmd} > /dev/null
+        ${vars[imod_dir]}/${run_cmd} > ${etomo_out}
       
       else
-        ${vars[imod_dir]}/${run_cmd} | stdbuf -o0 grep "Residual error mean and sd" | sed 's/^/   /'
+        ${vars[imod_dir]}/${run_cmd} | tee ${etomo_out} | stdbuf -o0 grep "Residual error mean and sd" | sed 's/^/   /'
         # (greps on the fly, and prepends spaces to output)
         
-        grep "Final align" "${vars[outdir]}/${tomo_dir}/batchruntomo.log" | sed 's/^/    /'
-    
+        grep "Final align" "${vars[outdir]}/${tomo_dir}/batchruntomo.log" 2> /dev/null | sed 's/^/    /'
       fi
       # End verbosity cases
       
@@ -2166,13 +2206,15 @@ function wrapper_etomo() {
         # Sanity check: tomogram exists
         if [[ ! -f "$tomogram_3d" ]]; then
           vprint "\n$(date)" "1+"
-          vprint   "WARNING! eTomo output $tomogram_3d does not exist!" "1+"
-          vprint   "         Continuing...\n" "1+"
+          vprint   "WARNING! eTomo output $tomogram_3d does not exist!\n" "1+"
+          cat ${etomo_out}
+          vprint "\n         Continuing...\n" "1+"
           
           return
         
         # Tomogram found
         else
+          \rm ${etomo_out} 2> /dev/null
           get_central_slice ${tomogram_3d}
         
         fi
