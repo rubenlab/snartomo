@@ -1685,7 +1685,7 @@ function write_angles_lists() {
 function imod_restack() {
 ###############################################################################
 #   Function:
-#     Runs IMOD's restack
+#     Runs IMOD's restack and alterheader
 #     Default behavior is to NOT overwrite pre-existing outputs.
 #     
 #   Positional variables:
@@ -1727,19 +1727,22 @@ function imod_restack() {
     \rm $reordered_stack
   fi
   
+  local restack_cmd="newstack -filei $imod_list -ou $reordered_stack"
+  local apix_cmd="alterheader -PixelSize ${vars[apix]},${vars[apix]},${vars[apix]} $reordered_stack"
+  
   if [[ "${vars[testing]}" == false ]]; then
     # Check if output already exists
     if [[ ! -e $reordered_stack ]]; then
-      vprint "  Running: newstack -filei $imod_list -ou $reordered_stack\n" "3+" "=${outlog}"
+      vprint "  Running: ${restack_cmd}\n" "3+" "=${outlog}"
       
       if [[ "$verbose" -ge 8 ]]; then
-        "${vars[imod_dir]}"/newstack -filei $imod_list -ou $reordered_stack 2>&1 | tee $newstack_log
+        ${vars[imod_dir]}/${restack_cmd} 2>&1 | tee $newstack_log
       elif [[ "$verbose" -ge 6 ]]; then
-        # "${vars[imod_dir]}"/newstack -filei $imod_list -ou $reordered_stack | tee $newstack_log | grep --line-buffered "RO image"
-        "${vars[imod_dir]}"/newstack -filei $imod_list -ou $reordered_stack | tee $newstack_log | stdbuf -o0 grep "RO image" | sed 's/^/   /'
+        # ${vars[imod_dir]}/${restack_cmd} | tee $newstack_log | grep --line-buffered "RO image"
+        ${vars[imod_dir]}/${restack_cmd} | tee $newstack_log | stdbuf -o0 grep "RO image" | sed 's/^/   /'
         # line-buffered & stdbuf: https://stackoverflow.com/questions/7161821/how-to-grep-a-continuous-stream
       else
-        "${vars[imod_dir]}"/newstack -filei $imod_list -ou $reordered_stack > $newstack_log
+        ${vars[imod_dir]}/${restack_cmd} > $newstack_log
       fi
     
       # Sanity check
@@ -1753,7 +1756,20 @@ function imod_restack() {
           vprint "WARNING! restack output $reordered_stack does not exist!" "0+" "${main_log} =${outlog} =${warn_log}"
           vprint "         Continuing...\n" "0+" "${main_log} =${outlog} =${warn_log}"
         fi
+      else
+        # Update pixel size
+        vprint "  Running: ${apix_cmd}\n" "3+" "=${outlog}"
+        
+        if [[ "$verbose" -ge 8 ]]; then
+          ${vars[imod_dir]}/${apix_cmd} 2>&1 | tee $newstack_log
+        elif [[ "$verbose" -ge 6 ]]; then
+          ${vars[imod_dir]}/${apix_cmd} | tee $newstack_log | stdbuf -o0 grep "Pixel spacing" | sed 's/^/   /'
+          # line-buffered & stdbuf: https://stackoverflow.com/questions/7161821/how-to-grep-a-continuous-stream
+        else
+          ${vars[imod_dir]}/${apix_cmd} > $newstack_log
+        fi
       fi
+      # End sanity-check IF-THEN
     
     # If pre-existing output (shouldn't exist, since we deleted any pre-existing stack above)
     else
@@ -1764,7 +1780,8 @@ function imod_restack() {
   
   # Testing
   else
-    vprint "  TESTING newstack -filei $imod_list -ou $reordered_stack" "3+" "=${outlog}"
+    vprint "  TESTING: ${restack_cmd}" "3+" "=${outlog}"
+    vprint "  TESTING: ${apix_cmd}" "3+" "=${outlog}"
   fi
   # End testing IF-THEN
 }
@@ -2154,7 +2171,7 @@ function wrapper_etomo() {
   local do_reconstruct=true
   
   local etomo_out="${vars[outdir]}/${tomo_dir}/${tomo_base}_std.out"
-  local run_cmd="batchruntomo -RootName ${tomo_base}_newstack -CurrentLocation ${vars[outdir]}/${tomo_dir} -DirectiveFile ${vars[batch_directive]} ${more_flags}"
+  local etomo_cmd="batchruntomo -RootName ${tomo_base}_newstack -CurrentLocation ${vars[outdir]}/${tomo_dir} -DirectiveFile ${vars[batch_directive]} ${more_flags}"
   tomogram_3d="${vars[outdir]}/${tomo_dir}/${tomo_base}_newstack_full_rec.mrc"
   
   if [[ "${vars[testing]}" == false ]]; then
@@ -2181,18 +2198,18 @@ function wrapper_etomo() {
     if [[ "${do_reconstruct}" == true ]] ; then
       vprint "\n  $(date)" "3+"
       vprint   "  Computing tomogram reconstruction 'batchruntomo' from $num_mics micrographs" "2+"
-      vprint "\n  Running: ${run_cmd}" "3+"
+      vprint "\n  Running: ${etomo_cmd}" "3+"
 
       # Full screen output
       if [[ "$verbose" -ge 7 ]]; then
-        ${vars[imod_dir]}/${run_cmd} | tee ${etomo_out}
+        ${vars[imod_dir]}/${etomo_cmd} | tee ${etomo_out}
       
       # Quiet mode
       elif [[ "$verbose" -le 1 ]]; then
-        ${vars[imod_dir]}/${run_cmd} > ${etomo_out}
+        ${vars[imod_dir]}/${etomo_cmd} > ${etomo_out}
       
       else
-        ${vars[imod_dir]}/${run_cmd} | tee ${etomo_out} | stdbuf -o0 grep "Residual error mean and sd" | sed 's/^/   /'
+        ${vars[imod_dir]}/${etomo_cmd} | tee ${etomo_out} | stdbuf -o0 grep "Residual error mean and sd" | sed 's/^/   /'
         # (greps on the fly, and prepends spaces to output)
         
         grep "Final align" "${vars[outdir]}/${tomo_dir}/batchruntomo.log" 2> /dev/null | sed 's/^/    /'
@@ -2234,9 +2251,9 @@ function wrapper_etomo() {
       fi
     else
       if [[ "$verbose" -ge 3 ]]; then
-        vprint "\n  TESTING $run_cmd\n"
+        vprint "\n  TESTING $etomo_cmd\n"
       elif [[ "$verbose" -eq 2 ]]; then
-        vprint "  ${run_cmd}"
+        vprint "  ${etomo_cmd}"
       fi
       
       touch $tomogram_3d
