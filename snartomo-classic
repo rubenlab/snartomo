@@ -10,6 +10,7 @@
 #   6. _AR_e_TOMO_ to compute reconstruction
 #
 # Changelog:
+#   2023-02-07 (trs) -- can restore previously-processed movies to original location
 #   2022-08-12 (trs) -- added JANNI denoising (UNTESTED)
 #   2022-08-02 (trs & tcc) -- AreTomo 1.2.5 now the default
 #   2022-05-07 (trs) -- shares functions with SNARTomoPACE
@@ -22,8 +23,9 @@
 ###############################################################################
 
 function program_info() {
+  echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2023-01-05"
+  echo "Modified 2023-02-13"
   date
   echo 
 }
@@ -57,28 +59,16 @@ function howto_stop() {
 #################### Filenames ####################
 
 # Inputs
+shared_libs=snartomo-shared.bash                   # Shared libraries
 input_dir=frames                                   # Input directory for EER movies
 mdoc_file=None                                     # Input MDOC file (to read pixel size, etc.)
 log_file=log-snartomo.txt                          # Log file
 outdir=SNARTomo                                    # Output top-level directory
 
-# Outputs (relative to ${outdir})
-cmd_file=commands.txt                              # Output commands file (in ${outdir})
-set_file=settings.txt                              # Output settings file (in ${outdir})
-rawdir=1-EER                                       # directory where raw EER files will go
-micdir=2-MotionCor2                                # MotionCor directory
-mc2_logs=Logs                                      # directory for resource and MotionCor log files
-ctfdir=3-CTFFIND4                                  # CTFFIND directory
-topazdir=4-Topaz                                   # Topaz directory
-recdir=5-Tomo                                      # Reconstruction directory
-imgdir=Images                                      # Image directory
-thumbdir=Thumbnails                                # Central sections of tomograms
-
 #################### Parameters ###################
 
 # General parameters
 max_minutes=600                                   # Maximum run time, minutes
-wait_interval=4                                   # Looks for new micrographs every N seconds
 apix=-1.00                                        # A/px
 voltage=300.0                                     # F20: 200, Krios: 300
 gpus="0"                                          # list of GPUs to use, delimited by spaces
@@ -93,13 +83,18 @@ verbosity=4                                       # verbosity level
 #                                                 #   7: prints full MotionCor/CTFFIND/IMOD/AreTomo info
 #                                                 #   8: extra debug info
 
+# Advanced
+min_frames=400                                    # minimum number of EER frames before warning
+max_frames=1200                                   # maximum number of EER frames before warning
+eer_latency=7                                     # (seconds) EER files are copied locally if header takes longer than this time
+search_interval=4                                 # Looks for new micrographs every N seconds
+
 # MotionCor2
 frame_file=motioncor-frame.txt                    # Frames file
 mcor_patches="0 0"                                # number of patches in x y, delimited by spaces
 reffrm=1                                          # (boolean) reference frame (0: first, 1: middle)
 SplitSum=0                                        # (boolean) split frames into even & odd half-sets (1: yes)
-min_frames=400                                    # minimum number of EER frames before warning
-max_frames=1200                                   # maximum number of EER frames before warning
+mc2_wait=120.0                                    # (seconds) maximum wait for competing user's MotionCor2_FreeGpus.txt file to be deleted
 
 # CTFFIND
 cs=2.7                                            # F20: 2.0, Krios: 2.7
@@ -139,7 +134,53 @@ transfile=1                                       # (boolean) generate IMOD XF f
 are_patches="0 0"                                 # number of patches in x & y (slows down alignment)
 are_time=30m                                      # maximum duration, AreTomo sometimes hangs
 
+#################### Outputs #################### 
+
+cmd_file=commands.txt                              # Output commands file (in ${outdir})
+set_file=settings.txt                              # Output settings file (in ${outdir})
+rawdir=1-EER                                       # directory where raw EER files will go
+micdir=2-MotionCor2                                # MotionCor directory
+mc2_logs=Logs                                      # directory for resource and MotionCor log files
+ctfdir=3-CTFFIND4                                  # CTFFIND directory
+topazdir=4-Topaz                                   # Topaz directory
+recdir=5-Tomo                                      # Reconstruction directory
+imgdir=Images                                      # Image directory
+thumbdir=Thumbnails                                # Central sections of tomograms
+temp_dir=tmp                                       # Temporary files
+
 ################ END BATCH HEADER ################
+
+# Outline (multiline comment)
+: '
+main
+  check_env
+  parse_command_line
+  shared.check_args
+  shared.check_testing
+  do_real_work
+    program_info
+    print_usage
+    print_arguments
+    validate_inputs
+    initialize_vars
+    create_directories
+    check_gain_format
+    howto_stop
+      LOOP:
+        parse_filename
+        check_new_tilt_series
+          compute_tomogram
+            janni_denoise
+            topaz_denoise
+            write_angles_lists
+            imod_restack
+            wrapper_aretomo
+            wrapper_etomo
+        motioncor2_serial
+        ctffind4_serial
+        check_time
+    summary_info
+'
 
 function main() {
   
@@ -213,7 +254,6 @@ function do_real_work() {
         if [[ "$kill_all_humans" == false ]]; then 
           check_new_tilt_series
           motioncor2_serial "${fn}"
-#           move_micrograph
           ctffind4_serial
         else
           break
@@ -229,7 +269,7 @@ function do_real_work() {
     fi
     
     # Checks every N seconds when we've run out of files
-    sleep "${vars[wait]}"
+    sleep "${vars[search_interval]}"
   done
   # End while loop
   
@@ -256,7 +296,7 @@ function check_env() {
     echo -e   "  Exiting...\n"
     exit
   else
-    source "${SNARTOMO_DIR}/snartomo-shared.bash"
+    source "${SNARTOMO_DIR}/${shared_libs}"
     source "${SNARTOMO_DIR}/argumentparser_dynamic.sh"
     
     if [[ "${do_pace}" != false ]]; then
@@ -288,21 +328,29 @@ function parse_command_line() {
   add_argument "eer_dir" "${input_dir}" "Input EER directory" "DIR"
   add_argument "gain_file" "" "Input gain file" "ANY"
   add_argument "frame_file" "${frame_file}" "Input MotionCor2 frame file" "ANY"
+  add_argument "mdoc_dir" "" "Tilt-series MDOC directory" "ANY"
   
   add_section "GLOBAL SETTINGS" "These settings affect multiple steps."
   add_argument "mdoc_file" "${mdoc_file}" "Input MDOC file" "ANY"
   add_argument "apix" "${apix}" "Pixel size, A/px" "FLOAT"
   add_argument "outdir" "${outdir}" "Output directory" "ANY"
   add_argument "verbosity" "${verbosity}" "Verbosity level (0..8) (3 or 2 recommended for testing mode)" "INT"
+  add_argument "restore_movies" "false" "Move already-processed movies from output directory to input directory" "BOOL"
   add_argument "testing" "false" "Testing flag" "BOOL"
   add_argument "overwrite" "false" "Flag to overwrite pre-existing output directory" "BOOL"
-  add_argument "debug" "false" "Flag for debugging" "BOOL"
   add_argument "log" "${log_file}" "Output log file (not used in testing mode)" "ANY"
   add_argument "max_minutes" "${max_minutes}" "Maximum run time, minutes" "INT"
-  add_argument "wait" "${wait_interval}" "Interval to check for new micrographs, seconds" "INT"
   add_argument "kv" "${voltage}" "Voltage, kV" "FLOAT"
   add_argument "gpus" "${gpus}" "GPUs to use (space-delimited if more than one)" "ANY"
 
+  add_section "ADVANCED SETTINGS" "These settings will rarely need to be changed."
+  add_argument "search_interval" "${search_interval}" "Interval to check for new micrographs, seconds" "INT"
+  add_argument "min_frames" "${min_frames}" "Minimum number of EER frames before warning" "INT"
+  add_argument "max_frames" "${max_frames}" "Maximum number of EER frames before warning" "INT"
+  add_argument "eer_local" "${CP_EER_LOCAL}" "Flag to copy EER files locally temporarily" "BOOL"
+  add_argument "eer_latency" "${eer_latency}" "Maximum header read time before microgrpah is copied locally" "FLOAT"
+  add_argument "debug" "false" "Flag for debugging" "BOOL"
+  
   # MotionCor2
   add_section "MOTIONCOR2 SETTINGS" "Settings for motion-correction."
   add_argument "motioncor_exe" "${MOTIONCOR2_EXE}" "MotionCor2 executable" "ANY"
@@ -312,8 +360,7 @@ function parse_command_line() {
   add_argument "do_splitsum" "false" "Flag to split frames into even & odd half-sets" "BOOL"
   add_argument "split_sum" "${SplitSum}" "(DEPRECATED) Split frames into even & odd half-sets (0: no, 1: yes)" "INT"
   add_argument "reffrm" "${reffrm}" "Reference frame (0: first, 1: middle)" "INT"
-  add_argument "min_frames" "${min_frames}" "Minimum number of EER frames before warning" "INT"
-  add_argument "max_frames" "${max_frames}" "Maximum number of EER frames before warning" "INT"
+  add_argument "mc2_wait" "${mc2_wait}" "Maximum wait (seconds) for competing user's MotionCor2_FreeGpus.txt file to be deleted" "FLOAT"
 
   # CTFFIND
   add_section "CTFFIND4 SETTINGS" "Settings for CTF estimation."
@@ -331,16 +378,12 @@ function parse_command_line() {
   # JANNI
   add_section "JANNI SETTINGS" "Settings for JANNI denoise."
   add_argument "do_janni" "${do_janni}" "Denoise micrographs using JANNI" "BOOL"
-#   add_argument "janni_env" "${janni_env}" "JANNI conda environment" "ANY"
-#   add_argument "janni_exe" "${janni_exe}" "JANNI executable" "ANY"
-#   add_argument "janni_model" "${janni_model}" "JANNI general model" "ANY"
   add_argument "janni_batch" "${janni_batch}" "Number of patches predicted in parallel" "INT"
   add_argument "janni_overlap" "${janni_overlap}" "Overlap between patches, pixels" "INT"
 
   # TOPAZ
   add_section "TOPAZ SETTINGS" "Settings for denoising."
   add_argument "do_topaz" "${do_topaz}" "Denoise micrographs using Topaz" "BOOL"
-# #   add_argument "topaz_exe" "${topaz_exe}" "Topaz executable" "ANY"
   add_argument "topaz_patch" "${topaz_patch}" "Patch size for Topaz denoising" "INT"
   add_argument "topaz_env" "${TOPAZ_ENV}" "Topaz conda environment" "ANY"
 
@@ -577,12 +620,13 @@ function parse_filename() {
   # If the filename is illegal, the index is possibly not an integer (https://stackoverflow.com/a/19116862)
   if ! [[ $tilt_idx =~ ^[-+]?[0-9]+$ ]] ; then
     if [[ "$verbose" -ge 2 ]]; then
-      echo -e "WARNING! Filename '$fn' is being parsed incorrectly."
-      echo    "  Make sure that you are using the correct naming convention."
-      echo    "  Maybe you're simply terminating the run."
+      echo -e "\nWARNING! Filename '$fn' is being parsed incorrectly."
+      echo      "  Make sure that you are using the correct naming convention."
+      echo      "  Maybe you're simply terminating the run."
       
       echo -e "\nTERMINATING! (after next reconstruction)"
       date
+      echo
     fi
     kill_all_humans=true
   else
@@ -642,8 +686,11 @@ function move_micrograph() {
     
     # Move micrograph to output directory so that it isn't processed again
     if [[ "${vars[testing]}" == false ]]; then
+      # In case EER was copied locally, move original
+      orig_eer="${vars[eer_dir]}/$(basename $fn)"
+      
       if [[ "$verbose" -ge 5 ]]; then
-        echo -e "\n    `mv -v $fn "${vars[outdir]}"/$rawdir/`\n"
+        echo -e "\n    $(mv -v ${orig_eer} "${vars[outdir]}"/$rawdir/)\n"
       else
         mv $fn "${vars[outdir]}"/$rawdir/
       fi
@@ -717,8 +764,9 @@ function motioncor2_serial() {
 #     1) EER filename
 #     
 #   Calls functions:
-#     run_motioncor
 #     check_frames
+#     run_motioncor
+#     remove_local
 #   
 #   Global variables:
 #     vars
@@ -727,7 +775,7 @@ function motioncor2_serial() {
 #     verbose
 #     testing
 #     ali_out
-#     fn (OUTPUT)
+#     fn (DEFINED HERE)
 #     gpu_num
 #     
 ###############################################################################
@@ -741,6 +789,9 @@ function motioncor2_serial() {
       if [[ ! -e $cor_mic ]]; then
         # Check number of frames
         check_frames
+        
+        # If someone else owns /tmp/MotionCor2_FreeGpus.txt, MotionCor will be unhappy
+        check_freegpus
         
         # Update number of remaining files
         if [[ "$verbose" -ge 5 ]]; then
@@ -778,18 +829,24 @@ function motioncor2_serial() {
           if [[ "$verbose" -ge 7 ]]; then
             echo ""
             echo "    Finished MotionCor2 on micrograph $fn"
-            echo "    `grep 'Total time' $ali_out`"
+            echo "    $(grep 'Total time' $ali_out)"
             echo ""
           fi
           
           move_micrograph "${fn}"
+        
+          # Remove locally-copied EER file (make sure it's in the temp directory and not the original)
+          remove_local "$fn"
+#           if [[ "${vars[eer_local]}" == "true" ]] ; then
+#             \rm "${vars[outdir]}/${temp_dir}/$(basename $fn)" 2> /dev/null
+#           fi
         fi
         # End output-exists IF-THEN
       
       # If pre-exising output
       else
         echo    "    WARNING: MotionCor2 output $cor_mic already exists"
-        echo -e "             Skipping...\n"
+        echo -e "      Skipping...\n"
         
         move_micrograph "${fn}"
       fi
@@ -888,7 +945,7 @@ function ctffind4_serial() {
 
       else
         echo    "    WARNING: CTFFIND4 output $ctf_mrc already exists"
-        echo -e "             Skipping...\n"
+        echo -e "      Skipping...\n"
       fi
       # End preexisting-file IF-THEN
     
@@ -913,6 +970,14 @@ function compute_tomogram() {
 #     
 #     Default behavior is to OVERWRITE pre-existing outputs.
 #   
+#   Calls functions:
+#     janni_denoise
+#     topaz_denoise
+#     write_angles_lists
+#     imod_restack
+#     wrapper_aretomo
+#     wrapper_etomo
+#   
 #   Global variables:
 #     vars
 #     mcorr_mic_array
@@ -931,8 +996,8 @@ function compute_tomogram() {
   local num_mics=${#mcorr_mic_array[@]}
   if [[ "$num_mics" -eq 1 ]]; then
     if [[ "$verbose" -ge 2 ]]; then
-      echo "  Found only 1 micrograph of form '$prev_name*' (`basename $fn`)"
-      echo "  Skipping tomogram reconstruction..."
+      echo "  WARNING! Found only 1 micrograph of form '$prev_name*' (`basename $fn`)"
+      echo "    Skipping tomogram reconstruction..."
     fi
     return
   fi
@@ -941,10 +1006,31 @@ function compute_tomogram() {
   tomo_dir="${recdir}/${prev_name}"
   
   if [[ "$verbose" -ge 2 ]]; then
-    mkdir -pv "${vars[outdir]}"/${tomo_dir} | sed 's/^/  /'
+    mkdir -pv "${vars[outdir]}/${tomo_dir}" | sed 's/^/  /'
   else
-    mkdir -p "${vars[outdir]}"/${tomo_dir}
+    mkdir -p "${vars[outdir]}/${tomo_dir}"
   fi
+  
+  # Find MDOC file
+  if [[ "${vars[mdoc_dir]}" != "" ]] ; then
+    local last_mic="$(basename ${mcorr_mic_array[-1]%_mic.mrc})"
+    local found_mdoc=$(grep -l $last_mic ${vars[mdoc_dir]}/*.mdoc)
+    
+    if [[ $found_mdoc != "" ]] ; then
+      if [[ "$verbose" -ge 2 ]]; then
+        echo -e "\n  Copied $(cp -v --preserve=timestamps ${found_mdoc} ${vars[outdir]}/${tomo_dir}/)"
+      else
+        cp --preserve=timestamps ${found_mdoc} ${vars[outdir]}/${tomo_dir}/
+      fi
+    else
+      if [[ "$verbose" -ge 2 ]]; then
+        echo "  WARNING! Didn't find entry '$found_mdoc' in MDOC directory '${vars[mdoc_dir]}'"
+      fi
+    fi
+    # End found-MDOC IF-THEN
+  fi
+  
+# #   echo "last_mic '$last_mic', mdoc_dir '${vars[mdoc_dir]}', found_mdoc '$found_mdoc'" ; exit  ### DIAGNOSTIC
   
   # Output files
   tomo_root="${vars[outdir]}/${tomo_dir}/${prev_name}"
@@ -967,10 +1053,9 @@ function compute_tomogram() {
     fi
   fi
     
-  vprint "" "2+"
-# #   sort_array_keys
+# #   vprint "" "2+"
   write_angles_lists
-  vprint "" "2+"
+# #   vprint "" "2+"
   
   # Restack micrographs from lowest angle (most negative) to highest
   imod_restack
@@ -1033,6 +1118,8 @@ function summary_info() {
       echo ""
     fi
   fi
+  
+  # TODO: Remove temp directory if copying EERs locally
 }
 
 function DUMMY_FUNCTION() {

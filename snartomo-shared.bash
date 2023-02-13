@@ -37,7 +37,7 @@ function create_directories() {
 #     do_pace
 #     rawdir
 #     log_dir
-#     temp_dir (PACE only)
+#     temp_dir
 #     mc2_logs
 #     ctfdir
 #     imgdir
@@ -49,11 +49,49 @@ function create_directories() {
 #
 ###############################################################################
   
+  local eer_template="${vars[outdir]}/${rawdir}/*.eer"
+  
+  # In Classic mode, move movies back to input directory 
+  if [[ "${do_pace}" == false ]] && [[ "${vars[restore_movies]}" == true ]] ; then
+    # Count movies
+    local num_moved_eers=$(ls ${eer_template} | wc -w 2> /dev/null)
+    
+    if [[ "${num_moved_eers}" -eq 0 ]]; then
+      echo "WARNING! There are no already-moved movies in output directory '${vars[outdir]}/${rawdir}/'"
+      echo "  Flag '--restore_movies' was not needed"
+      echo "  Continuing..."
+      echo
+    else
+      local move_cmd="mv ${eer_template} ${vars[eer_dir]}/"
+      
+      if [[ "$verbose" -eq 0 ]]; then
+        echo -e "${move_cmd}\n"
+      fi
+      
+      if [[ "${vars[testing]}" == false ]]; then
+        ${move_cmd}
+        
+        # Get status code
+        local status_code=$?
+        
+        # Exit on error
+        if [[ $status_code -ne 0 ]] ; then
+          echo -e "\nERROR!! Couldn't move '${eer_template}' to '${vars[eer_dir]}'!"
+          echo -e   "  Exiting...\n"
+          exit
+        fi
+      else
+        echo -e "TESTING ${move_cmd}\n"
+      fi
+      # End testing IF-THEN
+    fi
+    # End zero-movie IF-THEN
+  fi
+  
   # Remove output directory if '--overwrite' option chosen (PACE only)
   if [[ "${vars[overwrite]}" == true ]]; then
-    if [[ "${do_pace}" != true ]]; then
-      eer_template="${vars[outdir]}/${rawdir}/*.eer"
-      num_moved_eers=$(ls ${eer_template} | wc -w 2> /dev/null)
+    if [[ "${do_pace}" == false ]]; then
+      local num_moved_eers=$(ls ${eer_template} | wc -w 2> /dev/null)
     
       # If non-empty, throw error
       if [[ "${num_moved_eers}" -ge 1 ]]; then
@@ -109,8 +147,12 @@ function create_directories() {
   
   # If non-PACE
   else
-    if [[ "${vars[testing]}" != true ]]; then
+    if [[ "${vars[testing]}" == false ]]; then
       mkdir "${vars[outdir]}/$rawdir"  
+    fi
+    
+    if [[ "${vars[eer_local]}" == "true" ]] ; then
+      mkdir "${vars[outdir]}/${temp_dir}" 2> /dev/null
     fi
   fi
   # End PACE IF-THEN
@@ -193,6 +235,7 @@ function validate_inputs() {
 #     init_conda (OUTPUT)
 #     vars
 #     do_pace
+#     do_cp_note (PACE only)
 #     imod_descr
 #     ctffind_descr
 #     validated
@@ -200,7 +243,7 @@ function validate_inputs() {
 ###############################################################################
   
   local outlog=$1
-  local validated=true
+  validated=true
 
   vprint "\nValidating..." "1+" "${outlog}"
   
@@ -210,6 +253,11 @@ function validate_inputs() {
   
   if [[ "${do_pace}" != true ]]; then
     read_mdoc "${outlog}"
+  
+    # Local copying is noted in paralleized process, so need to write a file.
+    if [[ "${vars[eer_local]}" == "true" ]] ; then
+      touch "${vars[outdir]}/${temp_dir}/${do_cp_note}"
+    fi
   else
     check_targets "${outlog}"
     check_apix_pace "${outlog}"
@@ -228,8 +276,11 @@ function validate_inputs() {
   check_exe "$(which nvcc)" "CUDA libraries" "${outlog}"
   check_exe "${vars[motioncor_exe]}" "MotionCor2 executable" "${outlog}"
   
-  # For MotionCor, check the number of GPUs
-  check_mc2
+  # Check old MotionCor syntax
+  if [[ "${vars[split_sum]}" == 1 ]] ; then
+    vprint "  WARNING! Syntax '--split_sum=1' is deprecated." "1+" "${outlog}"
+    vprint "    Use 'do_splitsum' instead. Continuing..." "1+" "${outlog}"
+  fi
   
   check_file "${vars[gain_file]}" "gain reference" "${outlog}"
   check_file "${vars[frame_file]}" "frame file" "${outlog}"
@@ -552,12 +603,11 @@ function check_apix_classic() {
   
   # If both the command line and MDOC files give pixel sizes, check that they're the same to 2 decimal places
   else
-    cmdl_round=`printf "%.2f" "${vars[apix]}"`
-    mdoc_round=`printf "%.2f" "${mdoc_apix}"`
+    cmdl_round=$(printf "%.2f" "${vars[apix]}")
+    mdoc_round=$(printf "%.2f" "${mdoc_apix}")
     
     if (( $(echo "${mdoc_round} == ${cmdl_round}" |bc -l) )); then
       vprint "    WARNING! Pixel size specified on both command line (${vars[apix]}) and in MDOC file (${mdoc_apix}). Using former..." "2+" "${outlog}"
-      vprint "" "3+" "${outlog}"
     else
       vprint "\nERROR!! Different pixel sizes specified on command line (${vars[apix]}) and in MDOC file (${mdoc_apix})!" "0+" "${outlog}"
       vprint "  Exiting...\n" "0+" "${outlog}"
@@ -768,14 +818,15 @@ function check_exe() {
           # Get owner
           tempfile_owner=$(stat -c '%U' "${mc2_tempfile}")
           
-          # Check if you own MotionCor's temporary file
+          # Check if you own MotionCor's temporary file (NOW CHECKS BEFORE EVERY MICROGRAPH)
           if [[ "${tempfile_owner}" != "$(whoami)" ]]; then
-            if [[ "${vars[testing]}" == false ]]; then
-              validated=false
-              vprint "  ERROR!! ${mc2_tempfile} owned by ${tempfile_owner} and not you!" "1+" "${outlog}"
-              vprint "    MotionCor writes a temporary file called '${mc2_tempfile}'." "2+" "${outlog}"
-              vprint "    Get the owner to delete this file." "2+" "${outlog}"
-            else
+#             if [[ "${vars[testing]}" == false ]]; then
+#               validated=false
+#               vprint "  ERROR!! ${mc2_tempfile} owned by ${tempfile_owner} and not you!" "1+" "${outlog}"
+#               vprint "    MotionCor writes a temporary file called '${mc2_tempfile}'." "2+" "${outlog}"
+#               vprint "    Get the owner to delete this file." "2+" "${outlog}"
+#             fi
+            if [[ "${vars[testing]}" == true ]]; then
               vprint "  WARNING! ${mc2_tempfile} owned by ${tempfile_owner} and not you" "1+" "${outlog}"
               vprint "    MotionCor writes a temporary file called '${mc2_tempfile}'" "2+" "${outlog}"
             fi
@@ -796,12 +847,101 @@ function check_exe() {
       vprint    "  WARNING! ${exe_descr} not found. Continuing..." "1+" "${outlog}"
     else
       validated=false
-      echo "  ERROR!! ${exe_descr} not found!"
+      vprint "  ERROR!! ${exe_descr} not found!" "0+" "${outlog}"
     fi
   fi
   # End PATH check
 }
 
+function check_mc2_frame() {
+###############################################################################
+#   Function:
+#     Validates MotionCor2 frame file
+#   
+#   Positional variables:
+#     1) output log
+#   
+#   Calls functions:
+#     vprint
+#     check_integer
+#   
+#   Global variables:
+#     vars
+#     validated
+#   
+###############################################################################
+  
+  local outlog=$1
+  
+  # Read space-delimited string as array
+  IFS=' ' read -r -a frame_array <<< "$(cat ${vars[frame_file]})"
+  local mic_dose=$(printf "%.3f" $(echo "${frame_array[0]} * ${frame_array[2]}" | bc) )
+  
+# #   vprint "  Frame file : ${vars[frame_file]}" "1+" "${outlog}"
+  
+  # If the dose is less than 10, show a warning and perform a sanity check on the frames file
+  if (( $( echo "$mic_dose < 10" | bc -l) )) ; then
+    vprint "  Dose per micrograph : $mic_dose e-/A2" "1+" "${outlog}"
+  else
+    vprint "  WARNING! Dose per micrograph : $mic_dose e-/A2" "1+" "${outlog}"
+    
+    # Sanity check on frames file
+    check_integer "${frame_array[0]}" "int"   "Number of frames" "${outlog}"
+    check_integer "${frame_array[1]}" "int"   "Frames to merge " "${outlog}"
+    check_integer "${frame_array[2]}" "float" "Dose per frame  " "${outlog}"
+    
+    if [[ "$validated" == false ]]; then
+      vprint "  ERROR!! Frame file '${vars[frame_file]}' has the wrong format!" "0+" "${outlog}"
+    fi
+  fi
+  # End dose IF-THEN
+}
+
+  function check_integer() {
+  ###############################################################################
+  #   Function:
+  #     Checks integer versus floating point
+  #   
+  #   Positional variables:
+  #     1) variable to check
+  #     2) correct variable type
+  #     3) description (for printing)
+  #     4) output log
+  #   
+  #   Calls functions:
+  #     vprint
+  #   
+  #   Global variables:
+  #     validated
+  #   
+  ###############################################################################
+    
+    local to_check=$1
+    local should_be=$2
+    local describe_var=$3
+    local outlog=$4
+    
+    local to_int=$(printf "%.0f" "$to_check")
+    
+    if (( $(echo "${to_check} == ${to_int}" | bc -l) )) ; then
+  # #     vprint "  Integer : '$to_check'" "1+" "${outlog}"
+      local var_type="int"
+    else
+  # #     vprint "  Float   : '$to_check'" "1+" "${outlog}"
+      local var_type="float"
+    fi
+    
+    if [[ "$should_be" != "" ]] ; then
+      if [[ "${var_type}" == "${should_be}" ]] ; then
+        vprint "    ${describe_var}  : ${to_check} \tOK,    is ${var_type}, should be ${should_be}" "1+" "${outlog}"
+      else
+        vprint "    ${describe_var}  : ${to_check} \tUH OH! is ${var_type}, should be ${should_be}" "1+" "${outlog}"
+        validated=false
+      fi
+    fi
+    # End validation IF-THEN
+  }
+  
 function try_conda() {
 ###############################################################################
 #   Function:
@@ -980,7 +1120,7 @@ function check_file() {
     # ("${string^}" capitalizes first letter: https://stackoverflow.com/a/12487455)
   
     # Print instructions on creating a frame file
-    if [[ "${file_type^}" == "frame file" ]]; then
+    if [[ "${file_type}" == "frame file" ]]; then
       howto_frame
     fi
     
@@ -991,43 +1131,12 @@ function check_file() {
     
   else
     vprint "  Found ${file_type}: ${search_file}" "1+" "${outlog}"
+    
+    if [[ "${file_type}" == "frame file" ]]; then
+      check_mc2_frame "${outlog}"
+    fi
   fi
   # End existence IF-THEN
-}
-
-function check_mc2() {
-###############################################################################
-#   Function:
-#     Checks MotionCor2 parameters
-# #     The '-OutStack' '-SplitSum' options seem to require more memory.
-#   
-#   Calls functions:
-#     vprint
-#     
-#   Global variables:
-#     validated
-#     vars
-#     verbose
-#     
-###############################################################################
-  
-  # Check old MotionCor syntax
-  if [[ "${vars[split_sum]}" == 1 ]] ; then
-    vprint "  WARNING! Syntax '--split_sum=1' is deprecated." "1+" "${outlog}"
-    vprint "    Use 'do_splitsum' instead. Continuing..." "1+" "${outlog}"
-  fi
-#   
-#   # Check how many GPUs were requested
-#   num_gpus=$(echo ${vars[gpus]} | wc -w)
-#   
-#   if [[ "$num_gpus" -gt 3 ]]; then
-#     if [[ "${vars[testing]}" == true ]]; then
-#       vprint "  WARNING! Please reduce the number of GPUs from ${num_gpus} to 3 or fewer. Continuing..." "1+" "${outlog}"
-#     else
-#       validated=false
-#       vprint "  ERROR!! Please reduce the number of GPUs from ${num_gpus} to 3 or fewer!" "0+" "${outlog}"
-#     fi
-#   fi
 }
 
 function howto_frame() {
@@ -1042,11 +1151,14 @@ function howto_frame() {
   echo    "    The line in the frame file would thus be:"
   echo -e "      600 30 0.005\n"
   
+  echo    "  You can create a frame file with SNARTomo's FrameCalc: "
+  echo -e "    https://rubenlab.github.io/snartomo-gui/#/framecalc\n"
+  
   echo    "  The first N frames can be handled differently than the next M frames, "
   echo    "    and thus the frame file would contain multiple lines, on for each set of conditions."
   echo -e "    However, we haven't tested this functionality yet.\n"
   
-  echo -e "  For more information, see MotionCor2 manual.\n\n"
+  echo -e "  For more information, see MotionCor2 manual.\n"
 }
 
 function check_gain_format() {
@@ -1070,43 +1182,52 @@ function check_gain_format() {
   local outlog=$1
   
   # Check if MRC or TIFF
-  local ext=`echo "${vars[gain_file]}" | rev | cut -d. -f1 | rev`
+  local ext=$(echo "${vars[gain_file]}" | rev | cut -d. -f1 | rev)
   
   vprint "Gain file format: $ext" "1+" "${main_log}"
   
   if [[ ! "$ext" == "mrc" ]]; then
-    # Remove extension (last period-delimited string)
-    local stem_gain="$(file_stem ${vars[gain_file]})"
-    local mrc_gain="${vars[outdir]}/${stem_gain}.mrc"
+#     # MotionCor2 v1.5+ allows GAIN format natively
+#     local version_number=$(basename $(realpath ${vars[motioncor_exe]}) | cut -d_ -f2)
+#     local first_decimal=$(echo $version_number  | cut -d. -f1-2)
+#     
+#     if (( $( echo "$first_decimal >= 1.5" | bc -l) )) ; then
+#       vprint "  TIFF-format gain file allowed with MotionCor2 v${version_number}" "1+" "${main_log}"
+#     else
+      # Remove extension (last period-delimited string)
+      local stem_gain="$(file_stem ${vars[gain_file]})"
+      local mrc_gain="${vars[outdir]}/${stem_gain}.mrc"
+      
+      # Build command
+      local convert_cmd="${vars[imod_dir]}/tif2mrc ${vars[gain_file]} ${mrc_gain}"
+      
+      # Assume it's a TIFF, and try to convert it
+# #       vprint "  MRC-format gain file required with MotionCor2 v${version_number}" "1+" "${main_log}"
+      vprint "  Attempting conversion..." "1+" "${main_log}"
+      vprint "    Running: $convert_cmd\n" "1+" "${main_log}"
     
-    # Build command
-    local cmd="${vars[imod_dir]}/tif2mrc ${vars[gain_file]} ${mrc_gain}"
-    
-    # Assume it's a TIFF, and try to convert it
-    vprint "  Attempting conversion..." "1+" "${main_log}"
-    vprint "    Running: $cmd\n" "1+" "${main_log}"
-    
-    if [[ "${vars[testing]}" == false ]]; then
-      if [[ "$verbose" -ge 1 ]]; then
-        $cmd | sed 's/^/    /'
-      else
-        $cmd > /dev/null
+      if [[ "${vars[testing]}" == false ]]; then
+        if [[ "$verbose" -ge 1 ]]; then
+          $convert_cmd | sed 's/^/    /'
+        else
+          $convert_cmd > /dev/null
+        fi
+        
+        # Check exit status
+        local status_code=$?
+        # (0=successful, 1=fail)
+        
+        if [[ ! "$status_code" == 0 ]]; then
+          echo -e "ERROR!! tif2mrc failed with exit status $status_code\n"
+          exit
+        fi
+        
+        # Update gain file
+        vars[gain_file]="${mrc_gain}"
       fi
-      
-      # Check exit status
-      local status_code=$?
-      # (0=successful, 1=fail)
-      
-      if [[ ! "$status_code" == 0 ]]; then
-        echo -e "ERROR!! tif2mrc failed with exit status $status_code\n"
-        exit
-      fi
-      
-      # Update gain file
-      vars[gain_file]="${mrc_gain}"
-    fi
-    # End testing IF-THEN
-  
+      # End testing IF-THEN
+#     fi
+#     # End new-version IF-THEN
   fi
   # End MRC IF-THEN
 }
@@ -1252,6 +1373,7 @@ function check_frames() {
 ###############################################################################
 #   Function:
 #     Checks number of frames
+#     Checks if we need to copy the EER files locally
 #   
 #   Positional variable:
 #     1) output log file
@@ -1260,11 +1382,13 @@ function check_frames() {
 #     IMOD's header program
 #   
 #   Global variables:
-#     Imod_bin
+#     vars
+#     first_local
 #     fn
+#     warn_log
 #     min_frames
 #     max_frames
-#     verbose
+#     do_cp_note (PACE only)
 #     
 ###############################################################################
   
@@ -1272,24 +1396,195 @@ function check_frames() {
   
   # Get number of frames
   if [[ "${vars[testing]}" == false ]]; then
-    local section_line=$("${vars[imod_dir]}"/header $fn | grep sections)
-  fi
-  local num_sections=$(echo $section_line | rev | cut -d" " -f1 | rev)
-  
-  if [[ "$verbose" -ge 1 ]]; then
-    if [[ "${outlog}" != "" ]]; then
-      echo -e "    Micrograph $fn  \tnumber of frames: $num_sections\n" >> "${outlog}"
-    else
-      echo -e "    Micrograph $fn  \tnumber of frames: $num_sections\n"
+#     # TESTING
+#     echo -e "1401: $fn'  \t\teer_local0 '${vars[eer_local]}'"
+    
+    # Optionally copy EERs locally 
+    if [[ "${vars[eer_local]}" != "false" ]] ; then
+#       local cp_time=$( TIMEFORMAT="%R" ; { time cp "$fn" "${vars[outdir]}/${temp_dir}" ; } 2>&1 )
+#       vprint "    Copied '$fn'  \tto: ${vars[outdir]}/${temp_dir} (in ${cp_time} sec)" "0+" "${outlog}"
+      copy_local "${outlog}"
+      
+#       # Update EER name
+#       if [[ "${vars[eer_local]}" == "true" ]] ; then
+#         fn="${vars[outdir]}/${temp_dir}/$(basename $fn)"
+#       
+#       # Start copying subsequent micrographs to temp directory
+#       elif [[ "${vars[eer_local]}" == "first" ]] ; then
+#         vars[eer_local]="true"
+#       
+#       else
+#         vprint "\nERROR!! Illegal state for 'eer_local': '${vars[eer_local]}'!" "0+" "${outlog}"
+#         vprint   "  Exiting...\n" "0+" "${outlog}"
+#         exit
+#       fi
+#       # End local-copy IF-THEN
+#     
+#     else
+#       if [[ "${vars[debug]}" == true ]] ; then
+#         echo -e "    Didn't copy '$fn'  \tto: ${vars[outdir]}/${temp_dir}/ (eer_local = '${vars[eer_local]}') \n"
+#       fi
     fi
-  fi
-  
-  # Check if within range
-  if [[ "$verbose" -ge 1 ]]; then
+    # End local-copy IF-THEN
+      
+    # Record both the line with the numbers of sections and the time
+    local hdr_out=$( TIMEFORMAT="%R" ; { time ${vars[imod_dir]}/header $fn | grep sections ; } 2>&1 )
+    local num_sections=$(echo "$hdr_out" | head -n 1 | rev | cut -d" " -f1 | rev)
+    local hdr_time=$(echo "$hdr_out" | tail -n 1)
+    
+    vprint "    Micrograph $fn  \tnumber of frames: $num_sections (read in ${hdr_time} sec)\n" "1+" "${outlog}"
+    
+#     # TESTING
+#     echo -e "1439: $fn'  \t\thdr_time   '${hdr_time}'"
+    
+    # Check read time
+    if (( $( echo "${hdr_time} > ${vars[eer_latency]}" | bc -l ) )) && [[ "${vars[eer_local]}" == "false" ]] ; then
+      if [[ "${do_pace}" == false ]]; then
+        vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} ${warn_log}"
+        mkdir "${vars[outdir]}/${temp_dir}" 2> /dev/null
+        
+        # Start copying locally
+        vars[eer_local]="true"
+        copy_local "${outlog}"
+      else
+        # A parallel process may have done these steps already
+        if ! [[ -e "${mc2_tempfile}" ]]; then
+#           # TESTING
+#           echo -e "1454: $fn'  \t\t'${mc2_tempfile}' DOESN'T EXIST, eer_local = '${vars[eer_local]}'"
+#           
+          # Parallel process may have created temp file already
+          if [[ -f "${vars[outdir]}/${temp_dir}/${do_cp_note}" ]]; then
+            vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} ${warn_log}"
+          fi
+          
+          touch "${vars[outdir]}/${temp_dir}/${do_cp_note}"
+          vars[eer_local]="true"
+          copy_local "${outlog}"
+        
+#         else
+#           # TESTING
+#           echo -e "1462: '$fn'  \t\t'${mc2_tempfile}' EXISTS, eer_local = '${vars[eer_local]}'"
+#           vars[eer_local]="true"  # don't know why this is necessary
+        fi
+      fi
+      # End PACE IF-THEN
+#       
+#     else
+#       vprint "   num_sections $num_sections, hdr_time ${hdr_time}, eer_latency ${vars[eer_latency]}, eer_local ${vars[eer_local]}\n" "0+" "${outlog}"
+    fi
+    
+    # Check if within range
     if [[ "$num_sections" -lt "${vars[min_frames]}" || "$num_sections" -gt "${vars[max_frames]}" ]]; then
       vprint "    WARNING! Micrograph $fn: number of frames ($num_sections) outside of range (${vars[min_frames]} to ${vars[max_frames]})\n" "0+" "${outlog}"
     fi
+    
+#     # TESTING
+#     echo -e "1478: $fn'  \t\teer_local1 '${vars[eer_local]}'"
   fi
+  # End testing IF-THEN
+}
+
+function copy_local() {
+###############################################################################
+#   Function:
+#     Copies file to local temp directory
+#   
+#   Positional variables:
+#     1) log file
+#   
+#   Calls functions:
+#     vprint
+#   
+#   Global variables:
+#     fn
+#     vars
+#     temp_dir
+#   
+###############################################################################
+  
+  local outlog=$1
+  
+  local cp_time=$( TIMEFORMAT="%R" ; { time cp "$fn" "${vars[outdir]}/${temp_dir}" ; } 2>&1 )
+  vprint "    Copied '$fn'  \tto: ${vars[outdir]}/${temp_dir} (in ${cp_time} sec)" "0+" "${outlog}"
+  
+  # Update EER name
+  fn="${vars[outdir]}/${temp_dir}/$(basename $fn)"
+}
+
+function check_freegpus() {
+###############################################################################
+#   Function:
+#     Check if someone else owns /tmp/MotionCor2_FreeGpus.txt
+#   
+#   Positional variables:
+#     1) log file
+#   
+#   Calls functions:
+#     vprint
+#   
+#   Global variables:
+#     vars
+#   
+###############################################################################
+  
+  local outlog=$1
+  
+  # Check owner of /tmp/MotionCor2_FreeGpus.txt
+  local mc2_tempfile="/tmp/MotionCor2_FreeGpus.txt"
+  
+  # Check if file exists
+  if [[ -e "${mc2_tempfile}" ]]; then
+    # Try to remove it
+    \rm -r ${mc2_tempfile} 2> /dev/null
+    
+    # Check if it still exists
+    if [[ -e "${mc2_tempfile}" ]]; then
+      # Get owner
+      local tempfile_owner=$(stat -c '%U' "${mc2_tempfile}")
+      
+      # Check if you own
+      if [[ "${tempfile_owner}" != "$(whoami)" ]]; then
+        # Wait for file to disappear
+        local start_time=$SECONDS
+        while [[ $( echo "$(( $SECONDS - $start_time )) < ${vars[mc2_wait]}" | bc -l ) ]] ; do
+        
+          sleep "${vars[search_interval]}"
+          local tempfile_owner=$(stat -c '%U' "${mc2_tempfile}" 2> /dev/null)
+          
+          # If file disappears, then exit loop
+          if ! [[ -e "${mc2_tempfile}" ]] ; then
+            local wait_time=$(( $SECONDS - $start_time ))
+            vprint "  Waited ${wait_time} seconds for '${mc2_tempfile}' to be released by ${tempfile_owner}" "1+" "${outlog}"
+            
+            break
+          
+          # If file is now owned by me, then exit loop
+          elif [[ "${tempfile_owner}" == "$(whoami)" ]] ; then
+            local wait_time=$(( $SECONDS - $start_time ))
+            vprint "  After ${wait_time} seconds, '${mc2_tempfile}' now owned by ${tempfile_owner}" "1+" "${outlog}"
+            
+            break
+          
+          # Else keep waiting until time limit reached
+          else
+            continue
+          fi
+        done
+        # End WHILE loop
+        
+        # Print warning if time limit reached
+# #         echo "SECONDS $SECONDS, start_time $start_time, mc2wait ${vars[mc2_wait]}"
+# #         if (( $(( $SECONDS - $start_time )) > "${vars[mc2_wait]}" )) && [[ "${tempfile_owner}" != "$(whoami)" ]] ; then
+        if (( $( echo "$(( $SECONDS - $start_time )) < ${vars[mc2_wait]}" | bc -l ) )) && [[ "${tempfile_owner}" != "$(whoami)" ]] ; then
+            vprint "  WARNING! ${mc2_tempfile} owned by ${tempfile_owner} and not you" "1+" "${outlog}"
+            vprint "    Continuing...\n" "1+" "${outlog}"
+        fi
+      fi
+      # End not-owner IF-THEN
+    fi
+    # End still-exists IF-THEN
+  fi
+  # End file-exists IF-THEN
 }
 
 function run_motioncor() {
@@ -1355,6 +1650,28 @@ function run_motioncor() {
 
   echo ${mc_command} | xargs
   # (xargs removes whitespace)
+}
+
+function remove_local() {
+###############################################################################
+#   Function:
+#     Removes locally-copied EER
+#   
+#   Positional variables:
+#     1) filename
+#   
+#   Global variables:
+#     vars
+#     temp_dir
+#   
+###############################################################################
+  
+  local fn=$1
+  
+  # Make sure it's in the temp directory and not the original
+  if [[ "${vars[eer_local]}" == "true" ]] ; then
+    \rm "${vars[outdir]}/${temp_dir}/$(basename $fn)" 2> /dev/null
+  fi
 }
 
 function run_ctffind4() {
@@ -2069,7 +2386,7 @@ function get_central_slice() {
   # Get minimimum (https://stackoverflow.com/a/40642705)
   for idx in "${!dimension_array[@]}" ; do
 #     echo "$idx: ${dimension_array[$idx]}"
-    if (( ${dimension_array[$idx]} < min_dim )) ; then
+    if (( $( echo "${dimension_array[$idx]} < $min_dim" | bc -l ) )) ; then
       min_dim=${dimension_array[$idx]}
       min_axis=${axis_array[$idx]}
     fi
@@ -2624,9 +2941,7 @@ function backup_file() {
 #     
 #   Positional variable:
 #     1) Filename (required)
-#     
-#   Global variable:
-#     verbose : default=1
+#     2) verbosity (default=1)
 #     
 ###############################################################################
  

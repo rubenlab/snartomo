@@ -5,19 +5,19 @@
 # Function:
 #
 # Changelog:
+#   2022-12-09 (trs) -- executables now defined externally, in snartomo.bashrc
 #   2022-09-16 (trs) -- parallelized 3D reconstruction
 #   2022-09-07 (trs) -- remove bad eTomo contours
-#   2022-08-02 (trs & tcc) -- AreTomo 1.2.5 now the default
 #   2022-07-22 (trs & tcc) -- added dose-fitting option
 #   2022-06-10 (trs & ks) -- continue existing run
-#   2022-06-10 (trs & tcc) -- targets file, last angle, and gain file are required parameters
+#   2022-06-10 (trs & tcc) -- targets file(s) and gain file are required parameters
 #   2022-05-24 (trs & tcc) -- writing separate CTF summary files for each tomogram
 #   
 ###############################################################################
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-01-26"
+  echo "Modified 2023-02-13"
   date
   echo 
 }
@@ -43,9 +43,7 @@ outdir=SNARTomoPACE                                # Output top-level directory
 
 # General parameters
 LAST_TILT=-999.9                                  # Last (not highest) tilt angle in tilt series
-tilt_tolerance=0.2                                # Angle difference of last tilt +/- this value will signal end of series
 max_minutes=200                                   # Maximum run time, minutes
-search_interval=2                                 # Monitors files & resources every N seconds
 apix=-1.00                                        # A/px
 voltage=300.0                                     # F20: 200, Krios: 300
 gpus="0 1"                                        # List of GPUs to use, delimited by spaces
@@ -60,17 +58,23 @@ verbosity=5                                       # Verbosity level
 #                                                 #   7: prints full MotionCor/CTFFIND/IMOD/AreTomo info
 #                                                 #   8: Shows file unlocking & locking
 
+# Advanced
+search_interval=2                                 # Monitors files & resources every N seconds
+min_frames=400                                    # Minimum number of EER frames before warning
+max_frames=1200                                   # Maximum number of EER frames before warning
+tilt_tolerance=0.2                                # Angle difference of last tilt +/- this value will signal end of series
+ram_warn=20.0                                     # Free system memory (GB) before warning printed
+ram_kill=10.0                                     # Free system memory (GB) before exiting
+eer_latency=7                                     # (seconds) EER files are copied locally if header takes longer than this time
+
 # MotionCor2
-# # motioncor2_exe=/home/rubsak-admin/local/motioncor/MotionCor2
 do_dosewt=false                                   # Flag to perform dose-weighting
 mcor_patches="0 0"                                # Number of patches in x y, delimited by spaces
 reffrm=1                                          # (boolean) Reference frame (0: first, 1: middle)
 SplitSum=0                                        # (boolean) Split frames into even & odd half-sets (1: yes)
-min_frames=400                                    # Minimum number of EER frames before warning
-max_frames=1200                                   # Maximum number of EER frames before warning
+mc2_wait=120.0                                    # (seconds) How long to wait for /tmp/MotionCor2_FreeGpus.txt to be removed
 
 # CTFFIND
-# # ctffind4_bin=/home/rubsak-admin/local/ctffind/4.1.14/bin
 ctf_slots=2                                       #!? Maximum number of CTFFIND4 processes to run concurrently
 cs=2.7                                            # F20: 2.0, Krios: 2.7
 ac=0.07                                           # 300.0 amplitude contrast: 0.07-0.1 for cryo data, 0.14-0.2 for neg.stain data
@@ -98,7 +102,6 @@ dosefit_resid=0.1                                 # Maximum residual during dose
 dosefit_verbose=6                                 # Verbosity level for dose-fitting log file (0..8)
 
 # IMOD
-# # imod_bin=/usr/local/IMOD/bin                      # IMOD directory
 do_etomo=false                                    # Run IMOD reconstruction
 batch_directive=batchDirective.adoc               # IMOD batchruntomo directive file
 imod_slots=2                                      # Maximum number of IMOD processes to run concurrently
@@ -137,7 +140,7 @@ dose_imgdir=DoseFit                                # Dose fitting plot directory
 contour_imgdir=Contours                            # Contour removal plot directory
 temp_dir=tmp                                       # Temporary files
 
-# Log files (in ${log_dir})
+# Log files (in $log_dir)
 main_log=snartomo.txt                              # Main log file
 file_log=files.txt                                 # Events for individual files will be here
 mc2_out=motioncor2.txt                             # MotionCor2 log file
@@ -169,6 +172,7 @@ eers_done=DONE-eers.txt
 mcor_done=DONE-motioncor.txt
 ctf_done=DONE-ctffind.txt
 rec_done=DONE-recon.txt
+do_cp_note=DO_CPLOCAL.txt
 
 ################ END BATCH HEADER ################
 
@@ -188,7 +192,7 @@ main
     read_mdoc
     check_dir {EER, IMOD, CTFFIND}
     check_exe {MotionCor2, JANNI, Topaz, AreTomo, convert}
-    check_mc2
+    check_mc2_frame
     check_file {gain reference, frame file, IMOD batch directive}
     check_python
   initialize_vars
@@ -203,6 +207,9 @@ main
   parse_targets
     detect_new_eers
     distribute_motioncor
+      motioncor_parallel
+        run_motioncor
+        shared.check_frames
   distribute_ctffind 
     ctffind_parallel
   compute_tomograms
@@ -240,23 +247,31 @@ function parse_command_line() {
   
   add_section "GLOBAL SETTINGS" "These settings affect multiple steps."
   add_argument "eer_dir" "${input_dir}" "Input EER directory" "DIR"
+  add_argument "gpus" "${gpus}" "GPUs to use (surrounding quotes & space-delimited if more than one)" "ANY"
   add_argument "frame_file" "${frame_file}" "Input MotionCor2 frame file" "ANY"
   add_argument "live" "false" "Flag to detect new files on-the-fly" "BOOL"
   add_argument "last_tilt" "${LAST_TILT}" "Last (not highest) tilt angle in tilt series (required in live mode)" "FLOAT"
-  add_argument "tilt_tolerance" "${tilt_tolerance}" "Angle difference of last tilt +/- this value will signal end of series" "FLOAT"
   add_argument "apix" "${apix}" "Pixel size, A/px" "FLOAT"
   add_argument "outdir" "${outdir}" "Output directory" "ANY"
   add_argument "verbosity" "${verbosity}" "Verbosity level (0..8)" "INT"
   add_argument "testing" "false" "Testing flag" "BOOL"
-  add_argument "slow" "false" "Flag to simulate delays between files during testing" "BOOL"
-  add_argument "debug" "false" "Flag for debugging" "BOOL"
   add_argument "overwrite" "false" "Flag to overwrite pre-existing output directory" "BOOL"
   add_argument "max_minutes" "${max_minutes}" "Maximum run time, minutes" "INT"
-  add_argument "wait" "${search_interval}" "Interval to check for files and resources, seconds" "INT"
   add_argument "kv" "${voltage}" "Voltage, kV" "FLOAT"
-  add_argument "gpus" "${gpus}" "GPUs to use (surrounding quotes & space-delimited if more than one)" "ANY"
   add_argument "no_redo3d" "false" "Flag to NOT overwrite pre-existing 3D reconstructions" "BOOL"
   add_argument "denoise_gpu" "${DENOISE_GPU}" "Flag to denoise using GPUs" "BOOL"
+  
+  add_section "ADVANCED SETTINGS" "These settings will rarely need to be changed."
+  add_argument "search_interval" "${search_interval}" "Interval to check for files and resources, seconds" "INT"
+  add_argument "min_frames" "${min_frames}" "Minimum number of EER frames before warning" "INT"
+  add_argument "max_frames" "${max_frames}" "Maximum number of EER frames before warning" "INT"
+  add_argument "tilt_tolerance" "${tilt_tolerance}" "Angle difference of last tilt +/- this value will signal end of series" "FLOAT"
+  add_argument "slow" "false" "Flag to simulate delays between files during testing" "BOOL"
+  add_argument "ram_warn" "${ram_warn}" "Free system memory (GB) before warning printed" "FLOAT"
+  add_argument "ram_kill" "${ram_kill}" "Free system memory (GB) before exiting" "FLOAT"
+  add_argument "eer_local" "${CP_EER_LOCAL}" "Flag to copy EER files locally temporarily" "BOOL"
+  add_argument "eer_latency" "${eer_latency}" "Maximum header read time before microgrpah is copied locally" "FLOAT"
+  add_argument "debug" "false" "Flag for debugging" "BOOL"
 
   # MotionCor2
   add_section "MOTIONCOR2 SETTINGS" "Settings for motion-correction."
@@ -267,8 +282,7 @@ function parse_command_line() {
   add_argument "do_splitsum" "false" "Flag to split frames into even & odd half-sets" "BOOL"
   add_argument "split_sum" "${SplitSum}" "(DEPRECATED) Split frames into even & odd half-sets (0: no, 1: yes)" "INT"
   add_argument "reffrm" "${reffrm}" "Reference frame (0: first, 1: middle)" "INT"
-  add_argument "min_frames" "${min_frames}" "Minimum number of EER frames before warning" "INT"
-  add_argument "max_frames" "${max_frames}" "Maximum number of EER frames before warning" "INT"
+  add_argument "mc2_wait" "${mc2_wait}" "Maximum wait (seconds) for competing user's MotionCor2_FreeGpus.txt file to be deleted" "FLOAT"
 
   # CTFFIND
   add_section "CTFFIND4 SETTINGS" "Settings for CTF estimation."
@@ -366,7 +380,6 @@ function main() {
   
   validate_inputs "${main_log}"
   
-# #   target_array=$(ls ${vars[target_files]} | sort -n 2> /dev/null)
   mapfile -t target_array < <(ls ${vars[target_files]} 2> /dev/null)
   local num_targets="${#target_array[*]}"
 # #   printf "'%s'\n" "${target_array[@]}" ; exit
@@ -389,7 +402,6 @@ function main() {
     else
       vprint "\n$(date +"$time_format"): ${const_msg} for up to ${vars[max_minutes]} minutes" "1+" "${main_log} =${file_log}"
     fi
-# #     vprint "\n" "1+"
       
     # Parse PACE targets file
     targets_init
@@ -416,10 +428,10 @@ function main() {
       trap 'kill -9 %1' 2
       
       # Prepare resource plots
-      gpu_plot "${max_seconds}" "${vars[wait]}" "${gpu_log}" "${gpu_plotfile}" "${rec_done}" &
-      ram_plot "${max_seconds}" "${vars[wait]}" "used free available" "${mem_log}" "${mem_plot}" "${rec_done}" &
-      power_plot "${max_seconds}" "${vars[wait]}" "${power_log}" "${power_plotfile}" "${rec_done}" &
-      temperature_plot "${max_seconds}" "${vars[wait]}" "${heat_log}" "${heat_plot}" "${rec_done}" &
+      gpu_plot "${max_seconds}" "${vars[search_interval]}" "${gpu_log}" "${gpu_plotfile}" "${rec_done}" &
+      ram_plot "${max_seconds}" "${vars[search_interval]}" "used free available" "${mem_log}" "${mem_plot}" "${rec_done}" &
+      power_plot "${max_seconds}" "${vars[search_interval]}" "${power_log}" "${power_plotfile}" "${rec_done}" &
+      temperature_plot "${max_seconds}" "${vars[search_interval]}" "${heat_log}" "${heat_plot}" "${rec_done}" &
       
       # Do real work
       parse_targets &
@@ -452,6 +464,7 @@ function check_env() {
 #     
 #   Global variables:
 #     do_pace
+#     shared_libs
 #     
 ###############################################################################
 
@@ -812,7 +825,7 @@ function eers_init() {
         vprint "$(date +"$time_format"): Found EER in tilt series #${series_num}, MDOC '$(basename $mdoc_file)': ${eer_array[-1]}, angle: ${eer_angle}, remaining EERs: ${#eer_array[@]}" "0+" "=${file_log}"
         
         if [[ "$verbose" -ge 1 ]]; then
-          echo -ne "Accumulated ${eer_counter} pre-existing EERs\r"
+          echo -ne "Found ${eer_counter} pre-existing EERs\r"
         fi
         
       done <<< "${new_eers}"
@@ -833,7 +846,6 @@ function eers_init() {
   eer_array=()
       
   # While loop will finish either when last image has been collected or when time limit reached
-# #   vprint "\n" "1+"
   vprint "$(date +"$time_format"): Found initial ${eer_counter} EERs from targets file '${vars[target_file]}', last angle ${eer_angle}" "1+" "${main_log}"
 }
 
@@ -894,7 +906,6 @@ function parse_targets() {
 #     get_backup_name
 #     
 #   Global variables:
-#     vars
 #     do_parallel
 #     mdoc_array
 #     main_log
@@ -912,6 +923,7 @@ function parse_targets() {
   fi
   
   vprint "$(date +"$time_format"): Cleaning up EER temp files..." "1+" "${main_log}"
+  
   for mdoc_file in "${mdoc_array[@]}" ; do
     local old_mdoc=$(get_backup_name "${mdoc_file}")
     rm "${old_mdoc}"
@@ -1046,7 +1058,7 @@ function detect_new_eers() {
       # End tilt-series loop
       
       # Check if last angle reached
-      if [ $(echo "(${eer_angle} > $min_tilt) && (${eer_angle} < $max_tilt)" | bc -l) -eq 1 ]; then
+      if [ $(echo "(${eer_angle} > $min_tilt) && (${eer_angle} < $max_tilt)" | bc -l ) -eq 1 ]; then
         vprint "$(date +"$time_format"): Found last EER in last tilt series (#${series_num}): angle: ${eer_angle}" "1+" "${main_log}"
         break
   # 
@@ -1055,7 +1067,7 @@ function detect_new_eers() {
   #         echo "Continuing: series_num: ${series_num}, eer_angle: '${eer_angle}'"
       fi
 
-      sleep "${vars[wait]}"
+      sleep "${vars[search_interval]}"
     done
     # End WHILE loop
   fi
@@ -1293,7 +1305,7 @@ function distribute_motioncor() {
     # If we're running in parallel and if we just generated a new motion-corrected micrograph, then wait
     if [[ "${do_parallel}" == true ]] && [[ "${computed_anew}" == true ]] ; then
 #       echo "SLEEP -- do parallel: ${do_parallel}, computed anew: ${computed_anew} (CTRL-c to exit)"
-      sleep "${vars[wait]}"
+      sleep "${vars[search_interval]}"
 # #     else
 # #       sleep 0.5
 #     else
@@ -1310,8 +1322,6 @@ function distribute_motioncor() {
         if [[ "${eers_found}" -eq "${num_mics}" ]]; then
           vprint "$(date +"$time_format"): EER detection complete, found ${eers_found} EERs, waiting for MotionCor2..." "1+" "${main_log}"
           
-          # TESTING
-          backup_file "${ctf_mics}.test" '0'
           printf "'%s'\n" "${mic_array[@]}" > "${ctf_mics}.test"
           
           break
@@ -1341,22 +1351,25 @@ function motioncor_parallel() {
 #     2) GPU number
 #     
 #   Calls functions:
-#     run_motioncor
 #     check_frames
+#     check_freegpus
+#     run_motioncor
 #     file_lock
 #     resource_liberate
 #   
 #   Global variables:
 #     fn (OUTPUT)
 #     gpu_num (OUTPUT)
+#     do_cp_note
 #     time_format
 #     vars
 #     cor_mic
+#     mc2_tempfile
 #     mc2_out
 #     verbose
 #     ali_out
 #     ali_err
-#     mc2_wait (OUTPUT)
+#     mc2_time (OUTPUT)
 #     main_log
 #     mc2_eers
 #     do_parallel
@@ -1376,15 +1389,27 @@ function motioncor_parallel() {
   cor_mic="${vars[outdir]}/${micdir}/${stem_eer}${cor_ext}"
   ali_out="${vars[outdir]}/${micdir}/${mc2_logs}/${stem_eer}_mic.out"
   ali_err="${vars[outdir]}/${micdir}/${mc2_logs}/${stem_eer}_mic.err"
-  
-  vprint "$(date +"$time_format"): Starting MotionCor2 on '${fn}' on GPU #${gpu_num}, EERs remaining: ${remaining_eers}" "0+" "=${file_log}"
-  
-  # Print command
-  vprint "$(run_motioncor ${fn} $gpu_num)" "5+" "=${mc2_out}" 
+  mc2_tempfile="/tmp/MotionCor2_FreeGpus.txt"
 
   if [[ "${vars[testing]}" == false ]]; then
+    # Check whether copying locally
+    if [[ -f "${vars[outdir]}/${temp_dir}/${do_cp_note}" ]]; then
+      vars[eer_local]="true"
+      local cp_note_exists=true
+    else
+      local cp_note_exists=false
+    fi
+    
+# #     echo -e "\nPACE: $fn' \t\tcp_note_exists '${cp_note_exists}', eer_local '${vars[eer_local]}', gpu_num: $gpu_num"
+    
     # Check number of frames
-    check_frames "${mc2_out}"
+    check_frames "=${mc2_out}"
+    
+    # If someone else owns /tmp/MotionCor2_FreeGpus.txt, MotionCor will be unhappy
+    check_freegpus "=${mc2_out}"
+    
+    vprint "$(date +"$time_format"): Starting MotionCor2 on '${fn}' on GPU #${gpu_num}, EERs remaining: ${remaining_eers}" "0+" "=${file_log}"
+    vprint "$(run_motioncor ${fn} $gpu_num)" "5+" "=${mc2_out}" 
     
     local mc2_cmd=$(run_motioncor ${fn} $gpu_num)
     
@@ -1401,15 +1426,19 @@ function motioncor_parallel() {
     fi
     
     # Remove temp file
-    local mc2_tempfile="/tmp/MotionCor2_FreeGpus.txt"
     \rm -r ${mc2_tempfile} 2> /dev/null
     
+    # Remove locally-copied EER file (make sure it's in the temp directory and not the original)
+    remove_local "$fn"
+        
     # Append to log file 
     cat $ali_out >> ${mc2_out}
     # (TODO: May need to lock. Processes might try to write at the same time.)
       
   # If testing
   else
+    vprint "$(date +"$time_format"): Starting MotionCor2 on '${fn}' on GPU #${gpu_num}, EERs remaining: ${remaining_eers}" "0+" "=${file_log}"
+    vprint "$(run_motioncor ${fn} $gpu_num)" "5+" "=${mc2_out}" 
     vprint "" "5+" "=${mc2_out}" 
 
     # Delay in slow mode
@@ -1425,7 +1454,7 @@ function motioncor_parallel() {
   
   # Make sure process is actually gone (TODO: Move to function)
   if [[ "$mc2_pid" -gt 0 ]]; then
-    mc2_wait=0
+    mc2_time=0
     local wait_incr=0.25
     
     # Check process ID
@@ -1438,7 +1467,7 @@ function motioncor_parallel() {
       done <<< $(ps --ppid $mc2_pid -o "%p" --noheaders)
     fi
     
-    vprint "WAITED $mc2_wait SEC TOTAL FOR PID $mc2_pid\n" "8+" "=${mc2_out}"
+    vprint "WAITED $mc2_time SEC TOTAL FOR PID $mc2_pid\n" "8+" "=${mc2_out}"
   fi
   
   # Make sure output exists
@@ -1491,7 +1520,7 @@ function motioncor_parallel() {
       
       local mesg=$(grep 'Total time' $ali_out)
       if [[ "$mc2_pid" -gt 0 ]]; then
-        local wait_float=$(printf "%.2f" "$mc2_wait")
+        local wait_float=$(printf "%.2f" "$mc2_time")
         mesg="$mesg, waited $wait_float sec for PID $mc2_pid to clear"
       fi
       vprint   "    ${mesg}\n" "0+" "=${mc2_out}"
@@ -1520,7 +1549,7 @@ function pid_wait() {
 #     2) wait interval
 #   
 #   Global variables:
-#     mc2_wait
+#     mc2_time
 #   
 ###############################################################################
   
@@ -1529,13 +1558,13 @@ function pid_wait() {
   
   while ps -p $mc2_pid > /dev/null ; do 
     # Increment wait time
-    mc2_wait=$(echo $mc2_wait + $wait_incr | bc)
+    mc2_time=$(echo $mc2_time + $wait_incr | bc)
     
     # Wait
     sleep $wait_incr
   done
 
-  vprint "Waited $mc2_wait sec for PID $mc2_pid" "8+" "=${mc2_out}"
+  vprint "Waited $mc2_time sec for PID $mc2_pid" "8+" "=${mc2_out}"
 }
 
 function file_lock() {
@@ -1566,7 +1595,7 @@ function file_lock() {
   
   if [[ -f ${lock_file} ]] ; then
     
-    end=$(($SECONDS+${time_limit}))
+    local end=$(($SECONDS+${time_limit}))
     while [[ "$SECONDS" -lt "$end" ]]; do
       if [[ -f ${lock_file} ]]; then
         sleep 1
@@ -1700,11 +1729,11 @@ function monitor_ram() {
   
   local ram_avail=$(ram_resources | grep available | cut -d '=' -f 2)
   
-  if [[ "$ram_avail" -lt 20 ]]; then
+  if (( $(echo "$ram_avail < ${vars[ram_kill]}" |bc -l) )); then
     vprint    "  ERROR!! Available RAM down to ${ram_avail}GB! Exiting..." "0+" "${main_log} =${warn_log}"
     exit
   fi
-  if [[ "$ram_avail" -lt 40 ]]; then
+  if (( $(echo "$ram_avail < ${vars[ram_warn]}" |bc -l) )); then
     vprint    "  WARNING! Available RAM down to ${ram_avail}GB. Continuing..." "0+" "${main_log} =${warn_log}"
   fi
 }
@@ -1803,7 +1832,7 @@ function read_init() {
   # End non-zero CTFs IF-THEN
 
   if [[ "$verbose" -ge 1 ]]; then
-    echo -ne "Accumulated ${old_counter} pre-existing ${output_type}\r"
+    echo -ne "Found ${old_counter} pre-existing ${output_type}\r"
   fi
     
   # Empty arrays write file with blank line, which can cause problems
@@ -1950,7 +1979,7 @@ function distribute_ctffind() {
             fi
             # End missing-CTFs IF-THEN
             
-            sleep "${vars[wait]}"
+            sleep "${vars[search_interval]}"
           fi
           # End do-parallel IF-THEN
         fi
@@ -1969,7 +1998,7 @@ function distribute_ctffind() {
       if [[ "${cpu_array[${cpu_num}]}" == "FREE" ]]; then
         # Lock micrograph list
         if [[ "${do_parallel}" == true ]]; then
-          file_lock "${ctf_mics}" "8" "${FUNCNAME[0]}"
+          file_lock "${ctf_mics}" "15" "${FUNCNAME[0]}"
           local mic_lock=${lock_file}
         fi
         
@@ -2011,7 +2040,7 @@ function distribute_ctffind() {
             
                 # Run CTFFIND in background
                 ctffind_parallel "${current_mic}" "${cpu_num}" "${ctf_mrc}" &
-                sleep "${vars[wait]}"
+                sleep "${vars[search_interval]}"
               else
                 # Run CTFFIND in foreground
                 ctffind_parallel "${current_mic}" "${cpu_num}" "${ctf_mrc}" 
@@ -2074,7 +2103,7 @@ function distribute_ctffind() {
             vprint "$(date +"$time_format"): Re-adding '$current_mic' to queue" "1+" "=${warn_log}"
             
             if [[ "${do_parallel}" == true ]]; then
-              file_lock "${ctf_mics}" "4" "${FUNCNAME[0]}"
+              file_lock "${ctf_mics}" "7" "${FUNCNAME[0]}"
               local mic_lock=${lock_file}
             fi
             
@@ -2104,7 +2133,7 @@ function distribute_ctffind() {
           
 #     # In parallel mode, check every N seconds
 #     if [[ "${do_parallel}" == true ]] ; then
-#       sleep "${vars[wait]}"
+#       sleep "${vars[search_interval]}"
 # #       echo "t=$SECONDS, ${num_ctfs}"
 #     else
 #       sleep 0.01
@@ -2293,7 +2322,8 @@ function distribute_ctffind() {
           local mic_lock=${lock_file}
         fi
         
-        echo $curr_mic >> $ctf_mics
+        echo $curr_mic >> "${ctf_mics}"
+        echo $curr_mic >> "${ctf_mics}.rescue"
         
         if [[ "${do_parallel}" == true ]]; then
           rm ${mic_lock} 2> /dev/null
@@ -2433,7 +2463,7 @@ function compute_tomograms() {
     fi
     # End IF-THEN for CTFFIND completion
     
-    sleep "${vars[wait]}"
+    sleep "${vars[search_interval]}"
   done
   # End while loop
   
@@ -2458,11 +2488,6 @@ function compute_tomograms() {
   
   # Initialize slot array
   declare -A slot_array
-#   echo "2449 : $(seq ${#slot_list[@]})"
-#   for i in "${!slot_list[@]}"; do 
-#     printf "%s\t%s\n" "$i" "${slot_list[$i]}"
-#   done
-#   exit
   
   for slot_num in $(seq "${#slot_list[@]}") ; do
     slot_array[${slot_num}]="FREE"
@@ -2584,7 +2609,7 @@ function compute_tomograms() {
           
     # In parallel mode, check every N seconds
     if [[ "${do_parallel}" == true ]] ; then
-      sleep "${vars[wait]}"
+      sleep "${vars[search_interval]}"
     else
       sleep 0.04
     fi
