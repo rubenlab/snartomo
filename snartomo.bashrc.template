@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Modified 2022-12-08
+# Modified 2023-02-14
 
 ##### PLEASE DEFINE THE FOLLOWING #####
 
@@ -13,6 +13,7 @@ export JANNI_MODEL=""           # JANNI "h5" model file
 export TOPAZ_ENV=""             # TOPAZ conda environment
 export IMOD_BIN=""              # IMOD executable directory
 export ARETOMO_EXE=""           # AreTomo executable
+export CP_EER_LOCAL="false"     # Copy EER file temporarily to local drive (useful for Falcon 4i data)
 
 ##### YOU SHOULDN'T NEED TO MODIFY ANYTHING BELOW THIS LINE #####
 
