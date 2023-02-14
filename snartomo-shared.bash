@@ -215,141 +215,6 @@ function check_testing() {
   # End PACE IF-THEN
 }
 
-function validate_inputs() {
-###############################################################################
-#   Function:
-#     Makes sure necessary inputs exist
-#   
-#   Positional variable:
-#     1) output log file
-#   
-#   Calls functions:
-#     vprint
-#     read_mdoc
-#     check_file
-#     check_dir
-#     check_exe
-#     check_python
-#     
-#   Global variables:
-#     init_conda (OUTPUT)
-#     vars
-#     do_pace
-#     do_cp_note (PACE only)
-#     imod_descr
-#     ctffind_descr
-#     validated
-#     
-###############################################################################
-  
-  local outlog=$1
-  validated=true
-
-  vprint "\nValidating..." "1+" "${outlog}"
-  
-  # Note initial conda directory
-  init_conda="$CONDA_DEFAULT_ENV"
-
-  
-  if [[ "${do_pace}" != true ]]; then
-    read_mdoc "${outlog}"
-  
-    # Local copying is noted in paralleized process, so need to write a file.
-    if [[ "${vars[eer_local]}" == "true" ]] ; then
-      touch "${vars[outdir]}/${temp_dir}/${do_cp_note}"
-    fi
-  else
-    check_targets "${outlog}"
-    check_apix_pace "${outlog}"
-    
-    # If using live mode, then we need the last angle
-    if [[ "${vars[live]}" == true ]] && [[ "${vars[last_tilt]}" == "$LAST_TILT" ]] ; then
-      validated=false
-      vprint "  ERROR!! In Live mode, need to define '--last_tilt'!" "0+" "${outlog}"
-    fi
-  fi
-  # End PACE IF-THEN
-
-  imod_descr="IMOD executables directory"
-  check_dir "${vars[eer_dir]}" "EER directory" "${outlog}"
-  check_dir "${vars[imod_dir]}" "${imod_descr}" "${outlog}"
-  check_exe "$(which nvcc)" "CUDA libraries" "${outlog}"
-  check_exe "${vars[motioncor_exe]}" "MotionCor2 executable" "${outlog}"
-  
-  # Check old MotionCor syntax
-  if [[ "${vars[split_sum]}" == 1 ]] ; then
-    vprint "  WARNING! Syntax '--split_sum=1' is deprecated." "1+" "${outlog}"
-    vprint "    Use 'do_splitsum' instead. Continuing..." "1+" "${outlog}"
-  fi
-  
-  check_file "${vars[gain_file]}" "gain reference" "${outlog}"
-  check_file "${vars[frame_file]}" "frame file" "${outlog}"
-  
-  ctffind_descr="CTFFIND executables directory"
-  check_dir "${vars[ctffind_dir]}" "${ctffind_descr}" "${outlog}"
-  
-  # Can't use JANNI and Topaz simultaenously
-  if [[ "${vars[do_janni]}" == true ]] && [[ "${vars[do_topaz]}" == true ]]; then
-    validated=false
-    vprint "  ERROR!! Can't use JANNI and Topaz simultaneously!" "0+" "${outlog}"
-  fi
-  
-  if [[ "${vars[do_janni]}" == true ]]; then
-# #     check_exe "janni_denoise.py" "JANNI executable" "${outlog}" "${vars[janni_env]}"
-    try_conda "JANNI executable" "${vars[janni_env]}" "${outlog}"
-    check_file "${vars[janni_model]}" "JANNI model" "${outlog}"
-  fi
-  
-  if [[ "${vars[do_topaz]}" == true ]]; then
-# #     check_exe "${vars[topaz_exe]}" "Topaz executable" "${outlog}" "${vars[topaz_env]}"
-    try_conda "Topaz executable" "${vars[topaz_env]}" "${outlog}"
-  fi
-  
-  if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
-    if [[ "${vars[denoise_gpu]}" == false ]]; then
-      vprint "    Denoising using CPU..." "1+" "${outlog}"
-    fi
-  fi
-  
-  # IMOD
-  if [[ "${vars[batch_directive]}" != "${batch_directive}" ]] && [[ "${vars[do_etomo]}" != true ]]; then
-    vprint "  WARNING! Batch directive specified, but '--do_etomo' flag not specified. Using eTomo..." "1+" "${outlog}"
-    vars[do_etomo]=true
-  fi
-  
-  if [[ "${vars[do_etomo]}" == true ]]; then
-    vprint "  Computing reconstruction using IMOD" "1+" "${outlog}"
-    check_file "${vars[batch_directive]}" "IMOD batch directive" "${outlog}"
-    update_adoc "${outlog}"
-  else
-    vprint "  Computing reconstruction using AreTomo" "1+" "${outlog}"
-    check_exe "${vars[aretomo_exe]}" "AreTomo executable" "${outlog}"
-  fi
-  
-  if [[ "${vars[do_ruotnocon]}" == true ]]; then
-    if [[ "${vars[do_etomo]}" != true ]]; then
-      validated=false
-      vprint "  ERROR!! Can only remove contours if running eTomo!" "0+" "${outlog}"
-    else
-      vprint "  Removing contours with a residual greater than ${vars[ruotnocon_sd]} standard deviations" "2+" "${outlog}"
-    fi
-  fi
-  
-  if [[ "${do_pace}" != true ]] || [[ "${vars[do_ruotnocon]}" == true ]] ; then
-    check_python "${outlog}"
-  fi
-  
-  check_exe "$(which convert)" "Imagemagick convert executable" "${outlog}"
-  
-  # Summary
-  if [[ "$validated" == false ]]; then
-    vprint "Missing required inputs, exiting...\n" "0+" "${outlog}"
-    exit 1
-  else
-    vprint "Found required inputs. Continuing...\n" "1+" "${outlog}"
-  fi
-}
-
 function vprint() {
 ###############################################################################
 #   Function:
@@ -494,6 +359,202 @@ function vprint() {
   # End log-file loop
 }
 
+function validate_inputs() {
+###############################################################################
+#   Function:
+#     Makes sure necessary inputs exist
+#   
+#   Positional variable:
+#     1) output log file
+#   
+#   Calls functions:
+#     vprint
+#     read_mdoc
+#     check_targets
+#     check_file
+#     check_dir
+#     check_exe
+#     check_python
+#     
+#   Global variables:
+#     init_conda (OUTPUT)
+#     vars
+#     do_pace
+#     do_cp_note (PACE only)
+#     imod_descr
+#     ctffind_descr
+#     validated
+#     
+###############################################################################
+  
+  local outlog=$1
+  validated=true
+
+  vprint "\nValidating..." "1+" "${outlog}"
+  
+  # Note initial conda directory
+  init_conda="$CONDA_DEFAULT_ENV"
+
+  
+  if [[ "${do_pace}" != true ]]; then
+    read_mdoc "${outlog}"
+  
+    # Local copying is noted in paralleized process, so need to write a file.
+    if [[ "${vars[eer_local]}" == "true" ]] ; then
+      touch "${vars[outdir]}/${temp_dir}/${do_cp_note}"
+    fi
+  else
+    check_targets "${outlog}"
+    check_apix_pace "${outlog}"
+    
+    # If using live mode, then we need the last angle
+    if [[ "${vars[live]}" == true ]] && [[ "${vars[last_tilt]}" == "$LAST_TILT" ]] ; then
+      validated=false
+      vprint "  ERROR!! In Live mode, need to define '--last_tilt'!" "0+" "${outlog}"
+    fi
+  fi
+  # End PACE IF-THEN
+
+  imod_descr="IMOD executables directory"
+  check_dir "${vars[eer_dir]}" "EER directory" "${outlog}"
+  check_dir "${vars[imod_dir]}" "${imod_descr}" "${outlog}"
+  check_exe "$(which nvcc)" "CUDA libraries" "${outlog}"
+  check_exe "${vars[motioncor_exe]}" "MotionCor2 executable" "${outlog}"
+  
+  # Check old MotionCor syntax
+  if [[ "${vars[split_sum]}" == 1 ]] ; then
+    vprint "  WARNING! Syntax '--split_sum=1' is deprecated." "1+" "${outlog}"
+    vprint "    Use 'do_splitsum' instead. Continuing..." "1+" "${outlog}"
+  fi
+  
+  check_file "${vars[gain_file]}" "gain reference" "${outlog}"
+  check_file "${vars[frame_file]}" "frame file" "${outlog}"
+  
+  ctffind_descr="CTFFIND executables directory"
+  check_dir "${vars[ctffind_dir]}" "${ctffind_descr}" "${outlog}"
+  
+  # Can't use JANNI and Topaz simultaenously
+  if [[ "${vars[do_janni]}" == true ]] && [[ "${vars[do_topaz]}" == true ]]; then
+    validated=false
+    vprint "  ERROR!! Can't use JANNI and Topaz simultaneously!" "0+" "${outlog}"
+  fi
+  
+  if [[ "${vars[do_janni]}" == true ]]; then
+    try_conda "JANNI executable" "${vars[janni_env]}" "${outlog}"
+    check_file "${vars[janni_model]}" "JANNI model" "${outlog}"
+  fi
+  
+  if [[ "${vars[do_topaz]}" == true ]]; then
+# #     check_exe "${vars[topaz_exe]}" "Topaz executable" "${outlog}" "${vars[topaz_env]}"
+    try_conda "Topaz executable" "${vars[topaz_env]}" "${outlog}"
+  fi
+  
+  if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
+    if [[ "${vars[denoise_gpu]}" == false ]]; then
+      vprint "    Denoising using CPU..." "1+" "${outlog}"
+    fi
+  fi
+  
+  # IMOD
+  if [[ "${vars[batch_directive]}" != "${batch_directive}" ]] && [[ "${vars[do_etomo]}" != true ]]; then
+    vprint "  WARNING! Batch directive specified, but '--do_etomo' flag not specified. Using eTomo..." "1+" "${outlog}"
+    vars[do_etomo]=true
+  fi
+  
+  if [[ "${vars[do_etomo]}" == true ]]; then
+    vprint "  Computing reconstruction using IMOD" "1+" "${outlog}"
+    check_file "${vars[batch_directive]}" "IMOD batch directive" "${outlog}"
+    update_adoc "${outlog}"
+  else
+    vprint "  Computing reconstruction using AreTomo" "1+" "${outlog}"
+    check_exe "${vars[aretomo_exe]}" "AreTomo executable" "${outlog}"
+  fi
+  
+  if [[ "${vars[do_ruotnocon]}" == true ]]; then
+    if [[ "${vars[do_etomo]}" != true ]]; then
+      validated=false
+      vprint "  ERROR!! Can only remove contours if running eTomo!" "0+" "${outlog}"
+    else
+      vprint "  Removing contours with a residual greater than ${vars[ruotnocon_sd]} standard deviations" "2+" "${outlog}"
+    fi
+  fi
+  
+  if [[ "${do_pace}" != true ]] || [[ "${vars[do_ruotnocon]}" == true ]] ; then
+    check_python "${outlog}"
+  fi
+  
+  check_exe "$(which convert)" "Imagemagick convert executable" "${outlog}"
+  
+  # Summary
+  if [[ "$validated" == false ]]; then
+    vprint "Missing required inputs, exiting...\n" "0+" "${outlog}"
+    exit 1
+  else
+    vprint "Found required inputs. Continuing...\n" "1+" "${outlog}"
+  fi
+}
+
+ function update_adoc() {
+  ###############################################################################
+  #   Function:
+  #     Updates batch directive to include correct pixel size
+  #   
+  #   Positional variables:
+  #     log file
+  #   
+  #   Calls functions:
+  #     vprint
+  #   
+  #   Global variables:
+  #     vars
+  #   
+  ###############################################################################
+    
+    local outlog=$1
+    
+    if ! [[ -f "${vars[batch_directive]}" ]]; then
+      return
+    fi
+    
+    # Copy batch directive to output directory
+    cp "${vars[batch_directive]}" "${vars[outdir]}"
+    
+    # Use copy from now on
+    local new_adoc="${vars[outdir]}/$(basename ${vars[batch_directive]})"
+    vars[batch_directive]="${new_adoc}"
+    
+    # Check if setupset.copyarg.pixel is present
+    local search_term="setupset.copyarg.pixel"
+    local pxsz_nm=$( printf "%.4f" $(bc <<< "scale=4; ${vars[apix]}/10") )
+    local new_line="${search_term}=${pxsz_nm}"
+    
+    if grep -q ${search_term} "$new_adoc" ; then
+      local old_line=$(grep ${search_term} ${new_adoc})  # | sed 's/\r//')
+      sed -i "s/.*$old_line.*/$new_line/" $new_adoc
+      # Double quotes are required here for some reason.
+      # (Wild card ".*" replaces whole line)
+      
+      vprint "    Updated pixel size $pxsz_nm nm (${vars[apix]} A) in ADOC file '$new_adoc'" "1+"
+      
+    else
+      local dual_term="setupset.copyarg.dual"
+      
+      # Check if copyarg.dual is in this ADOC
+      if grep -q "$dual_term" "$new_adoc" ; then
+        # Get line number and add 1
+        local line_num=$(echo $(sed -n "/$dual_term/=" $new_adoc) + 1 | bc)
+        sed -i "${line_num} i ${new_line}" $new_adoc
+      else
+        # Add it at line 5
+        sed -i "5 i ${new_line}" $new_adoc
+      fi
+      # End dual-found IF-THEN
+    
+      vprint "    Added pixel size $pxsz_nm nm (${vars[apix]} A) in ADOC file '$new_adoc'" "1+"
+    fi
+    # End pixel-found IF-THEN
+  }
+
 function read_mdoc() {
 ###############################################################################
 #   Function:
@@ -533,369 +594,388 @@ function read_mdoc() {
   fi
 }
 
-function check_apix_pace() {
-###############################################################################
-#   Function:
-#     Get pixel size from PACE MDOC files
-#   
-#   Positional variable:
-#     1) output log file
-#     
-#   Calls functions:
-#     check_apix_classic
-#   
-#   Global variable:
-#     vars
-#     
-###############################################################################
-
-  local outlog=$1
-  
-# #   printf "'%s'\n" "${ARGS[@]}" ; exit
-
-  # Get first match (https://unix.stackexchange.com/a/156326)
-  first_target=$(set -- ${vars[target_files]}; echo "$1")
-  
-  # Get first MDOC
-  while read -r target_line ; do
-    # Replace CRLFs
-    no_crlfs=$(echo ${target_line} | sed 's/\r//')
-    
-    # Cut at '=' ('xargs' removes whitespace)
-    local mdoc_file="$(dirname ${first_target})/$(echo $no_crlfs | cut -d'=' -f 2 | xargs).mdoc"
-    break
-  done <<< $(grep "^tsfile" "${first_target}")
-  
-  check_apix_classic "${mdoc_file}" "${outlog}"
-}
-
-function check_apix_classic() {
-###############################################################################
-#   Function:
-#     Check pixel size
-#   
-#   Positional arguments:
-#     1) MDOC file
-#     2) Log file (optional)
-#     
-#   Calls functions:
-#     vprint
-#   
-#   Global variables:
-#     vars
-#     verbose (by vprint)
-#     
-###############################################################################
-  
-  local mdoc_file=$1
-  local outlog=$2
-  
-  # Get first instance of pixel size
-  mdoc_apix=$(grep PixelSpacing "${mdoc_file}" | cut -d" " -f3 | head -n 1)
-  
-  # Strip ^M (Adapted from https://stackoverflow.com/a/8327426/3361621)
-  mdoc_apix=${mdoc_apix/$'\r'/}
-  
-  # If no pixel size specified on the command line, then use MDOC's
-  if (( $(echo "${vars[apix]} < 0.0" |bc -l) )); then
-    vars[apix]="${mdoc_apix}"
-    vprint "  Pixel size: ${vars[apix]}" "2+" "${outlog}"
-  
-  # If both the command line and MDOC files give pixel sizes, check that they're the same to 2 decimal places
-  else
-    cmdl_round=$(printf "%.2f" "${vars[apix]}")
-    mdoc_round=$(printf "%.2f" "${mdoc_apix}")
-    
-    if (( $(echo "${mdoc_round} == ${cmdl_round}" |bc -l) )); then
-      vprint "    WARNING! Pixel size specified on both command line (${vars[apix]}) and in MDOC file (${mdoc_apix}). Using former..." "2+" "${outlog}"
-    else
-      vprint "\nERROR!! Different pixel sizes specified on command line (${vars[apix]}) and in MDOC file (${mdoc_apix})!" "0+" "${outlog}"
-      vprint "  Exiting...\n" "0+" "${outlog}"
-      exit 2
-    fi
-  fi
-  # End command-line IF-THEN
-}
-
-function check_range() {
-###############################################################################
-#   Function:
-#     Check range of values from MDOC file
-#   
-#   Positional arguments:
-#     1) Data description
-#         "defocus values"
-#         "frame numbers"
-#     2) Lower limit
-#     3) Upper limit
-#     4) Log file (optional)
-#     
-#   Calls functions:
-#     vprint
-#   
-#   Global variables:
-#     vars
-#     verbose (by vprint)
-#     bad_counter
-#     
-###############################################################################
-  
-  local data_descr=$1
-  local limitecho_lo=$2
-  local limit_hi=$3
-  local outlog=$4
-  
-  if [[ "${data_descr}" == "defocus values" ]]; then
-    # Get defocus value(s)
-    local list_values=$(grep Defocus ${vars[mdoc_file]} | grep -v TargetDefocus | cut -d" " -f3)
-  elif [[ "${data_descr}" == "frame numbers" ]]; then
-    local list_values=$(grep NumSubFrames ${vars[mdoc_file]} | cut -d" " -f3)
-  else
-    echo -e "\nERROR!! Data type unknown: ${data_descr} " 
-    echo -e "  Exiting...\n"
-    exit
-  fi
-  
-  vprint "    Checking ${data_descr}..." "2+" "${outlog}"
-  
-  # Initialize counters
-  local mic_counter=0
-  bad_counter=0
-  
-  for mic_value in $list_values ; do
-    # Strip ^M (Adapted from https://stackoverflow.com/a/8327426/3361621)
-    local mic_value=${mic_value/$'\r'/}
-    
-    if [[ "${data_descr}" == "defocus values" ]]; then
-      # MDOC shows defocus in microns, with underfocus negative, as opposed to CTFFIND
-      local df_angs=$(echo ${mic_value}* -10000 | bc)
-      local fmt_value=`printf "%.1f\n" "$df_angs"`
-    elif [[ "${data_descr}" == "frame numbers" ]]; then
-      local fmt_value=$(echo ${mic_value} | bc)
-    else
-      echo -e "\nERROR!! Data type unknown: ${data_descr} " 
-      echo -e "  Exiting...\n"
-      exit
-    fi
-    
-    let "mic_counter++"
-    
-    if (( $(echo "${fmt_value} < ${limit_lo}" |bc -l) )) || (( $(echo "${fmt_value} > ${limit_hi}" |bc -l) )); then
-        let "bad_counter++"
-        vprint "      Micrograph #$mic_counter ${data_descr}: $fmt_value  (OUTSIDE OF RANGE)" "7+" "${outlog}"
-    else
-        vprint "      Micrograph #$mic_counter ${data_descr}: $fmt_value " "7+" "${outlog}"
-    fi
-  done
-  
-  if [[ "$bad_counter" == 0 ]]; then
-    vprint "    Found $mic_counter micrographs with ${data_descr} within specified range [${limit_lo}, ${limit_hi}]" "5+" "${outlog}"
-  else
-    vprint "    WARNING! Found $bad_counter out of $mic_counter ${data_descr} in ${vars[mdoc_file]} outside of range [${limit_lo}, ${limit_hi}]" "2+" "${outlog}"
-  fi
-}
-
-function check_dir() {
-###############################################################################
-#   Function:
-#     Looks for directory
-#   
-#   Positional arguments:
-#     1) search directory
-#     2) directory description (for echoing purposes)
-#     3) output log file
-#   
-#   Calls functions:
-#     vprint
-#   
-#   Global variables:
-#     validated
-#     vars
-#     verbose
-#     imod_descr
-#     ctffind_descr
-#     
-###############################################################################
-  
-  local search_dir=$1
-  local dir_descr=$2
-  local outlog=$3
-  
-  # Check if search file exists
-  if [[ ! -d "${search_dir}" ]]; then
-    if [[ "${vars[testing]}" == true ]]; then
-      # Some directories are not strictly required for testing
-      # (Notation adapted from https://unix.stackexchange.com/a/111518/504277)
-      if [[ "${dir_descr}" =~ ^("${imod_descr}"|"${ctffind_descr}")$ ]]; then
-        vprint "  WARNING! ${dir_descr} not found. Continuing..." "1+" "${outlog}"
-      fi
-    else
-      validated=false
-      vprint "  ERROR!! ${dir_descr} not found!" "0+" "${outlog}"
-    fi
-    # End testing IF-THEN
-    
-  else
-    vprint "  Found ${dir_descr}: ${search_dir}/" "1+" "${outlog}"
-  fi
-  # End existence IF-THEN
-    
-  # CTFFIND plotting script is hardwired to /tmp/tmp.txt, will cause problems if written by someone else
-  if [[ "${dir_descr}" == "${ctffind_descr}" ]]; then
-    local ctffind4_tempfile="/tmp/tmp.txt"
-    
-    # Check if file exists
-    if [[ -e "${ctffind4_tempfile}" ]]; then
-      # Get owner
-      tempfile_owner=$(stat -c '%U' "${ctffind4_tempfile}")
+    function check_range() {
+    ###############################################################################
+    #   Function:
+    #     Check range of values from MDOC file
+    #   
+    #   Positional arguments:
+    #     1) Data description
+    #         "defocus values"
+    #         "frame numbers"
+    #     2) Lower limit
+    #     3) Upper limit
+    #     4) Log file (optional)
+    #     
+    #   Calls functions:
+    #     vprint
+    #   
+    #   Global variables:
+    #     vars
+    #     verbose (by vprint)
+    #     bad_counter
+    #     
+    ###############################################################################
       
-      # Check if you own CTFFIND's temporary file
-      if [[ "${tempfile_owner}" != "$(whoami)" ]]; then
-        vprint "  WARNING! ${ctffind4_tempfile} owned by ${tempfile_owner} and not you" "1+" "${outlog}"
-        vprint "    CTFFIND4's ctffind_plot_results.sh writes a temporary file called '${ctffind4_tempfile}'" "2+" "${outlog}"
+      local data_descr=$1
+      local limitecho_lo=$2
+      local limit_hi=$3
+      local outlog=$4
+      
+      if [[ "${data_descr}" == "defocus values" ]]; then
+        # Get defocus value(s)
+        local list_values=$(grep Defocus ${vars[mdoc_file]} | grep -v TargetDefocus | cut -d" " -f3)
+      elif [[ "${data_descr}" == "frame numbers" ]]; then
+        local list_values=$(grep NumSubFrames ${vars[mdoc_file]} | cut -d" " -f3)
+      else
+        echo -e "\nERROR!! Data type unknown: ${data_descr} " 
+        echo -e "  Exiting...\n"
+        exit
       fi
-    fi
-    # End file-exists IF-THEN
-  fi
-  # End CTFFIND IF-THEN
-}
+      
+      vprint "    Checking ${data_descr}..." "2+" "${outlog}"
+      
+      # Initialize counters
+      local mic_counter=0
+      bad_counter=0
+      
+      for mic_value in $list_values ; do
+        # Strip ^M (Adapted from https://stackoverflow.com/a/8327426/3361621)
+        local mic_value=${mic_value/$'\r'/}
+        
+        if [[ "${data_descr}" == "defocus values" ]]; then
+          # MDOC shows defocus in microns, with underfocus negative, as opposed to CTFFIND
+          local df_angs=$(echo ${mic_value}* -10000 | bc)
+          local fmt_value=`printf "%.1f\n" "$df_angs"`
+        elif [[ "${data_descr}" == "frame numbers" ]]; then
+          local fmt_value=$(echo ${mic_value} | bc)
+        else
+          echo -e "\nERROR!! Data type unknown: ${data_descr} " 
+          echo -e "  Exiting...\n"
+          exit
+        fi
+        
+        let "mic_counter++"
+        
+        if (( $(echo "${fmt_value} < ${limit_lo}" |bc -l) )) || (( $(echo "${fmt_value} > ${limit_hi}" |bc -l) )); then
+            let "bad_counter++"
+            vprint "      Micrograph #$mic_counter ${data_descr}: $fmt_value  (OUTSIDE OF RANGE)" "7+" "${outlog}"
+        else
+            vprint "      Micrograph #$mic_counter ${data_descr}: $fmt_value " "7+" "${outlog}"
+        fi
+      done
+      
+      if [[ "$bad_counter" == 0 ]]; then
+        vprint "    Found $mic_counter micrographs with ${data_descr} within specified range [${limit_lo}, ${limit_hi}]" "5+" "${outlog}"
+      else
+        vprint "    WARNING! Found $bad_counter out of $mic_counter ${data_descr} in ${vars[mdoc_file]} outside of range [${limit_lo}, ${limit_hi}]" "2+" "${outlog}"
+      fi
+    }
 
-function check_exe() {
-###############################################################################
-#   Function:
-#     Checks executable
-#   
-#   Positional arguments:
-#     1) search executable
-#     2) description (for echoing purposes)
-#     3) output log file
-#     4) conda environment (for executables requiring conda environments)
-#   
-#   Calls functions:
-#     vprint
-#     try_conda
-#     debug_cuda
-#
-#   Global variables:
-#     validated
-#     
-###############################################################################
-  
-  local search_exe=$1
-  local exe_descr=$2
-  local outlog=$3
-  local conda_env=$4
-  
-  # First, check that the executable simply exists
-  if [[ -f "${search_exe}" ]]; then
-    vprint "  Found ${exe_descr}: ${search_exe}" "1+" "${outlog}"
-    local exe_base=$(basename $search_exe)
+    function check_apix_pace() {
+    ###############################################################################
+    #   Function:
+    #     Get pixel size from PACE MDOC files
+    #   
+    #   Positional variable:
+    #     1) output log file
+    #     
+    #   Calls functions:
+    #     check_apix_classic
+    #   
+    #   Global variable:
+    #     vars
+    #     
+    ###############################################################################
+
+      local outlog=$1
+      
+    # #   printf "'%s'\n" "${ARGS[@]}" ; exit
+
+      # Get first match (https://unix.stackexchange.com/a/156326)
+      first_target=$(set -- ${vars[target_files]}; echo "$1")
+      
+      # Get first MDOC
+      while read -r target_line ; do
+        # Replace CRLFs
+        no_crlfs=$(echo ${target_line} | sed 's/\r//')
+        
+        # Cut at '=' ('xargs' removes whitespace)
+        local mdoc_file="$(dirname ${first_target})/$(echo $no_crlfs | cut -d'=' -f 2 | xargs).mdoc"
+        break
+      done <<< $(grep "^tsfile" "${first_target}")
+      
+      check_apix_classic "${mdoc_file}" "${outlog}"
+    }
+
+    function check_apix_classic() {
+    ###############################################################################
+    #   Function:
+    #     Check pixel size
+    #   
+    #   Positional arguments:
+    #     1) MDOC file
+    #     2) Log file (optional)
+    #     
+    #   Calls functions:
+    #     vprint
+    #   
+    #   Global variables:
+    #     vars
+    #     verbose (by vprint)
+    #     
+    ###############################################################################
+      
+      local mdoc_file=$1
+      local outlog=$2
+      
+      # Get first instance of pixel size
+      mdoc_apix=$(grep PixelSpacing "${mdoc_file}" | cut -d" " -f3 | head -n 1)
+      
+      # Strip ^M (Adapted from https://stackoverflow.com/a/8327426/3361621)
+      mdoc_apix=${mdoc_apix/$'\r'/}
+      
+      # If no pixel size specified on the command line, then use MDOC's
+      if (( $(echo "${vars[apix]} < 0.0" |bc -l) )); then
+        vars[apix]="${mdoc_apix}"
+        vprint "  Pixel size: ${vars[apix]}" "2+" "${outlog}"
+      
+      # If both the command line and MDOC files give pixel sizes, check that they're the same to 2 decimal places
+      else
+        cmdl_round=$(printf "%.2f" "${vars[apix]}")
+        mdoc_round=$(printf "%.2f" "${mdoc_apix}")
+        
+        if (( $(echo "${mdoc_round} == ${cmdl_round}" |bc -l) )); then
+          vprint "    WARNING! Pixel size specified on both command line (${vars[apix]}) and in MDOC file (${mdoc_apix}). Using former..." "2+" "${outlog}"
+        else
+          vprint "\nERROR!! Different pixel sizes specified on command line (${vars[apix]}) and in MDOC file (${mdoc_apix})!" "0+" "${outlog}"
+          vprint "  Exiting...\n" "0+" "${outlog}"
+          exit 2
+        fi
+      fi
+      # End command-line IF-THEN
+    }
+
+  function check_dir() {
+  ###############################################################################
+  #   Function:
+  #     Looks for directory
+  #   
+  #   Positional arguments:
+  #     1) search directory
+  #     2) directory description (for echoing purposes)
+  #     3) output log file
+  #   
+  #   Calls functions:
+  #     vprint
+  #   
+  #   Global variables:
+  #     validated
+  #     vars
+  #     verbose
+  #     imod_descr
+  #     ctffind_descr
+  #     
+  ###############################################################################
     
-#     # Check if in $PATH (adapted from https://stackoverflow.com/a/26759734/3361621)
-#     if [[ "${exe_descr}" == "JANNI executable" ]] || [[ "${exe_descr}" == "Topaz executable" ]] ; then
-#       if ! [[ -x $(command -v "${exe_base}") ]]; then
-#         # Executable exists but isn't in the $PATH
-#         try_conda "${exe_descr}" "${conda_env}" "${outlog}"
-#       fi
-#       
-#       if [[ "${exe_descr}" == "JANNI executable" ]] ; then
-#         check_file "${vars[janni_model]}" "JANNI model" "${outlog}"
-#       fi
-#     fi
-#     # End denoising cases
-  
-    if [[ "${exe_descr}" == "MotionCor2 executable" ]]; then
-      # Check owner of /tmp/MotionCor2_FreeGpus.txt
-      local mc2_tempfile="/tmp/MotionCor2_FreeGpus.txt"
+    local search_dir=$1
+    local dir_descr=$2
+    local outlog=$3
+    
+    # Check if search file exists
+    if [[ ! -d "${search_dir}" ]]; then
+      if [[ "${vars[testing]}" == true ]]; then
+        # Some directories are not strictly required for testing
+        # (Notation adapted from https://unix.stackexchange.com/a/111518/504277)
+        if [[ "${dir_descr}" =~ ^("${imod_descr}"|"${ctffind_descr}")$ ]]; then
+          vprint "  WARNING! ${dir_descr} not found. Continuing..." "1+" "${outlog}"
+        fi
+      else
+        validated=false
+        vprint "  ERROR!! ${dir_descr} not found!" "0+" "${outlog}"
+      fi
+      # End testing IF-THEN
+      
+    else
+      vprint "  Found ${dir_descr}: ${search_dir}/" "1+" "${outlog}"
+    fi
+    # End existence IF-THEN
+      
+    # CTFFIND plotting script is hardwired to /tmp/tmp.txt, will cause problems if written by someone else
+    if [[ "${dir_descr}" == "${ctffind_descr}" ]]; then
+      local ctffind4_tempfile="/tmp/tmp.txt"
       
       # Check if file exists
-      if [[ -e "${mc2_tempfile}" ]]; then
-        # Try to remove it
-        \rm -r ${mc2_tempfile} 2> /dev/null
+      if [[ -e "${ctffind4_tempfile}" ]]; then
+        # Get owner
+        tempfile_owner=$(stat -c '%U' "${ctffind4_tempfile}")
         
-        # Check if it still exists
-        if [[ -e "${mc2_tempfile}" ]]; then
-          # Get owner
-          tempfile_owner=$(stat -c '%U' "${mc2_tempfile}")
-          
-          # Check if you own MotionCor's temporary file (NOW CHECKS BEFORE EVERY MICROGRAPH)
-          if [[ "${tempfile_owner}" != "$(whoami)" ]]; then
-#             if [[ "${vars[testing]}" == false ]]; then
-#               validated=false
-#               vprint "  ERROR!! ${mc2_tempfile} owned by ${tempfile_owner} and not you!" "1+" "${outlog}"
-#               vprint "    MotionCor writes a temporary file called '${mc2_tempfile}'." "2+" "${outlog}"
-#               vprint "    Get the owner to delete this file." "2+" "${outlog}"
-#             fi
-            if [[ "${vars[testing]}" == true ]]; then
-              vprint "  WARNING! ${mc2_tempfile} owned by ${tempfile_owner} and not you" "1+" "${outlog}"
-              vprint "    MotionCor writes a temporary file called '${mc2_tempfile}'" "2+" "${outlog}"
-            fi
-          fi
-          # End not-owner IF-THEN
+        # Check if you own CTFFIND's temporary file
+        if [[ "${tempfile_owner}" != "$(whoami)" ]]; then
+          vprint "  WARNING! ${ctffind4_tempfile} owned by ${tempfile_owner} and not you" "1+" "${outlog}"
+          vprint "    CTFFIND4's ctffind_plot_results.sh writes a temporary file called '${ctffind4_tempfile}'" "2+" "${outlog}"
         fi
-        # End still-exists IF-THEN
       fi
       # End file-exists IF-THEN
-      
-#       # Run program without any arguments, and check exit status (TODO: not working)
-#       debug_cuda "${search_exe}" "${exe_descr}"
-#       # (TODO: Might work with AreTomo with minimal changes)
     fi
-    # End MotionCor case
-  else
-    if [[ "${vars[testing]}" == true ]]; then
-      vprint    "  WARNING! ${exe_descr} not found. Continuing..." "1+" "${outlog}"
-    else
-      validated=false
-      vprint "  ERROR!! ${exe_descr} not found!" "0+" "${outlog}"
-    fi
-  fi
-  # End PATH check
-}
+    # End CTFFIND IF-THEN
+  }
 
-function check_mc2_frame() {
-###############################################################################
-#   Function:
-#     Validates MotionCor2 frame file
-#   
-#   Positional variables:
-#     1) output log
-#   
-#   Calls functions:
-#     vprint
-#     check_integer
-#   
-#   Global variables:
-#     vars
-#     validated
-#   
-###############################################################################
-  
-  local outlog=$1
-  
-  # Read space-delimited string as array
-  IFS=' ' read -r -a frame_array <<< "$(cat ${vars[frame_file]})"
-  local mic_dose=$(printf "%.3f" $(echo "${frame_array[0]} * ${frame_array[2]}" | bc) )
-  
-# #   vprint "  Frame file : ${vars[frame_file]}" "1+" "${outlog}"
-  
-  # If the dose is less than 10, show a warning and perform a sanity check on the frames file
-  if (( $( echo "$mic_dose < 10" | bc -l) )) ; then
-    vprint "  Dose per micrograph : $mic_dose e-/A2" "1+" "${outlog}"
-  else
-    vprint "  WARNING! Dose per micrograph : $mic_dose e-/A2" "1+" "${outlog}"
+  function check_exe() {
+  ###############################################################################
+  #   Function:
+  #     Checks executable
+  #   
+  #   Positional arguments:
+  #     1) search executable
+  #     2) description (for echoing purposes)
+  #     3) output log file
+  #     4) conda environment (for executables requiring conda environments)
+  #   
+  #   Calls functions:
+  #     vprint
+  #     try_conda
+  #     debug_cuda (NOT WORKING)
+  #
+  #   Global variables:
+  #     validated
+  #     
+  ###############################################################################
     
-    # Sanity check on frames file
-    check_integer "${frame_array[0]}" "int"   "Number of frames" "${outlog}"
-    check_integer "${frame_array[1]}" "int"   "Frames to merge " "${outlog}"
-    check_integer "${frame_array[2]}" "float" "Dose per frame  " "${outlog}"
+    local search_exe=$1
+    local exe_descr=$2
+    local outlog=$3
+    local conda_env=$4
     
-    if [[ "$validated" == false ]]; then
-      vprint "  ERROR!! Frame file '${vars[frame_file]}' has the wrong format!" "0+" "${outlog}"
+    # First, check that the executable simply exists
+    if [[ -f "${search_exe}" ]]; then
+      vprint "  Found ${exe_descr}: ${search_exe}" "1+" "${outlog}"
+      local exe_base=$(basename $search_exe)
+      
+  #     # Check if in $PATH (adapted from https://stackoverflow.com/a/26759734/3361621)
+  #     if [[ "${exe_descr}" == "JANNI executable" ]] || [[ "${exe_descr}" == "Topaz executable" ]] ; then
+  #       if ! [[ -x $(command -v "${exe_base}") ]]; then
+  #         # Executable exists but isn't in the $PATH
+  #         try_conda "${exe_descr}" "${conda_env}" "${outlog}"
+  #       fi
+  #       
+  #       if [[ "${exe_descr}" == "JANNI executable" ]] ; then
+  #         check_file "${vars[janni_model]}" "JANNI model" "${outlog}"
+  #       fi
+  #     fi
+  #     # End denoising cases
+    
+      if [[ "${exe_descr}" == "MotionCor2 executable" ]]; then
+        # Check owner of /tmp/MotionCor2_FreeGpus.txt
+        local mc2_tempfile="/tmp/MotionCor2_FreeGpus.txt"
+        
+        # Check if file exists
+        if [[ -e "${mc2_tempfile}" ]]; then
+          # Try to remove it
+          \rm -r ${mc2_tempfile} 2> /dev/null
+          
+          # Check if it still exists
+          if [[ -e "${mc2_tempfile}" ]]; then
+            # Get owner
+            tempfile_owner=$(stat -c '%U' "${mc2_tempfile}")
+            
+            # Check if you own MotionCor's temporary file (NOW CHECKS BEFORE EVERY MICROGRAPH)
+            if [[ "${tempfile_owner}" != "$(whoami)" ]]; then
+  #             if [[ "${vars[testing]}" == false ]]; then
+  #               validated=false
+  #               vprint "  ERROR!! ${mc2_tempfile} owned by ${tempfile_owner} and not you!" "1+" "${outlog}"
+  #               vprint "    MotionCor writes a temporary file called '${mc2_tempfile}'." "2+" "${outlog}"
+  #               vprint "    Get the owner to delete this file." "2+" "${outlog}"
+  #             fi
+              if [[ "${vars[testing]}" == true ]]; then
+                vprint "  WARNING! ${mc2_tempfile} owned by ${tempfile_owner} and not you" "1+" "${outlog}"
+                vprint "    MotionCor writes a temporary file called '${mc2_tempfile}'" "2+" "${outlog}"
+              fi
+            fi
+            # End not-owner IF-THEN
+          fi
+          # End still-exists IF-THEN
+        fi
+        # End file-exists IF-THEN
+        
+  #       # Run program without any arguments, and check exit status (TODO: not working)
+  #       debug_cuda "${search_exe}" "${exe_descr}"
+  #       # (TODO: Might work with AreTomo with minimal changes)
+      fi
+      # End MotionCor case
+    else
+      if [[ "${vars[testing]}" == true ]]; then
+        vprint    "  WARNING! ${exe_descr} not found. Continuing..." "1+" "${outlog}"
+      else
+        validated=false
+        vprint "  ERROR!! ${exe_descr} not found!" "0+" "${outlog}"
+      fi
     fi
-  fi
-  # End dose IF-THEN
-}
+    # End PATH check
+  }
+
+    function debug_cuda() {
+    ###############################################################################
+    #   Function:
+    #     Check CUDA programs and try to identify any incompatibility
+    #     Specifically for MotionCor2, but may work for AreTomo
+    #   
+    #   Positional arguments:
+    #     1) search executable
+    #     2) description (for echoing purposes)
+    #     3) output log file
+    #   
+    #   Calls functions:
+    #     check_exe
+    #   
+    #   Called by:
+    #     check_exe (also)
+    #   
+    ###############################################################################
+      
+      local search_exe=$1
+      local exe_descr=$2
+      local exe_base=$(basename $search_exe)
+      local outlog=$3
+      
+      # Run program without any arguments, and check exit status
+      # (Adapted from https://stackoverflow.com/a/962268/3361621)
+      local error_code=$($search_exe 2>&1 /dev/null)
+      
+      # Should get exit code 1 because inputs weren't provided
+      if [[ "${status_code}" == "1"  ]]; then
+        vprint "    Executable OK: ${exe_base}" "2+" "${outlog}"
+      
+      # Exit code 0 means success, which it shouldn't without input files
+      elif [[ "${status_code}" == "0"  ]]; then
+        echo -e "\nERROR!! ${exe_base} (with no inputs) should return an error (instead returned ${status_code})"
+        echo -e "  Exiting...\n"
+        exit
+      
+      else
+        echo -e "\nERROR!! Reported by: ${exe_base}:"
+        echo -e "  ${error_code}\n"
+        
+        # Check CUDA version
+        echo "Checking CUDA version..."
+        check_exe "$(command -v cuda)" "CUDA compiler"
+        
+        local nvcc_output=$(nvcc --version 2>&1)
+        local cuda_version=$(echo ${nvcc_output#*release} | cut -d' ' -f1 | sed '$s/,$//')
+        # (Syntax to remove trailing comma: https://www.unix.com/shell-programming-and-scripting/216582-how-remove-comma-last-character-end-last-line-file.html)
+        echo -e "  CUDA version: ${cuda_version}"
+        
+        # Check for link or file ("command" expands path, "realpath" follows links)
+        local following_links=$( basename $( realpath $(command -v ${search_exe}) ) )
+        local version_number=`echo ${following_links} | awk -F"Cuda" '{print $2}' | awk -F"-" '{print $1}'`
+        # For AreTomo: echo ${following_links} | awk -F"Cuda" '{print $2}'
+        
+        echo    "  ${exe_descr} version is: ${version_number} (full path: ${following_links})"
+        echo -e "  Maybe there's a version incompatibility?\n"
+        
+        echo -e "  Exiting...\n"
+      fi
+    }
 
   function check_integer() {
   ###############################################################################
@@ -942,25 +1022,25 @@ function check_mc2_frame() {
     # End validation IF-THEN
   }
   
-function try_conda() {
-###############################################################################
-#   Function:
-#     Tries to find conda environment
-#   
-#   Positional arguments:
-#     1) description (for echoing purposes)
-#     2) conda environment
-#     3) output log file
-#   
-#   Global variables:
-#     vars
-#     
-###############################################################################
-  
-  local exe_descr=$1
-  local conda_env=$2
-  local outlog=$3
-  
+  function try_conda() {
+  ###############################################################################
+  #   Function:
+  #     Tries to find conda environment
+  #   
+  #   Positional arguments:
+  #     1) description (for echoing purposes)
+  #     2) conda environment
+  #     3) output log file
+  #   
+  #   Global variables:
+  #     vars
+  #     
+  ###############################################################################
+    
+    local exe_descr=$1
+    local conda_env=$2
+    local outlog=$3
+    
   if [[ "${vars[testing]}" == "false" ]]; then
     vprint "    Current conda environment: ${CONDA_DEFAULT_ENV}" '2+' "${outlog}"
     vprint "    Temporarily activating conda environment: ${conda_env}" "1+" "${outlog}"
@@ -989,177 +1069,234 @@ function try_conda() {
   # End testing IF-THEN
 }
 
-function debug_cuda() {
-###############################################################################
-#   Function:
-#     Check CUDA programs and try to identify any incompatibility
-#     Specifically for MotionCor2, but may work for AreTomo
-#   
-#   Positional arguments:
-#     1) search executable
-#     2) description (for echoing purposes)
-#     3) output log file
-#   
-#   Calls functions:
-#     check_exe
-#   
-#   Called by:
-#     check_exe (also)
-#   
-###############################################################################
-  
-  local search_exe=$1
-  local exe_descr=$2
-  local exe_base=$(basename $search_exe)
-  local outlog=$3
-  
-  # Run program without any arguments, and check exit status
-  # (Adapted from https://stackoverflow.com/a/962268/3361621)
-  local error_code=$($search_exe 2>&1 /dev/null)
-  
-  # Should get exit code 1 because inputs weren't provided
-  if [[ "${status_code}" == "1"  ]]; then
-    vprint "    Executable OK: ${exe_base}" "2+" "${outlog}"
-  
-  # Exit code 0 means success, which it shouldn't without input files
-  elif [[ "${status_code}" == "0"  ]]; then
-    echo -e "\nERROR!! ${exe_base} (with no inputs) should return an error (instead returned ${status_code})"
-    echo -e "  Exiting...\n"
-    exit
-  
-  else
-    echo -e "\nERROR!! Reported by: ${exe_base}:"
-    echo -e "  ${error_code}\n"
+  function check_targets() {
+  ###############################################################################
+  #   Function:
+  #     Looks for target files
+  #   
+  #   Positional arguments:
+  #     1) output log file
+  #   
+  #   Calls functions:
+  #     vprint
+  #     
+  #   Global variables:
+  #     validated
+  #     vars
+  #     
+  ###############################################################################
     
-    # Check CUDA version
-    echo "Checking CUDA version..."
-    check_exe "$(command -v cuda)" "CUDA compiler"
+    local outlog=$1
     
-    local nvcc_output=$(nvcc --version 2>&1)
-    local cuda_version=$(echo ${nvcc_output#*release} | cut -d' ' -f1 | sed '$s/,$//')
-    # (Syntax to remove trailing comma: https://www.unix.com/shell-programming-and-scripting/216582-how-remove-comma-last-character-end-last-line-file.html)
-    echo -e "  CUDA version: ${cuda_version}"
+  # #   read -a target_array <<< "${vars[target_files]}"
+    target_array=$(ls ${vars[target_files]} 2> /dev/null)  # will exclude non-existent files
+  #   echo "target_files: '${vars[target_files]}'"
+  #   printf "'%s'\n" "${target_array[@]}"
+  #   exit
+    local num_targets=$(echo $target_array | wc -w)
     
-    # Check for link or file ("command" expands path, "realpath" follows links)
-    local following_links=$( basename $( realpath $(command -v ${search_exe}) ) )
-    local version_number=`echo ${following_links} | awk -F"Cuda" '{print $2}' | awk -F"-" '{print $1}'`
-    # For AreTomo: echo ${following_links} | awk -F"Cuda" '{print $2}'
-    
-    echo    "  ${exe_descr} version is: ${version_number} (full path: ${following_links})"
-    echo -e "  Maybe there's a version incompatibility?\n"
-    
-    echo -e "  Exiting...\n"
-  fi
-}
+    if [[ "${num_targets}" -eq 0 ]]; then
+      validated=false
+      echo -e "  ERROR!! At least one target file is required!\n"
+      exit 3
+    elif [[ "${num_targets}" -eq 1 ]]; then
+      vprint "  Found target file: ${target_array[0]}" "1+" "${outlog}"
+    else
+      vprint "  Found ${num_targets} targets files" "1+" "${outlog}"
+    fi
+  }
 
-function check_targets() {
-###############################################################################
-#   Function:
-#     Looks for target files
-#   
-#   Positional arguments:
-#     1) output log file
-#   
-#   Calls functions:
-#     vprint
-#     
-#   Global variables:
-#     validated
-#     vars
-#     
-###############################################################################
-  
-  local outlog=$1
-  
-# #   read -a target_array <<< "${vars[target_files]}"
-  target_array=$(ls ${vars[target_files]} 2> /dev/null)  # will exclude non-existent files
-#   echo "target_files: '${vars[target_files]}'"
-#   printf "'%s'\n" "${target_array[@]}"
-#   exit
-  local num_targets=$(echo $target_array | wc -w)
-  
-  if [[ "${num_targets}" -eq 0 ]]; then
-    validated=false
-    echo -e "  ERROR!! At least one target file is required!\n"
-    exit 3
-  elif [[ "${num_targets}" -eq 1 ]]; then
-    vprint "  Found target file: ${target_array[0]}" "1+" "${outlog}"
-  else
-    vprint "  Found ${num_targets} targets files" "1+" "${outlog}"
-  fi
-}
+  function check_file() {
+  ###############################################################################
+  #   Function:
+  #     Looks for file
+  #   
+  #   Positional arguments:
+  #     1) search filename
+  #     2) file type (for echoing purposes)
+  #     3) output log file
+  #   
+  #   Calls functions:
+  #     vprint
+  #     howto_frame
+  #     
+  #   Global variables:
+  #     validated
+  #     vars
+  #     
+  ###############################################################################
+    
+    local search_file=$1
+    local file_type=$2
+    local outlog=$3
+    
+    # Check if search file exists
+    if [[ ! -f "${search_file}" ]]; then
+      validated=false
+      echo "  ERROR!! ${file_type^} not found: ${search_file}"
+      # ("${string^}" capitalizes first letter: https://stackoverflow.com/a/12487455)
+    
+      # Print instructions on creating a frame file
+      if [[ "${file_type}" == "frame file" ]]; then
+        howto_frame
+      fi
+      
+      if [[ "${vars[testing]}" == true ]]; then
+        echo    "    To validate testing, type:"
+        echo -e "      touch ${search_file}"
+      fi
+      
+    else
+      vprint "  Found ${file_type}: ${search_file}" "1+" "${outlog}"
+      
+      if [[ "${file_type}" == "frame file" ]]; then
+        check_mc2_frame "${outlog}"
+      fi
+    fi
+    # End existence IF-THEN
+  }
 
-function check_file() {
-###############################################################################
-#   Function:
-#     Looks for file
-#   
-#   Positional arguments:
-#     1) search filename
-#     2) file type (for echoing purposes)
-#     3) output log file
-#   
-#   Calls functions:
-#     vprint
-#     howto_frame
-#     
-#   Global variables:
-#     validated
-#     vars
-#     
-###############################################################################
-  
-  local search_file=$1
-  local file_type=$2
-  local outlog=$3
-  
-  # Check if search file exists
-  if [[ ! -f "${search_file}" ]]; then
-    validated=false
-    echo "  ERROR!! ${file_type^} not found: ${search_file}"
-    # ("${string^}" capitalizes first letter: https://stackoverflow.com/a/12487455)
-  
-    # Print instructions on creating a frame file
-    if [[ "${file_type}" == "frame file" ]]; then
-      howto_frame
+    function howto_frame() {
+      echo    "  The frame file is a text file containing the following three values, separated by spaces:"
+      echo    "    1) The number of frames to include"
+      echo    "    2) The number of EER frames to merge in each motion-corrected frame"
+      echo -e "    3) The dose per EER frame\n"
+      
+      echo    "  For the second value, a reasonable rule of thumb is to accumulate 0.15-0.20 electrons per A2."
+      echo    "    For example, at a dose of 3e/A2 distributed over 600 frames, the dose per EER frame would be 0.005."
+      echo    "    To accumulate 0.15e/A2, you would need to merge 0.15/(3/600) = 30 frames."
+      echo    "    The line in the frame file would thus be:"
+      echo -e "      600 30 0.005\n"
+      
+      echo    "  You can create a frame file with SNARTomo's FrameCalc: "
+      echo -e "    https://rubenlab.github.io/snartomo-gui/#/framecalc\n"
+      
+      echo    "  The first N frames can be handled differently than the next M frames, "
+      echo    "    and thus the frame file would contain multiple lines, on for each set of conditions."
+      echo -e "    However, we haven't tested this functionality yet.\n"
+      
+      echo -e "  For more information, see MotionCor2 manual.\n"
+    }
+
+    function check_mc2_frame() {
+    ###############################################################################
+    #   Function:
+    #     Validates MotionCor2 frame file
+    #   
+    #   Positional variables:
+    #     1) output log
+    #   
+    #   Calls functions:
+    #     vprint
+    #     check_integer
+    #   
+    #   Global variables:
+    #     vars
+    #     validated
+    #   
+    ###############################################################################
+      
+      local outlog=$1
+      
+      # Read space-delimited string as array
+      IFS=' ' read -r -a frame_array <<< "$(cat ${vars[frame_file]})"
+      local mic_dose=$(printf "%.3f" $(echo "${frame_array[0]} * ${frame_array[2]}" | bc) )
+      
+    # #   vprint "  Frame file : ${vars[frame_file]}" "1+" "${outlog}"
+      
+      # If the dose is less than 10, show a warning and perform a sanity check on the frames file
+      if (( $( echo "$mic_dose < 10" | bc -l) )) ; then
+        vprint "  Dose per micrograph : $mic_dose e-/A2" "1+" "${outlog}"
+      else
+        vprint "  WARNING! Dose per micrograph : $mic_dose e-/A2" "1+" "${outlog}"
+        
+        # Sanity check on frames file
+        check_integer "${frame_array[0]}" "int"   "Number of frames" "${outlog}"
+        check_integer "${frame_array[1]}" "int"   "Frames to merge " "${outlog}"
+        check_integer "${frame_array[2]}" "float" "Dose per frame  " "${outlog}"
+        
+        if [[ "$validated" == false ]]; then
+          vprint "  ERROR!! Frame file '${vars[frame_file]}' has the wrong format!" "0+" "${outlog}"
+        fi
+      fi
+      # End dose IF-THEN
+    }
+
+  function check_python() {
+  ###############################################################################
+  #   Function:
+  #     Checks Python version and libraries
+  #   
+  #   Positional arguments:
+  #     1) output log file
+  #   
+  #   Calls functions:
+  #     vprint
+  #
+  #   Global variables:
+  #     validated
+  #     verbose
+  #     
+  ###############################################################################
+    
+    local outlog=$1
+    
+    # Check Python version
+    local python_version=$(python --version | cut -d' ' -f2 | cut -d'.' -f1)
+    
+    if [[ "$python_version" -le 2 ]]; then
+      validated=false
+      vprint "  ERROR!! Python needs to be version 3 or higher!" "0+" "${outlog}"
+    else
+      vprint "  Python version OK" "6+" "${outlog}"
     fi
     
-    if [[ "${vars[testing]}" == true ]]; then
-      echo    "    To validate testing, type:"
-      echo -e "      touch ${search_file}"
-    fi
+    # Check the following libraries
+    declare -a lib_array=("sys" "numpy" "scipy" "matplotlib" "os" "argparse" "datetime")
+    declare -a not_found=()
     
-  else
-    vprint "  Found ${file_type}: ${search_file}" "1+" "${outlog}"
+    # Loop through libraries
+    for curr_lib in ${lib_array[@]}; do
+      # Try to import, and store status code
+      python -c "import ${curr_lib}" 2> /dev/null
+      local status_code=$?
+      
+      # If it fails, then save
+      if [[ "$status_code" -ne 0 ]]; then
+        vprint "    Couldn't find: '${curr_lib}'" "7+" "${outlog}"
+        not_found+=("${curr_lib}")
+      else
+        vprint "    Found: '${curr_lib}'" "7+" "${outlog}"
+      fi
+    done
+    # End library loop
     
-    if [[ "${file_type}" == "frame file" ]]; then
-      check_mc2_frame "${outlog}"
+    if [[ "${#not_found[@]}" > 0 ]] ; then
+      validated=false
+      vprint "  ERROR!! Couldn't find the following Python libraries: ${not_found[*]}" "0+" "${outlog}"
+    else
+      vprint "  Python version and libraries OK" "1+" "${outlog}"
     fi
-  fi
-  # End existence IF-THEN
-}
+  }
 
-function howto_frame() {
-  echo    "  The frame file is a text file containing the following three values, separated by spaces:"
-  echo    "    1) The number of frames to include"
-  echo    "    2) The number of EER frames to merge in each motion-corrected frame"
-  echo -e "    3) The dose per EER frame\n"
-  
-  echo    "  For the second value, a reasonable rule of thumb is to accumulate 0.15-0.20 electrons per A2."
-  echo    "    For example, at a dose of 3e/A2 distributed over 600 frames, the dose per EER frame would be 0.005."
-  echo    "    To accumulate 0.15e/A2, you would need to merge 0.15/(3/600) = 30 frames."
-  echo    "    The line in the frame file would thus be:"
-  echo -e "      600 30 0.005\n"
-  
-  echo    "  You can create a frame file with SNARTomo's FrameCalc: "
-  echo -e "    https://rubenlab.github.io/snartomo-gui/#/framecalc\n"
-  
-  echo    "  The first N frames can be handled differently than the next M frames, "
-  echo    "    and thus the frame file would contain multiple lines, on for each set of conditions."
-  echo -e "    However, we haven't tested this functionality yet.\n"
-  
-  echo -e "  For more information, see MotionCor2 manual.\n"
-}
+  function file_stem() {
+  ###############################################################################
+  #   Function:
+  #     Splits directory name and extension from filename
+  #   
+  #   Positional variables:
+  #     1) filename
+  #   
+  ###############################################################################
+
+    local filename=$1
+    
+    # Remove extension (last period-delimited string)
+    local stem=`basename $filename | rev | cut -d. -f2- | rev`
+    # (Syntax adapted from https://unix.stackexchange.com/a/64673)
+    
+    echo $stem
+  }
 
 function check_gain_format() {
 ###############################################################################
@@ -1169,8 +1306,9 @@ function check_gain_format() {
 #   Positional argument:
 #     1) output log file
 #   
-#   Calls function:
+#   Calls functions:
 #     vprint
+#     file_stem
 #     
 #   Global variables:
 #     vars
@@ -1230,143 +1368,6 @@ function check_gain_format() {
 #     # End new-version IF-THEN
   fi
   # End MRC IF-THEN
-}
-
-function check_python() {
-###############################################################################
-#   Function:
-#     Checks Python version and libraries
-#   
-#   Positional arguments:
-#     1) output log file
-#   
-#   Calls functions:
-#     vprint
-#
-#   Global variables:
-#     validated
-#     verbose
-#     
-###############################################################################
-  
-  local outlog=$1
-  
-  # Check Python version
-  local python_version=$(python --version | cut -d' ' -f2 | cut -d'.' -f1)
-  
-  if [[ "$python_version" -le 2 ]]; then
-    validated=false
-    vprint "  ERROR!! Python needs to be version 3 or higher!" "0+" "${outlog}"
-  else
-    vprint "  Python version OK" "6+" "${outlog}"
-  fi
-  
-  # Check the following libraries
-  declare -a lib_array=("sys" "numpy" "scipy" "matplotlib" "os" "argparse" "datetime")
-  declare -a not_found=()
-  
-  # Loop through libraries
-  for curr_lib in ${lib_array[@]}; do
-    # Try to import, and store status code
-    python -c "import ${curr_lib}" 2> /dev/null
-    local status_code=$?
-    
-    # If it fails, then save
-    if [[ "$status_code" -ne 0 ]]; then
-      vprint "    Couldn't find: '${curr_lib}'" "7+" "${outlog}"
-      not_found+=("${curr_lib}")
-    else
-      vprint "    Found: '${curr_lib}'" "7+" "${outlog}"
-    fi
-  done
-  # End library loop
-  
-  if [[ "${#not_found[@]}" > 0 ]] ; then
-    validated=false
-    vprint "  ERROR!! Couldn't find the following Python libraries: ${not_found[*]}" "0+" "${outlog}"
-  else
-    vprint "  Python version and libraries OK" "1+" "${outlog}"
-  fi
-}
-
-function file_stem() {
-###############################################################################
-#   Function:
-#     Splits directory name and extension from filename
-#   
-#   Positional variables:
-#     1) filename
-#   
-###############################################################################
-
-  local filename=$1
-  
-  # Remove extension (last period-delimited string)
-  local stem=`basename $filename | rev | cut -d. -f2- | rev`
-  # (Syntax adapted from https://unix.stackexchange.com/a/64673)
-  
-  echo $stem
-}
-
-function update_adoc() {
-###############################################################################
-#   Function:
-#     Updates batch directive to include correct pixel size
-#   
-#   Positional variables:
-#     log file
-#   
-#   Calls functions:
-#     vprint
-#   
-#   Global variables:
-#     vars
-#   
-###############################################################################
-  
-  local outlog=$1
-  
-  if ! [[ -f "${vars[batch_directive]}" ]]; then
-    return
-  fi
-  
-  # Copy batch directive to output directory
-  cp "${vars[batch_directive]}" "${vars[outdir]}"
-  
-  # Use copy from now on
-  local new_adoc="${vars[outdir]}/$(basename ${vars[batch_directive]})"
-  vars[batch_directive]="${new_adoc}"
-  
-  # Check if setupset.copyarg.pixel is present
-  local search_term="setupset.copyarg.pixel"
-  local pxsz_nm=$( printf "%.4f" $(bc <<< "scale=4; ${vars[apix]}/10") )
-  local new_line="${search_term}=${pxsz_nm}"
-  
-  if grep -q ${search_term} "$new_adoc" ; then
-    local old_line=$(grep ${search_term} ${new_adoc})  # | sed 's/\r//')
-    sed -i "s/.*$old_line.*/$new_line/" $new_adoc
-    # Double quotes are required here for some reason.
-    # (Wild card ".*" replaces whole line)
-    
-    vprint "    Updated pixel size $pxsz_nm nm (${vars[apix]} A) in ADOC file '$new_adoc'" "1+"
-    
-  else
-    local dual_term="setupset.copyarg.dual"
-    
-    # Check if copyarg.dual is in this ADOC
-    if grep -q "$dual_term" "$new_adoc" ; then
-      # Get line number and add 1
-      local line_num=$(echo $(sed -n "/$dual_term/=" $new_adoc) + 1 | bc)
-      sed -i "${line_num} i ${new_line}" $new_adoc
-    else
-      # Add it at line 5
-      sed -i "5 i ${new_line}" $new_adoc
-    fi
-    # End dual-found IF-THEN
-  
-    vprint "    Added pixel size $pxsz_nm nm (${vars[apix]} A) in ADOC file '$new_adoc'" "1+"
-  fi
-  # End pixel-found IF-THEN
 }
 
 function check_frames() {
@@ -1484,32 +1485,32 @@ function check_frames() {
   # End testing IF-THEN
 }
 
-function copy_local() {
-###############################################################################
-#   Function:
-#     Copies file to local temp directory
-#   
-#   Positional variables:
-#     1) log file
-#   
-#   Calls functions:
-#     vprint
-#   
-#   Global variables:
-#     fn
-#     vars
-#     temp_dir
-#   
-###############################################################################
-  
-  local outlog=$1
-  
-  local cp_time=$( TIMEFORMAT="%R" ; { time cp "$fn" "${vars[outdir]}/${temp_dir}" ; } 2>&1 )
-  vprint "    Copied '$fn'  \tto: ${vars[outdir]}/${temp_dir} (in ${cp_time} sec)" "0+" "${outlog}"
-  
-  # Update EER name
-  fn="${vars[outdir]}/${temp_dir}/$(basename $fn)"
-}
+  function copy_local() {
+  ###############################################################################
+  #   Function:
+  #     Copies file to local temp directory
+  #   
+  #   Positional variables:
+  #     1) log file
+  #   
+  #   Calls functions:
+  #     vprint
+  #   
+  #   Global variables:
+  #     fn
+  #     vars
+  #     temp_dir
+  #   
+  ###############################################################################
+    
+    local outlog=$1
+    
+    local cp_time=$( TIMEFORMAT="%R" ; { time cp "$fn" "${vars[outdir]}/${temp_dir}" ; } 2>&1 )
+    vprint "    Copied '$fn'  \tto: ${vars[outdir]}/${temp_dir} (in ${cp_time} sec)" "0+" "${outlog}"
+    
+    # Update EER name
+    fn="${vars[outdir]}/${temp_dir}/$(basename $fn)"
+  }
 
 function check_freegpus() {
 ###############################################################################
@@ -1923,22 +1924,6 @@ function get_gpu() {
 #   echo "gpu_num, after '${gpu_num}'"
 }
 
-function sort_array_keys() {
-###############################################################################
-#   Function:
-#     Sort array accourding to angle
-#   
-#   Global variables:
-#     stripped_angle_array
-#     
-###############################################################################
-  
-  # Sort by angle (Adapted from https://stackoverflow.com/a/54560296)
-  for KEY in ${!stripped_angle_array[@]}; do
-    echo "${stripped_angle_array[$KEY]}:::$KEY"
-  done | sort -n | awk -F::: '{print $2}'
-}
-
 function write_angles_lists() {
 ###############################################################################
 #   Function:
@@ -1998,6 +1983,22 @@ function write_angles_lists() {
   unset denoise_array
   unset stripped_angle_array
 }
+
+  function sort_array_keys() {
+  ###############################################################################
+  #   Function:
+  #     Sort array accourding to angle
+  #   
+  #   Global variables:
+  #     stripped_angle_array
+  #     
+  ###############################################################################
+    
+    # Sort by angle (Adapted from https://stackoverflow.com/a/54560296)
+    for KEY in ${!stripped_angle_array[@]}; do
+      echo "${stripped_angle_array[$KEY]}:::$KEY"
+    done | sort -n | awk -F::: '{print $2}'
+  }
 
 function imod_restack() {
 ###############################################################################
@@ -2116,6 +2117,7 @@ function wrapper_aretomo() {
 #     
 #   Calls functions:
 #     run_aretomo
+#     get_central_slice
 #   
 #   Global variables:
 #     tomo_root
@@ -2271,6 +2273,48 @@ function wrapper_aretomo() {
 }
 
 
+  function run_aretomo() {
+  ###############################################################################
+  #   Function:
+  #     Runs AreTomo
+  #   
+  #   Positional variable:
+  #     1) (optional) GPU number 
+  #   
+  #   Global variables:
+  #     gpu_num
+  #     vars
+  #     reordered_stack
+  #     tomogram_3d
+  #     angles_list
+  #     
+  ###############################################################################
+    
+    gpu_num=$1  # might be updated
+    
+    # Get single GPU number if there are more than one
+    get_gpu
+    
+    echo "${vars[aretomo_exe]} \
+      -InMrc $reordered_stack \
+      -OutMrc $tomogram_3d \
+      -AngFile $angles_list \
+      -AlignZ ${vars[rec_zdim]} \
+      -VolZ ${vars[vol_zdim]} \
+      -OutBin ${vars[bin]} \
+      -TiltAxis ${vars[tilt_axis]} \
+      -Gpu ${gpu_num} \
+      -TiltCor ${vars[tilt_cor]} \
+      -FlipVol ${vars[flip_vol]} \
+      -PixSize ${vars[apix]} \
+      -Wbp ${vars[bp_method]} \
+      -Patch ${vars[are_patches]} \
+      -OutXF ${vars[transfile]} \
+      -DarkTol ${vars[dark_tol]} \
+      " | xargs
+      # (xargs removes whitespace)
+  }
+
 function mdoc2tomo() {
 ###############################################################################
 #   Function:
@@ -2308,48 +2352,6 @@ function mdoc2tomo() {
   fi
   
 # #   echo $tomogram_3d
-}
-
-function run_aretomo() {
-###############################################################################
-#   Function:
-#     Runs AreTomo
-#   
-#   Positional variable:
-#     1) (optional) GPU number 
-#   
-#   Global variables:
-#     gpu_num
-#     vars
-#     reordered_stack
-#     tomogram_3d
-#     angles_list
-#     
-###############################################################################
-  
-  gpu_num=$1  # might be updated
-  
-  # Get single GPU number if there are more than one
-  get_gpu
-  
-  echo "${vars[aretomo_exe]} \
-    -InMrc $reordered_stack \
-    -OutMrc $tomogram_3d \
-    -AngFile $angles_list \
-    -AlignZ ${vars[rec_zdim]} \
-    -VolZ ${vars[vol_zdim]} \
-    -OutBin ${vars[bin]} \
-    -TiltAxis ${vars[tilt_axis]} \
-    -Gpu ${gpu_num} \
-    -TiltCor ${vars[tilt_cor]} \
-    -FlipVol ${vars[flip_vol]} \
-    -PixSize ${vars[apix]} \
-    -Wbp ${vars[bp_method]} \
-    -Patch ${vars[are_patches]} \
-    -OutXF ${vars[transfile]} \
-    -DarkTol ${vars[dark_tol]} \
-    " | xargs
-    # (xargs removes whitespace)
 }
 
 function get_central_slice() {
@@ -2615,324 +2617,373 @@ function ruotnocon_wrapper() {
     "${vars[imod_dir]}"  #>> "${outlog}"
 }
 
-function ruotnocon_run() {
-###############################################################################
-#   Function:
-#     Removes bad contours
-#   
-#   Requires IMOD programs:
-#     convertmod
-#     imodinfo
-#     wmod2imod
-#     imodjoin
-#   
-#   Positional variables:
-#     1) FID input file
-#     2) Alignment log file
-#     3) Output FID file (can be same as input, will back up if it exists)
-#     4) (optional) Residual cutoff, in units of sigma (default: 3)
-#     5) (optional) Residual plot file (default: "plot_residuals.png")
-#     6) (optional) Temporary directory
-#     7) (optional) Testing (boolean)
-#     8) (optional) IMOD executable directory
-#   
-#   Calls functions:
-#     extract_residuals
-#     split_wimp
-#     remove_contours
-#     backup_copy
-#   
-#   Global variables:
-#     contour_resid_file : defined here
-#     temp_contour_dir : defined here
-#     num_chunks
-#     verbose
-#     contour_imod_dir
-#     num_bad_residuals : defined here
-#   
-###############################################################################
-  
-  local fid_file=$1
-  local contour_resid_file=$2
-  local out_fid_file=$3
-  local num_sd=$4
-  local contour_plot=$5
-  temp_contour_dir=$6
-  local test_contour=$7
-  contour_imod_dir=$8
-  
-  if [[ $# -lt 3 ]]; then
-    echo -e "\nUSAGE: "
-    echo -e "  $0 <input_fid> <ta_coords> <output_fid> <optional_num_sigma> <optional_plot> <optional_temp_directory> <optional_testing_flag> <optional_imod_directory>\n"
-    exit
-  fi
-  
-  if [ -z "$num_sd" ] ; then
-    num_sd=3
-  fi
-  
-  if [ -z $contour_plot ] ; then
-    contour_plot="plot_residuals.png"
-  fi
-  
-  if [ -z $temp_contour_dir ] ; then
-    temp_contour_dir="tmp_contours"
-  fi
-  
-  if [ -z $contour_imod_dir ] ; then
-    # Check if in $PATH (adapted from https://stackoverflow.com/a/26759734/3361621)
-    if [[ -x $(command -v convertmod) ]]; then
-      contour_imod_dir="$(dirname $(command -v convertmod) )"
-    fi
-  fi
-  
-  declare -a chunk_array
-  declare -a bad_residuals
-  
-  # Temporary files
-  wimp_file="${temp_contour_dir}/1-convertmod.txt"
-  contour_prefix="chunk"
-  new_wimp="${temp_contour_dir}/2-wimp.txt"
-  tmp_fid="${temp_contour_dir}/3-wmod2imod.fid"
-
-  # Create temporary directory
-  if [[ "${test_contour}" != true ]]; then
-    \rm -r ${temp_contour_dir} 2> /dev/null
-    if [[ ${verbose} -ge 5 ]] ; then
-      echo "  Creating directory: ${temp_contour_dir}/"
-    fi
-    mkdir ${temp_contour_dir}
-  fi
-  
-  # Convert FID model to WIMP-format text file
-  local convertmod_cmd="convertmod ${fid_file} ${wimp_file}"
-  if [[ ${verbose} -ge 4 ]] ; then
-    echo "  Converting to WIMP format: ${fid_file}"
-    echo "    $convertmod_cmd"
-  fi
-  
-  if [[ "${test_contour}" != true ]]; then
-    ${contour_imod_dir}/$convertmod_cmd
-#     local status_code=$?  # will be 1 on error, 0 if OK
-  
-    # Split WIMP file into chunks
-    split_wimp "${wimp_file}"
-  fi
-  
-  # Get contours exceeding residual cutoff (space-delimited list)
-  highest_residuals "${contour_plot}" "${num_sd}"
-  
-  if [[ "${test_contour}" != true ]]; then
-    # Remove contours
-    remove_contours
+  function ruotnocon_run() {
+  ###############################################################################
+  #   Function:
+  #     Removes bad contours
+  #   
+  #   Requires IMOD programs:
+  #     convertmod
+  #     imodinfo
+  #     wmod2imod
+  #     imodjoin
+  #   
+  #   Positional variables:
+  #     1) FID input file
+  #     2) Alignment log file
+  #     3) Output FID file (can be same as input, will back up if it exists)
+  #     4) (optional) Residual cutoff, in units of sigma (default: 3)
+  #     5) (optional) Residual plot file (default: "plot_residuals.png")
+  #     6) (optional) Temporary directory
+  #     7) (optional) Testing (boolean)
+  #     8) (optional) IMOD executable directory
+  #   
+  #   Calls functions:
+  #     extract_residuals
+  #     split_wimp
+  #     highest_residuals
+  #     remove_contours
+  #     backup_copy
+  #   
+  #   Global variables:
+  #     contour_resid_file : defined here
+  #     temp_contour_dir : defined here
+  #     num_chunks
+  #     verbose
+  #     contour_imod_dir
+  #     num_bad_residuals : defined here
+  #   
+  ###############################################################################
     
-    # Get z-scale factor
-    local zscale=$(${contour_imod_dir}/imodinfo -a ${fid_file} | grep scale | grep -v refcurscale | rev | cut -d" " -f1 | rev)
+    local fid_file=$1
+    local contour_resid_file=$2
+    local out_fid_file=$3
+    local num_sd=$4
+    local contour_plot=$5
+    temp_contour_dir=$6
+    local test_contour=$7
+    contour_imod_dir=$8
     
-    # Convert to FID model
-    local wmod2imod_cmd="${contour_imod_dir}/wmod2imod -z ${zscale} ${new_wimp} ${tmp_fid}"
-    if [[ ${verbose} -ge 4 ]] ; then
-      echo -e "\n  Converting to FID model..."
-      echo -e "    $wmod2imod_cmd"
-    fi
-    $wmod2imod_cmd
-    local status_code=$?  # will be 3 on error, 0 if OK
-    
-    if [[ ${status_code} -ne 0 ]] ; then
-      echo -e "  ERROR!! Exiting with status code: '${status_code}'\n"
+    if [[ $# -lt 3 ]]; then
+      echo -e "\nUSAGE: "
+      echo -e "  $0 <input_fid> <ta_coords> <output_fid> <optional_num_sigma> <optional_plot> <optional_temp_directory> <optional_testing_flag> <optional_imod_directory>\n"
       exit
     fi
     
-    # Back up pre-existing output
-    backup_copy ${out_fid_file}
-    
-    # Copy header from input to output (more literally: replace object 1 from second model into first model)
-    local imodjoin_cmd="${contour_imod_dir}/imodjoin -r 1 ${fid_file} ${tmp_fid} ${out_fid_file}"
-    if [[ ${verbose} -ge 4 ]] ; then
-      echo -e "  Copying header from input to output..."
-      echo -e "    $imodjoin_cmd"
+    if [ -z "$num_sd" ] ; then
+      num_sd=3
     fi
-    $imodjoin_cmd > /dev/null
-    local status_code=$?
     
-    # Sanity check before cleaning up
-    if [[ -f "${out_fid_file}" ]]; then
+    if [ -z $contour_plot ] ; then
+      contour_plot="plot_residuals.png"
+    fi
+    
+    if [ -z $temp_contour_dir ] ; then
+      temp_contour_dir="tmp_contours"
+    fi
+    
+    if [ -z $contour_imod_dir ] ; then
+      # Check if in $PATH (adapted from https://stackoverflow.com/a/26759734/3361621)
+      if [[ -x $(command -v convertmod) ]]; then
+        contour_imod_dir="$(dirname $(command -v convertmod) )"
+      fi
+    fi
+    
+    declare -a chunk_array
+    declare -a bad_residuals
+    
+    # Temporary files
+    wimp_file="${temp_contour_dir}/1-convertmod.txt"
+    contour_prefix="chunk"
+    new_wimp="${temp_contour_dir}/2-wimp.txt"
+    tmp_fid="${temp_contour_dir}/3-wmod2imod.fid"
+
+    # Create temporary directory
+    if [[ "${test_contour}" != true ]]; then
+      \rm -r ${temp_contour_dir} 2> /dev/null
       if [[ ${verbose} -ge 5 ]] ; then
-        echo "  Cleaning up..."
+        echo "  Creating directory: ${temp_contour_dir}/"
       fi
-      rm -r ${temp_contour_dir} 2> /dev/null
-    else
-      echo -e "  ERROR!! File '${out_fid_file}' does not exist! Exiting with status code: '${status_code}'\n"
-      exit
+      mkdir ${temp_contour_dir}
     fi
     
-    num_bad_residuals=${#bad_residuals[@]}
-    if [[ ${verbose} -ge 1 ]] ; then
-      echo "  Removed ${num_bad_residuals}/${num_chunks} contours from '${fid_file}' and wrote to '${out_fid_file}'"
+    # Convert FID model to WIMP-format text file
+    local convertmod_cmd="convertmod ${fid_file} ${wimp_file}"
+    if [[ ${verbose} -ge 4 ]] ; then
+      echo "  Converting to WIMP format: ${fid_file}"
+      echo "    $convertmod_cmd"
     fi
-  fi
-  # End testing IF-THEN
-}
-
-function split_wimp() {
-###############################################################################
-#   Function:
-#     FUNCTION
-#   
-#   Positional variables:
-#     1. WIMP-format text file
-#   
-#   Global variables:
-#     temp_contour_dir
-#     num_chunks
-#     verbose
-#     chunk_array
-#   
-###############################################################################
-
-  local wimp_file=$1
-  
-  # Split into chunks (Adapted from https://stackoverflow.com/a/1825810)
-  awk '/  Object #:/{n++}{print > "'${temp_contour_dir}/${contour_prefix}'" sprintf("%03d", n) ".txt"}' ${wimp_file}
-  
-  num_chunks=$(( $(ls ${temp_contour_dir}/${contour_prefix}* | wc -w) - 1))
-  
-  if [[ ${verbose} -ge 4 ]] ; then
-    echo "  Split WIMP file into ${num_chunks} chunks (not including header)"
-  fi
-  
-  chunk_array=($(seq -f "%03g" ${num_chunks}))
-}
-
-function highest_residuals() {
-###############################################################################
-#   Function:
-#     Get contours exceeding residual cutoff
-#   
-#   Requires:
-#     sort_residuals.py
-#     
-#   Positional variables:
-#     1) sorted-residual plot file
-#     2) residual cutoff, units of sigma
-#   
-#   Calls functions:
-#   
-#   Global variables:
-#     test_contour
-#     contour_resid_file
-#     bad_residuals
-#     verbose
-#   
-###############################################################################
-  
-  local contour_plot=$1
-  local num_sd=$2
-  
-  # Sanity check
-  if ! [ -z $SNARTOMO_DIR ] ; then
-    local sort_exe="python ${SNARTOMO_DIR}/sort_residuals.py"
-  else
-    if [[ -f "./sort_residuals.py" ]]; then
-      local sort_exe="python ./sort_residuals.py"
-    else
-      if [[ "${test_contour}" != true ]]; then
-        echo -e "\nERROR!! Can't find 'sort_residuals.py'!"
-        echo      "  Either copy to current directory or define 'SNARTOMO_DIR'"
-        echo -e   "  Exiting...\n"
+    
+    if [[ "${test_contour}" != true ]]; then
+      ${contour_imod_dir}/$convertmod_cmd
+  #     local status_code=$?  # will be 1 on error, 0 if OK
+    
+      # Split WIMP file into chunks
+      split_wimp "${wimp_file}"
+    fi
+    
+    # Get contours exceeding residual cutoff (space-delimited list)
+    highest_residuals "${contour_plot}" "${num_sd}"
+    
+    if [[ "${test_contour}" != true ]]; then
+      # Remove contours
+      remove_contours
+      
+      # Get z-scale factor
+      local zscale=$(${contour_imod_dir}/imodinfo -a ${fid_file} | grep scale | grep -v refcurscale | rev | cut -d" " -f1 | rev)
+      
+      # Convert to FID model
+      local wmod2imod_cmd="${contour_imod_dir}/wmod2imod -z ${zscale} ${new_wimp} ${tmp_fid}"
+      if [[ ${verbose} -ge 4 ]] ; then
+        echo -e "\n  Converting to FID model..."
+        echo -e "    $wmod2imod_cmd"
+      fi
+      $wmod2imod_cmd
+      local status_code=$?  # will be 3 on error, 0 if OK
+      
+      if [[ ${status_code} -ne 0 ]] ; then
+        echo -e "  ERROR!! Exiting with status code: '${status_code}'\n"
         exit
+      fi
+      
+      # Back up pre-existing output
+      backup_copy ${out_fid_file}
+      
+      # Copy header from input to output (more literally: replace object 1 from second model into first model)
+      local imodjoin_cmd="${contour_imod_dir}/imodjoin -r 1 ${fid_file} ${tmp_fid} ${out_fid_file}"
+      if [[ ${verbose} -ge 4 ]] ; then
+        echo -e "  Copying header from input to output..."
+        echo -e "    $imodjoin_cmd"
+      fi
+      $imodjoin_cmd > /dev/null
+      local status_code=$?
+      
+      # Sanity check before cleaning up
+      if [[ -f "${out_fid_file}" ]]; then
+        if [[ ${verbose} -ge 5 ]] ; then
+          echo "  Cleaning up..."
+        fi
+        rm -r ${temp_contour_dir} 2> /dev/null
       else
-        echo -e "\nWARNING! Can't find 'sort_residuals.py'"
-        local sort_exe="python sort_residuals.py"
+        echo -e "  ERROR!! File '${out_fid_file}' does not exist! Exiting with status code: '${status_code}'\n"
         exit
       fi
-      # End testing IF-THEN
+      
+      num_bad_residuals=${#bad_residuals[@]}
+      if [[ ${verbose} -ge 1 ]] ; then
+        echo "  Removed ${num_bad_residuals}/${num_chunks} contours from '${fid_file}' and wrote to '${out_fid_file}'"
+      fi
     fi
-    # End local IF-THEN
-  fi
-  # End SNARTOMO IF-THEN
-  
-  local sort_cmd="${sort_exe} ${contour_resid_file} --sd ${num_sd} --plot ${contour_plot}"
-  
-  if [[ ${verbose} -ge 4 ]] ; then
-    echo "  Finding contours with residuals exceeding ${num_sd}*SD..."
-    echo "    ${sort_cmd}"
-  fi
-  
-  # Read space-delimited list into array
-  if [[ "${test_contour}" != true ]]; then
-    IFS=' ' read -r -a bad_residuals <<< $($sort_cmd)
-  fi
-}
+    # End testing IF-THEN
+  }
 
-function remove_contours() {
-###############################################################################
-#   Function:
-#     Remove multiple contours
-#   
-#   Positional variables:
-#     1. Contour number to remove
-#   
-#   Global variables:
-#     bad_residuals
-#     chunk_array
-#     verbose
-#     new_wimp
-#   
-###############################################################################
-  
-#   printf "'%s'\n" "${bad_residuals[@]}"
-#   echo "bad_residuals: '${#bad_residuals[@]}'"
-  
-  # Remove bad residuals from array
-  for curr_resid in "${bad_residuals[@]}" ; do
-    local contour2rm=$(( $curr_resid - 1))
+    function split_wimp() {
+    ###############################################################################
+    #   Function:
+    #     FUNCTION
+    #   
+    #   Positional variables:
+    #     1. WIMP-format text file
+    #   
+    #   Global variables:
+    #     temp_contour_dir
+    #     num_chunks
+    #     verbose
+    #     chunk_array
+    #   
+    ###############################################################################
 
-    if [[ ${verbose} -ge 3 ]] ; then
-      echo "    Removed contour #${curr_resid}"
-    fi
-  
-  
-    # Remove index from array
-    unset 'chunk_array[$contour2rm]'
-    if [[ ${verbose} -ge 7 ]] ; then
-      echo "  chunk_array: '${#chunk_array[@]}' '${chunk_array[@]}'"
-    fi
-  done
-  
-  # Initialize new array
-  cp "${temp_contour_dir}/${contour_prefix}000.txt" ${new_wimp}
-  
-  # Formatting
-  local counter=0
-  local num_digits=11
-  local fmt_spc="          "
-  
-  # Loop through remaining array
-  for contour_idx in "${chunk_array[@]}"; do
-    local chunk_file="${temp_contour_dir}/${contour_prefix}${contour_idx}.txt"
+      local wimp_file=$1
+      
+      # Split into chunks (Adapted from https://stackoverflow.com/a/1825810)
+      awk '/  Object #:/{n++}{print > "'${temp_contour_dir}/${contour_prefix}'" sprintf("%03d", n) ".txt"}' ${wimp_file}
+      
+      num_chunks=$(( $(ls ${temp_contour_dir}/${contour_prefix}* | wc -w) - 1))
+      
+      if [[ ${verbose} -ge 4 ]] ; then
+        echo "  Split WIMP file into ${num_chunks} chunks (not including header)"
+      fi
+      
+      chunk_array=($(seq -f "%03g" ${num_chunks}))
+    }
+
+    function highest_residuals() {
+    ###############################################################################
+    #   Function:
+    #     Get contours exceeding residual cutoff
+    #   
+    #   Requires:
+    #     sort_residuals.py
+    #     
+    #   Positional variables:
+    #     1) sorted-residual plot file
+    #     2) residual cutoff, units of sigma
+    #   
+    #   Calls functions:
+    #   
+    #   Global variables:
+    #     test_contour
+    #     contour_resid_file
+    #     bad_residuals
+    #     verbose
+    #   
+    ###############################################################################
+      
+      local contour_plot=$1
+      local num_sd=$2
+      
+      # Sanity check
+      if ! [ -z $SNARTOMO_DIR ] ; then
+        local sort_exe="python ${SNARTOMO_DIR}/sort_residuals.py"
+      else
+        if [[ -f "./sort_residuals.py" ]]; then
+          local sort_exe="python ./sort_residuals.py"
+        else
+          if [[ "${test_contour}" != true ]]; then
+            echo -e "\nERROR!! Can't find 'sort_residuals.py'!"
+            echo      "  Either copy to current directory or define 'SNARTOMO_DIR'"
+            echo -e   "  Exiting...\n"
+            exit
+          else
+            echo -e "\nWARNING! Can't find 'sort_residuals.py'"
+            local sort_exe="python sort_residuals.py"
+            exit
+          fi
+          # End testing IF-THEN
+        fi
+        # End local IF-THEN
+      fi
+      # End SNARTOMO IF-THEN
+      
+      local sort_cmd="${sort_exe} ${contour_resid_file} --sd ${num_sd} --plot ${contour_plot}"
+      
+      if [[ ${verbose} -ge 4 ]] ; then
+        echo "  Finding contours with residuals exceeding ${num_sd}*SD..."
+        echo "    ${sort_cmd}"
+      fi
+      
+      # Read space-delimited list into array
+      if [[ "${test_contour}" != true ]]; then
+        IFS=' ' read -r -a bad_residuals <<< $($sort_cmd)
+      fi
+    }
+
+    function remove_contours() {
+    ###############################################################################
+    #   Function:
+    #     Remove multiple contours
+    #   
+    #   Positional variables:
+    #     1. Contour number to remove
+    #   
+    #   Global variables:
+    #     bad_residuals
+    #     chunk_array
+    #     verbose
+    #     new_wimp
+    #   
+    ###############################################################################
+      
+    #   printf "'%s'\n" "${bad_residuals[@]}"
+    #   echo "bad_residuals: '${#bad_residuals[@]}'"
+      
+      # Remove bad residuals from array
+      for curr_resid in "${bad_residuals[@]}" ; do
+        local contour2rm=$(( $curr_resid - 1))
+
+        if [[ ${verbose} -ge 3 ]] ; then
+          echo "    Removed contour #${curr_resid}"
+        fi
+      
+      
+        # Remove index from array
+        unset 'chunk_array[$contour2rm]'
+        if [[ ${verbose} -ge 7 ]] ; then
+          echo "  chunk_array: '${#chunk_array[@]}' '${chunk_array[@]}'"
+        fi
+      done
+      
+      # Initialize new array
+      cp "${temp_contour_dir}/${contour_prefix}000.txt" ${new_wimp}
+      
+      # Formatting
+      local counter=0
+      local num_digits=11
+      local fmt_spc="          "
+      
+      # Loop through remaining array
+      for contour_idx in "${chunk_array[@]}"; do
+        local chunk_file="${temp_contour_dir}/${contour_prefix}${contour_idx}.txt"
+        
+        # Object numbers in contour file have to be consecutive
+        local old_line=$(grep "Object #:" ${chunk_file})
+        
+        let "counter++"
+        
+        # String may have fixed width (https://unix.stackexchange.com/a/354493)
+        local new_line="  Object #: ${fmt_spc:0:$(($num_digits - ${#counter}))}${counter:0:$num_digits}"
+        
+    #     sed -i "s/.*$old_line.*/${new_line}/" "${chunk_file}"
+        # Double quotes are required here for some reason.
+        # (Wild card ".*" replaces whole line)
+        
+        cat ${chunk_file} >> ${new_wimp}
+      done
+        
+      # Make sure not the last contour (which may have extra lines in the chunk file)
+      if [[ ${contour2rm} -eq ${#chunk_array[@]} ]] ; then
+        echo ""      >>  ${new_wimp}
+        echo "  END" >>  ${new_wimp}
+      fi
+    }
+
+    function backup_copy() {
+    ###############################################################################
+    #   Function:
+    #     Appends existing file with version number if it exists
+    #     Adapted from gpu_resources.bash
+    #     
+    #   Positional variable:
+    #     1) Filename (required)
+    #     
+    #   Global variable:
+    #     verbose
+    #     
+    ###############################################################################
     
-    # Object numbers in contour file have to be consecutive
-    local old_line=$(grep "Object #:" ${chunk_file})
-    
-    let "counter++"
-    
-    # String may have fixed width (https://unix.stackexchange.com/a/354493)
-    local new_line="  Object #: ${fmt_spc:0:$(($num_digits - ${#counter}))}${counter:0:$num_digits}"
-    
-#     sed -i "s/.*$old_line.*/${new_line}/" "${chunk_file}"
-    # Double quotes are required here for some reason.
-    # (Wild card ".*" replaces whole line)
-    
-    cat ${chunk_file} >> ${new_wimp}
-  done
-    
-  # Make sure not the last contour (which may have extra lines in the chunk file)
-  if [[ ${contour2rm} -eq ${#chunk_array[@]} ]] ; then
-    echo ""      >>  ${new_wimp}
-    echo "  END" >>  ${new_wimp}
-  fi
-}
+      local fn=$1
+      
+      if [[ "$1" == "" ]]; then
+        echo "ERROR!! Filename required!"
+        return
+      fi
+      
+      if [[ "$verbose" == "" ]]; then
+        local verbose=1
+      fi
+      
+      # Check if file exists
+      if [[ -f "$fn" ]]; then
+        if [[ "$verbose" -ge 7 ]]; then
+          echo "  File exists: '$fn'"
+        fi
+        
+        # Initialize version counter
+        local counter=0
+        
+        until [[ ! -f "${fn}_${counter}" ]] ; do
+          let "counter++"
+        done
+      
+        # Guest doesn't have permission to preserve modification times
+        if [[ "$verbose" -ge 2 ]]; then
+          \mv -fv "${fn}" "${fn}_${counter}"
+        else
+          \mv -f "${fn}" "${fn}_${counter}"
+        fi
+        \cp -f "${fn}_${counter}" "${fn}"
+      fi
+    }
 
 function backup_file() {
 ###############################################################################
@@ -2978,54 +3029,6 @@ function backup_file() {
     else
       mv "${fn}" "${fn}_${counter}"
     fi
-  fi
-}
-
-function backup_copy() {
-###############################################################################
-#   Function:
-#     Appends existing file with version number if it exists
-#     Adapted from gpu_resources.bash
-#     
-#   Positional variable:
-#     1) Filename (required)
-#     
-#   Global variable:
-#     verbose
-#     
-###############################################################################
- 
-  local fn=$1
-  
-  if [[ "$1" == "" ]]; then
-    echo "ERROR!! Filename required!"
-    return
-  fi
-  
-  if [[ "$verbose" == "" ]]; then
-    local verbose=1
-  fi
-  
-  # Check if file exists
-  if [[ -f "$fn" ]]; then
-    if [[ "$verbose" -ge 7 ]]; then
-      echo "  File exists: '$fn'"
-    fi
-    
-    # Initialize version counter
-    local counter=0
-    
-    until [[ ! -f "${fn}_${counter}" ]] ; do
-      let "counter++"
-    done
-  
-    # Guest doesn't have permission to preserve modification times
-    if [[ "$verbose" -ge 2 ]]; then
-      \mv -fv "${fn}" "${fn}_${counter}"
-    else
-      \mv -f "${fn}" "${fn}_${counter}"
-    fi
-    \cp -f "${fn}_${counter}" "${fn}"
   fi
 }
 
