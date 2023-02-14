@@ -348,7 +348,7 @@ function parse_command_line() {
   add_argument "min_frames" "${min_frames}" "Minimum number of EER frames before warning" "INT"
   add_argument "max_frames" "${max_frames}" "Maximum number of EER frames before warning" "INT"
   add_argument "eer_local" "${CP_EER_LOCAL}" "Flag to copy EER files locally temporarily" "BOOL"
-  add_argument "eer_latency" "${eer_latency}" "Maximum header read time before microgrpah is copied locally" "FLOAT"
+  add_argument "eer_latency" "${eer_latency}" "Maximum header read time before micrograph is copied locally" "FLOAT"
   add_argument "debug" "false" "Flag for debugging" "BOOL"
   
   # MotionCor2
@@ -383,9 +383,9 @@ function parse_command_line() {
 
   # TOPAZ
   add_section "TOPAZ SETTINGS" "Settings for denoising."
+  add_argument "topaz_env" "${TOPAZ_ENV}" "Topaz conda environment" "ANY"
   add_argument "do_topaz" "${do_topaz}" "Denoise micrographs using Topaz" "BOOL"
   add_argument "topaz_patch" "${topaz_patch}" "Patch size for Topaz denoising" "INT"
-  add_argument "topaz_env" "${TOPAZ_ENV}" "Topaz conda environment" "ANY"
 
   # IMOD
   add_section "IMOD SETTINGS" "Settings for IMOD: restacking and optional eTomo reconstruction."

@@ -270,7 +270,7 @@ function parse_command_line() {
   add_argument "ram_warn" "${ram_warn}" "Free system memory (GB) before warning printed" "FLOAT"
   add_argument "ram_kill" "${ram_kill}" "Free system memory (GB) before exiting" "FLOAT"
   add_argument "eer_local" "${CP_EER_LOCAL}" "Flag to copy EER files locally temporarily" "BOOL"
-  add_argument "eer_latency" "${eer_latency}" "Maximum header read time before microgrpah is copied locally" "FLOAT"
+  add_argument "eer_latency" "${eer_latency}" "Maximum header read time before micrograph is copied locally" "FLOAT"
   add_argument "debug" "false" "Flag for debugging" "BOOL"
 
   # MotionCor2
@@ -1289,7 +1289,7 @@ function distribute_motioncor() {
         
         # Append to list
         if [[ "${do_parallel}" == true ]]; then
-          file_lock "${ctf_mics}" "12" "${FUNCNAME[0]}"
+          file_lock "${ctf_mics}" "15" "${FUNCNAME[0]}"
           local mic_lock=${lock_file}
         fi
         
