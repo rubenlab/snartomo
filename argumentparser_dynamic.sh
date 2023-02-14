@@ -376,13 +376,16 @@ function dynamic_parser(){
         if [[ ${sanity_check} = BOOL ]]
         then
             : # pass do nothing
+        elif [[ ${sanity_check} = ANY ]]
+        then
+            : # pass do nothing
         elif [[ -z ${value} ]]
         then
             echo "--${key,,}" cannot be empty!
             error=true
-        elif [[ ${sanity_check} = ANY ]]
-        then
-            : # pass do nothing
+#         elif [[ ${sanity_check} = ANY ]]
+#         then
+#             : # pass do nothing
         elif [[ ${sanity_check} = FILE ]]
         then
             if [[ ! -f ${value} ]]
