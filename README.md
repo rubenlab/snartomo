@@ -1,4 +1,4 @@
-# snartomo
+# SNARTomo
 
 SNARTomo is our set of scripts for on-the-fly tomographic reconstruction. 
 {{ :computers:snartomo2.png?direct&200|}}
