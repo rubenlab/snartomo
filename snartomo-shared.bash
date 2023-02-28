@@ -2368,7 +2368,7 @@ function wrapper_aretomo() {
       -AngFile $angles_list \
       -AlignZ ${vars[rec_zdim]} \
       -VolZ ${vars[vol_zdim]} \
-      -OutBin ${vars[bin]} \
+      -OutBin ${vars[are_bin]} \
       -TiltAxis ${vars[tilt_axis]} \
       -Gpu ${gpu_num} \
       -TiltCor ${vars[tilt_cor]} \

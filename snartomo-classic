@@ -31,8 +31,8 @@ function program_info() {
 }
 
 function print_usage() {
-  echo "USAGE:   $(basename $0) --gain_file <gain_file> <options>"
-  echo "DRY RUN: $(basename $0) --gain_file <gain_file> <options> --testing"
+  echo "USAGE (EER): $(basename $0) --eer_dir <movie_directory> --gain_file <gain_file> <options>"
+  echo "DRY RUN:     $(basename $0) --eer_dir <movie_directory> --gain_file <gain_file> <options> --testing"
   echo
   echo "To list options & defaults, type:"
   echo "  $(basename $0) --help"
@@ -316,10 +316,10 @@ function parse_command_line() {
   add_argument "tif_dir" "" "Input TIFF movie stack directory" "ANY"
   
   add_section "GLOBAL SETTINGS" "These settings affect multiple steps."
-  add_argument "mdoc_dir" "" "Tilt-series MDOC directory" "ANY"
-  add_argument "mdoc_file" "${mdoc_file}" "Input MDOC file" "ANY"  # TODO: Get first MDOC in ${mdoc_dir}
-  add_argument "apix" "${apix}" "Pixel size, A/px" "FLOAT"
   add_argument "outdir" "${outdir}" "Output directory" "ANY"
+  add_argument "mdoc_dir" "" "Input MDOC directory, will be copied to reconstruction directory" "ANY"
+  add_argument "mdoc_file" "${mdoc_file}" "Single input example MDOC file, to extract pixel size, etc." "ANY"  # TODO: Get first MDOC in ${mdoc_dir}
+  add_argument "apix" "${apix}" "Pixel size, A/px" "FLOAT"
   add_argument "verbosity" "${verbosity}" "Verbosity level (0..8) (3 or 2 recommended for testing mode)" "INT"
   add_argument "restore_movies" "false" "Move already-processed movies from output directory to input directory" "BOOL"
   add_argument "testing" "false" "Testing flag" "BOOL"
@@ -327,21 +327,21 @@ function parse_command_line() {
   add_argument "log" "${log_file}" "Output log file (not used in testing mode)" "ANY"
   add_argument "max_minutes" "${max_minutes}" "Maximum run time, minutes" "INT"
   add_argument "kv" "${voltage}" "Voltage, kV" "FLOAT"
-  add_argument "gpus" "${gpus}" "GPUs to use (space-delimited if more than one)" "ANY"
+  add_argument "gpus" "${gpus}" "GPU to use (only single GPU supported in Classic mode)" "ANY"
 
   add_section "ADVANCED SETTINGS" "These settings will rarely need to be changed."
   add_argument "search_interval" "${search_interval}" "Interval to check for new micrographs, seconds" "INT"
   add_argument "min_frames" "${min_frames}" "Minimum number of frames (EERs only) before warning" "INT"
   add_argument "max_frames" "${max_frames}" "Maximum number of frames (EERs only) before warning" "INT"
-  add_argument "eer_local" "${CP_EER_LOCAL}" "Flag to copy EER files locally temporarily" "BOOL"
+  add_argument "eer_local" "${CP_EER_LOCAL}" "Flag to temporarily copy EER files locally" "BOOL"
   add_argument "eer_latency" "${eer_latency}" "Maximum header read time before micrograph is copied locally" "FLOAT"
   add_argument "debug" "false" "Flag for debugging" "BOOL"
   
   # MotionCor2
   add_section "MOTIONCOR2 SETTINGS" "Settings for motion-correction."
+  add_argument "frame_file" "${frame_file}" "Input MotionCor2 frame file" "ANY"
   add_argument "gain_file" "" "Input gain file" "ANY"
   add_argument "no_gain" "false" "Flag when no gain file is to be used" "BOOL"
-  add_argument "frame_file" "${frame_file}" "Input MotionCor2 frame file" "ANY"
   add_argument "motioncor_exe" "${MOTIONCOR2_EXE}" "MotionCor2 executable" "ANY"
   add_argument "do_dosewt" "false" "Flag to perform dose-weighting" "BOOL"
   add_argument "mcor_patches" "${mcor_patches}" "Number of patches in x y, delimited by spaces" "ANY"
@@ -366,26 +366,26 @@ function parse_command_line() {
 
   # JANNI
   add_section "JANNI SETTINGS" "Settings for JANNI denoise."
-  add_argument "do_janni" "${do_janni}" "Denoise micrographs using JANNI" "BOOL"
+# #   add_argument "do_janni" "${do_janni}" "Denoise micrographs using JANNI" "BOOL"
   add_argument "janni_batch" "${janni_batch}" "Number of patches predicted in parallel" "INT"
   add_argument "janni_overlap" "${janni_overlap}" "Overlap between patches, pixels" "INT"
+  add_argument "janni_env" "${JANNI_ENV}" "JANNI conda environment" "ANY"
 
   # TOPAZ
   add_section "TOPAZ SETTINGS" "Settings for denoising."
-  add_argument "topaz_env" "${TOPAZ_ENV}" "Topaz conda environment" "ANY"
   add_argument "do_topaz" "${do_topaz}" "Denoise micrographs using Topaz" "BOOL"
   add_argument "topaz_patch" "${topaz_patch}" "Patch size for Topaz denoising" "INT"
+  add_argument "topaz_env" "${TOPAZ_ENV}" "Topaz conda environment" "ANY"
 
   # IMOD
   add_section "IMOD SETTINGS" "Settings for IMOD: restacking and optional eTomo reconstruction."
   add_argument "imod_dir" "${IMOD_BIN}" "IMOD executable directory" "ANY"
-# #   add_argument "do_etomo" "${do_etomo}" "Compute reconstruction using IMOD" "BOOL"
   add_argument "batch_directive" "" "IMOD eTomo batch directive file" "ANY"
 
   # AreTomo parameters
   add_section "ARETOMO SETTINGS" "Reconstruction will be computed either with AreTomo (default) or IMOD."
   add_argument "aretomo_exe" "${ARETOMO_EXE}" "AreTomo executable" "ANY"
-  add_argument "bin" "${bin_factor}" "Binning factor for reconstruction" "INT"
+  add_argument "are_bin" "${bin_factor}" "Binning factor for reconstruction" "INT"
   add_argument "vol_zdim" "${vol_zdim}" "z-dimension for volume" "INT"
   add_argument "rec_zdim" "${rec_zdim}" "z-dimension for 3D reconstruction" "INT"
   add_argument "tilt_axis" "${tilt_axis}" "Estimate for tilt-axis direction, degrees" "FLOAT"
