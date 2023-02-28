@@ -10,9 +10,9 @@
 #   6. _AR_e_TOMO_ to compute reconstruction
 #
 # Changelog:
+#   2023-02-23 (trs) -- MRCs and TIFs supported
 #   2023-02-07 (trs) -- can restore previously-processed movies to original location
 #   2022-08-12 (trs) -- added JANNI denoising (UNTESTED)
-#   2022-08-02 (trs & tcc) -- AreTomo 1.2.5 now the default
 #   2022-05-07 (trs) -- shares functions with SNARTomoPACE
 #   2022-03-12 (trs) -- can read pixel size, other info, from MDOC file
 #   2022-03-09 (trs) -- added Topaz 2D denoising option
@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2023-02-13"
+  echo "Modified 2023-02-28"
   date
   echo 
 }
@@ -38,7 +38,7 @@ function print_usage() {
   echo "  $(basename $0) --help"
   echo
   echo "Program expects input tilt series of the form:"
-  echo "  {arbitrary_tilt_series_name}_{tiltSeriesIndex}_{angle}_{date}.eer"
+  echo "  {arbitrary_tilt_series_name}_{tiltSeriesIndex}_{angle}_{date}.{format}"
   echo "The arbitrary_tilt_series_name can have underscores, but"
   echo "  tiltSeriesIndex, angle, and date cannot."
   echo
@@ -49,9 +49,9 @@ function howto_stop() {
   echo "  Program computes a reconstruction of a tilt series when a new tilt series begins."
   echo "  However, the last tilt series will generally not be followed by any additional files."
   echo "  The program will run for the duration set with the parameter 'max_minutes'."
-  echo "  To end the program early, create a random EER file in the input directory,"
+  echo "  To end the program early, create a random movie file in the input directory,"
   echo "    which will start the last reconstruction, e.g.:"
-  echo "    touch {eer_dir}/done.eer"
+  echo "    touch {movie_dir}/done.{movie_extension}"
   echo
   echo "BEGIN"
 }
@@ -60,7 +60,6 @@ function howto_stop() {
 
 # Inputs
 shared_libs=snartomo-shared.bash                   # Shared libraries
-input_dir=frames                                   # Input directory for EER movies
 mdoc_file=None                                     # Input MDOC file (to read pixel size, etc.)
 log_file=log-snartomo.txt                          # Log file
 outdir=SNARTomo                                    # Output top-level directory
@@ -84,8 +83,8 @@ verbosity=4                                       # verbosity level
 #                                                 #   8: extra debug info
 
 # Advanced
-min_frames=400                                    # minimum number of EER frames before warning
-max_frames=1200                                   # maximum number of EER frames before warning
+min_frames=400                                    # minimum number of frames (EERs only) before warning
+max_frames=1200                                   # maximum number of frames (EERs only) before warning
 eer_latency=7                                     # (seconds) EER files are copied locally if header takes longer than this time
 search_interval=4                                 # Looks for new micrographs every N seconds
 
@@ -117,9 +116,9 @@ do_topaz=false                                    # Run Topaz denoise
 topaz_patch=2048                                  # Patch size
 topaz_time=5m                                     # maximum duration, Topaz sometimes hangs
 
-# IMOD
-do_etomo=false                                    # Run IMOD reconstruction
-batch_directive=batchDirective.adoc               # IMOD batchruntomo directive file
+# # IMOD
+# do_etomo=false                                    # Run IMOD reconstruction
+# batch_directive=batchDirective.adoc               # IMOD batchruntomo directive file
 
 # AreTomo parameters
 bin_factor=8                                      # binning factor
@@ -138,7 +137,7 @@ are_time=30m                                      # maximum duration, AreTomo so
 
 cmd_file=commands.txt                              # Output commands file (in ${outdir})
 set_file=settings.txt                              # Output settings file (in ${outdir})
-rawdir=1-EER                                       # directory where raw EER files will go
+rawdir=1-Movies                                    # directory where raw movie files will go
 micdir=2-MotionCor2                                # MotionCor directory
 mc2_logs=Logs                                      # directory for resource and MotionCor log files
 ctfdir=3-CTFFIND4                                  # CTFFIND directory
@@ -153,8 +152,9 @@ temp_dir=tmp                                       # Temporary files
 # Outline (multiline comment)
 : '
 main
-  check_env
+  shared.check_env
   parse_command_line
+  shared.check_format
   shared.check_args
   shared.check_testing
   do_real_work
@@ -163,7 +163,7 @@ main
     print_arguments
     validate_inputs
     initialize_vars
-    create_directories
+    shared.create_directories
     check_gain_format
     howto_stop
       LOOP:
@@ -177,6 +177,10 @@ main
             wrapper_aretomo
             wrapper_etomo
         motioncor2_serial
+          shared.check_frames
+          check_freegpus
+          run_motioncor
+          remove_local
         ctffind4_serial
         check_time
     summary_info
@@ -192,6 +196,7 @@ function main() {
   do_pace=false
   check_env
   parse_command_line "${@}"
+  check_format
   check_args 0
   
   # Check if testing
@@ -236,18 +241,19 @@ function do_real_work() {
   check_gain_format
   
   if [[ "${verbose}" -ge 1 ]]; then
-    echo -e "Looking for files in '${vars[eer_dir]}/' for up to ${vars[max_minutes]} minutes\n"
+    echo -e "\nLooking for files in '${vars[movie_dir]}/' for up to ${vars[max_minutes]} minutes\n"
     howto_stop
   fi
 
   mic_counter=0
 
   while (( $(echo "$SECONDS < $max_seconds" | bc) )) ; do
-    new_files=($(get_new_files "${vars[eer_dir]}" ".eer"))
+    new_files=($(get_new_files "${vars[movie_dir]}" ".${movie_ext}"))
+# #     printf "'%s'\n" "${new_files[@]}" ; exit  ### DIAGNOSTIC
 
     for fn in "${new_files[@]}" ; do
       # Does the file end with .eer?
-      if [[ "$fn" =~ .*eer$ ]]; then 
+      if [[ "$fn" == *."${movie_ext}" ]]; then 
         parse_filename
     
         # Check termination flag
@@ -258,8 +264,13 @@ function do_real_work() {
         else
           break
         fi
+#       
+#       # TESTING
+#       else
+#         echo "$fn : doesn't end in '.${movie_ext}'"
+#         exit
       fi
-      # End EER IF-THEN
+      # End movie IF-THEN
     done
     # End new-file loop
     
@@ -280,31 +291,6 @@ function do_real_work() {
 }
 # End main()
 
-function check_env() {
-###############################################################################
-#   Function:
-#     Sources shared functions from central SNARTomo directory
-#     
-#   Global variables:
-#     do_pace
-#     
-###############################################################################
-
-  if [[ "${SNARTOMO_DIR}" == "" ]]; then
-    echo -e "\nERROR!! Environmental variable 'SNARTOMO_DIR' undefined!"
-    echo      "  Set variable with: export SNARTOMO_DIR=<path_to_snartomo_files>"
-    echo -e   "  Exiting...\n"
-    exit
-  else
-    source "${SNARTOMO_DIR}/${shared_libs}"
-    source "${SNARTOMO_DIR}/argumentparser_dynamic.sh"
-    
-    if [[ "${do_pace}" != false ]]; then
-      source "${SNARTOMO_DIR}/gpu_resources.bash"
-    fi
-  fi
-}
-
 function parse_command_line() {
 ###############################################################################
 #   Function:
@@ -324,14 +310,14 @@ function parse_command_line() {
 #   
 ###############################################################################
   
-  add_section "REQUIRED SETTINGS" "These files/directories are required."
-  add_argument "eer_dir" "${input_dir}" "Input EER directory" "DIR"
-  add_argument "gain_file" "" "Input gain file" "ANY"
-  add_argument "frame_file" "${frame_file}" "Input MotionCor2 frame file" "ANY"
-  add_argument "mdoc_dir" "" "Tilt-series MDOC directory" "ANY"
+  add_section "INPUT MOVIE SETTINGS" "One of these directories is required."
+  add_argument "eer_dir" "" "Input EER directory" "ANY"
+  add_argument "mrc_dir" "" "Input MRC movie stack directory" "ANY"
+  add_argument "tif_dir" "" "Input TIFF movie stack directory" "ANY"
   
   add_section "GLOBAL SETTINGS" "These settings affect multiple steps."
-  add_argument "mdoc_file" "${mdoc_file}" "Input MDOC file" "ANY"
+  add_argument "mdoc_dir" "" "Tilt-series MDOC directory" "ANY"
+  add_argument "mdoc_file" "${mdoc_file}" "Input MDOC file" "ANY"  # TODO: Get first MDOC in ${mdoc_dir}
   add_argument "apix" "${apix}" "Pixel size, A/px" "FLOAT"
   add_argument "outdir" "${outdir}" "Output directory" "ANY"
   add_argument "verbosity" "${verbosity}" "Verbosity level (0..8) (3 or 2 recommended for testing mode)" "INT"
@@ -345,14 +331,17 @@ function parse_command_line() {
 
   add_section "ADVANCED SETTINGS" "These settings will rarely need to be changed."
   add_argument "search_interval" "${search_interval}" "Interval to check for new micrographs, seconds" "INT"
-  add_argument "min_frames" "${min_frames}" "Minimum number of EER frames before warning" "INT"
-  add_argument "max_frames" "${max_frames}" "Maximum number of EER frames before warning" "INT"
+  add_argument "min_frames" "${min_frames}" "Minimum number of frames (EERs only) before warning" "INT"
+  add_argument "max_frames" "${max_frames}" "Maximum number of frames (EERs only) before warning" "INT"
   add_argument "eer_local" "${CP_EER_LOCAL}" "Flag to copy EER files locally temporarily" "BOOL"
   add_argument "eer_latency" "${eer_latency}" "Maximum header read time before micrograph is copied locally" "FLOAT"
   add_argument "debug" "false" "Flag for debugging" "BOOL"
   
   # MotionCor2
   add_section "MOTIONCOR2 SETTINGS" "Settings for motion-correction."
+  add_argument "gain_file" "" "Input gain file" "ANY"
+  add_argument "no_gain" "false" "Flag when no gain file is to be used" "BOOL"
+  add_argument "frame_file" "${frame_file}" "Input MotionCor2 frame file" "ANY"
   add_argument "motioncor_exe" "${MOTIONCOR2_EXE}" "MotionCor2 executable" "ANY"
   add_argument "do_dosewt" "false" "Flag to perform dose-weighting" "BOOL"
   add_argument "mcor_patches" "${mcor_patches}" "Number of patches in x y, delimited by spaces" "ANY"
@@ -390,8 +379,8 @@ function parse_command_line() {
   # IMOD
   add_section "IMOD SETTINGS" "Settings for IMOD: restacking and optional eTomo reconstruction."
   add_argument "imod_dir" "${IMOD_BIN}" "IMOD executable directory" "ANY"
-  add_argument "do_etomo" "${do_etomo}" "Compute reconstruction using IMOD" "BOOL"
-  add_argument "batch_directive" "${batch_directive}" "IMOD eTomo batch directive file" "ANY"
+# #   add_argument "do_etomo" "${do_etomo}" "Compute reconstruction using IMOD" "BOOL"
+  add_argument "batch_directive" "" "IMOD eTomo batch directive file" "ANY"
 
   # AreTomo parameters
   add_section "ARETOMO SETTINGS" "Reconstruction will be computed either with AreTomo (default) or IMOD."
@@ -509,9 +498,33 @@ function add_section() {
     # Update arrays
     section_sequence+=(${curr_idx})
     section_vars[${curr_idx}]="${curr_str}"
+}
+
+function check_env() {
+###############################################################################
+#   Functions:
+#     Checks whether environmental variable SNARTOMO_DIR is set
+#     Sources shared functions from central SNARTomo directory
+#     
+#   Global variables:
+#     do_pace
+#     shared_libs
+#     
+###############################################################################
+
+  if [[ "${SNARTOMO_DIR}" == "" ]]; then
+    echo -e "\nERROR!! Environmental variable 'SNARTOMO_DIR' undefined!"
+    echo      "  Set variable with: export SNARTOMO_DIR=<path_to_snartomo_files>"
+    echo -e   "  Exiting...\n"
+    exit
+  else
+    source "${SNARTOMO_DIR}/${shared_libs}"
+    source "${SNARTOMO_DIR}/argumentparser_dynamic.sh"
     
-#     # DIAGNOSTIC
-#     echo -e "${#section_vars[@]}" "${#section_sequence[@]}" "${curr_idx}" "${section_vars[${curr_idx}]}"
+    if [[ "${do_pace}" == true ]]; then
+      source "${SNARTOMO_DIR}/gpu_resources.bash"
+    fi
+  fi
 }
 
 function initialize_vars() {
@@ -578,7 +591,7 @@ function parse_filename() {
 #   
 #   Global variables:
 #     vars
-#     stem_eer
+#     stem_movie (OUTPUT)
 #     fn
 #     cor_mic
 #     dns_mic
@@ -589,14 +602,15 @@ function parse_filename() {
 #     tilt_idx
 #     tomo_name
 #     kill_all_humans
+#     movie_ext
 #     
 ###############################################################################
   
   # Cut directory name and extension (last period-delimited string)
-  stem_eer=$(basename $fn | rev | cut -d. -f2- | rev)
-  cor_mic="${vars[outdir]}/${micdir}/${stem_eer}_mic.mrc"
-  dns_mic="${vars[outdir]}/${topazdir}/${stem_eer}_mic.mrc"
-  ali_out="${vars[outdir]}/${micdir}/${mc2_logs}/${stem_eer}_mic.out"
+  stem_movie=$(basename $fn | rev | cut -d. -f2- | rev)
+  cor_mic="${vars[outdir]}/${micdir}/${stem_movie}_mic.mrc"
+  dns_mic="${vars[outdir]}/${topazdir}/${stem_movie}_mic.mrc"
+  ali_out="${vars[outdir]}/${micdir}/${mc2_logs}/${stem_movie}_mic.out"
 
   # Remove extension (last period-delimited string)
   stem_mrc=$(file_stem "$cor_mic")
@@ -612,8 +626,6 @@ function parse_filename() {
   tilt_idx=$(echo $wo_date | rev | cut -d_ -f2 | rev | bc)
   # Using bc to convert to number: https://stackoverflow.com/a/11268537
 
-#   echo "    TESTING $stem_eer '$tilt_idx' '$angle'"
-  
   # Remove remaining underscore-delimited string (tomogram name)
   tomo_name=`echo $wo_date | rev | cut -d_ -f3- | rev`
   
@@ -628,12 +640,14 @@ function parse_filename() {
       date
       echo
     fi
+    
+    # Termination flag
     kill_all_humans=true
   else
     # Update number of remaining files
     if [[ "$verbose" -ge 4 ]]; then
       # Adapted from https://stackoverflow.com/a/33891876/3361621
-      remaining_files=$(ls 2> /dev/null -Ubad -- "${vars[eer_dir]}"/*.eer | wc -w)
+      remaining_files=$(ls 2> /dev/null -Ubad -- ${vars[movie_dir]}/*.${movie_ext} | wc -w)
       let "mic_counter++"
       
       if [[ "${vars[testing]}" == false ]]; then
@@ -679,20 +693,21 @@ function move_micrograph() {
 #     echo "fn: ${fn}"  # TESTING
       
     # Sanity check
-    if [[ ! "$fn" =~ .*eer$ ]]; then 
-      echo    "WARNING: Filename '$fn' doesn't end in '.eer'"
+    if ! [[ "$fn" == *."${movie_ext}" ]]; then 
+      echo    "WARNING: Filename '$fn' doesn't end in '.${movie_ext}'"
       echo -e "         Continuing...\n"
+# #       echo "702 movie_ext : '$movie_ext', fn : '$fn'" ; exit  # DIAGNOSTIC
     fi
     
     # Move micrograph to output directory so that it isn't processed again
     if [[ "${vars[testing]}" == false ]]; then
-      # In case EER was copied locally, move original
-      orig_eer="${vars[eer_dir]}/$(basename $fn)"
+      # In case EER format and was copied locally, use original directory explicitly
+      local orig_movie="${vars[movie_dir]}/$(basename $fn)"
       
       if [[ "$verbose" -ge 5 ]]; then
-        echo -e "\n    $(mv -v ${orig_eer} "${vars[outdir]}"/$rawdir/)\n"
+        echo -e "\n    $(mv -v ${orig_movie} ${vars[outdir]}/${rawdir}/)\n"
       else
-        mv $fn "${vars[outdir]}"/$rawdir/
+        mv ${orig_movie} ${vars[outdir]}/${rawdir}/
       fi
     
     else
@@ -761,21 +776,23 @@ function motioncor2_serial() {
 #     Default behavior is to NOT overwrite pre-existing outputs.
 #   
 #   Positional variables:
-#     1) EER filename
+#     1) movie filename
 #     
 #   Calls functions:
 #     check_frames
+#     check_freegpus
 #     run_motioncor
 #     remove_local
 #   
 #   Global variables:
-#     vars
 #     kill_all_humans
+#     vars
 #     cor_mic
+#     movie_ext
 #     verbose
-#     testing
+#     remaining_files
 #     ali_out
-#     fn (DEFINED HERE)
+#     fn (OUTPUT)
 #     gpu_num
 #     
 ###############################################################################
@@ -788,7 +805,9 @@ function motioncor2_serial() {
       # Check if output already exists
       if [[ ! -e $cor_mic ]]; then
         # Check number of frames
-        check_frames
+        if [[ "${movie_ext}" == "eer" ]] ; then
+          check_frames
+        fi
         
         # If someone else owns /tmp/MotionCor2_FreeGpus.txt, MotionCor will be unhappy
         check_freegpus
@@ -837,9 +856,6 @@ function motioncor2_serial() {
         
           # Remove locally-copied EER file (make sure it's in the temp directory and not the original)
           remove_local "$fn"
-#           if [[ "${vars[eer_local]}" == "true" ]] ; then
-#             \rm "${vars[outdir]}/${temp_dir}/$(basename $fn)" 2> /dev/null
-#           fi
         fi
         # End output-exists IF-THEN
       
@@ -870,7 +886,7 @@ function ctffind4_serial() {
 #     2) Generates 1D profile
 #   
 #   Global variables:
-#     stem_eer
+#     stem_movie
 #     kill_all_humans
 #     ctf_mrc (OUTPUT)
 #     cor_mic
@@ -882,11 +898,11 @@ function ctffind4_serial() {
 #     
 ###############################################################################
 
-  local ctf_out="${vars[outdir]}/${ctfdir}/${stem_eer}_ctf.out"
-  local ctf_txt="${vars[outdir]}/${ctfdir}/${stem_eer}_ctf.txt"
+  local ctf_out="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.out"
+  local ctf_txt="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.txt"
   local ctf_summary="${vars[outdir]}/${ctfdir}/SUMMARY_CTF.txt"
-  local avg_rot="${vars[outdir]}/${ctfdir}/${stem_eer}_ctf_avrot.txt"
-  ctf_mrc="${vars[outdir]}/${ctfdir}/${stem_eer}_ctf.mrc"
+  local avg_rot="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf_avrot.txt"
+  ctf_mrc="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.mrc"
   
   # Check termination flag
   if [[ "$kill_all_humans" == false ]]; then
@@ -932,13 +948,13 @@ function ctffind4_serial() {
 
         # Write last line of CTF text output to summary
         if [[ -f "$ctf_txt" ]]; then
-          echo -e "${stem_eer}:    \t$(tail -n 1 $ctf_txt)" >> ${ctf_summary}
+          echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${ctf_summary}
         else
           echo    "WARNING! CTFFIND4 output $ctf_txt does not exist!"
         fi
         
         if [[ "$verbose" -ge 5 ]] && [[ "${do_pace}" != true ]]; then
-          remaining_files=`ls 2>/dev/null -Ubad -- "${vars[eer_dir]}"/*.eer | wc -w`
+          remaining_files=$(ls 2>/dev/null -Ubad -- ${vars[movie_dir]}/*.${movie_ext} | wc -w)
           echo -e "\n    Finished CTFFIND4 on $cor_mic, micrograph #${mic_counter}, ${remaining_files} remaining"
           echo -e   "    `date`\n"
         fi
@@ -1060,7 +1076,8 @@ function compute_tomogram() {
   # Restack micrographs from lowest angle (most negative) to highest
   imod_restack
   
-  if [[ "${vars[do_etomo]}" == false ]]; then
+# #   if [[ "${vars[do_etomo]}" == false ]]; then
+  if [[ "${vars[batch_directive]}" == "" ]]; then
     wrapper_aretomo "${num_mics}" "${vars[gpus]}"
   else
     wrapper_etomo "${prev_name}" "${num_mics}"
@@ -1113,7 +1130,7 @@ function summary_info() {
   let "remaining_files--"
   if [[ "$verbose" -ge 2 ]] && [[ "${vars[testing]}" == false ]]; then
     if [[ "$remaining_files" -ge 2 ]]; then
-      echo "WARNING! There are $remaining_files EER files remaining (excluding the dummy file)"
+      echo "WARNING! There are ${remaining_files} movie files remaining (excluding the dummy file)"
       echo "         Are you sure you know what your (sic.) doing?"
       echo ""
     fi

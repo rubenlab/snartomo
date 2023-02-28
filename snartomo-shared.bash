@@ -2,26 +2,125 @@
 
 # THIS SCRIPT CONTAINS FUNCTIONS COMMON TO BOTH SNARTomoClassic and SNARTomoPACE
 
+function check_testing() {
+###############################################################################
+#   Function:
+#     Checks whether we're testing or not
+#   
+#   Global variables:
+#     vars
+#     ctf_exe
+#     do_pace
+#     do_parallel
+#     
+###############################################################################
+  
+  if [[ "${vars[testing]}" == "true" ]]; then
+    echo -e "TESTING...\n"
+    
+    # Instead of running, simply print that you're doing it
+    ctf_exe="TESTING ctffind4"
+  else
+    ctf_exe="$(basename ${vars[ctffind_dir]}/ctffind)"
+  fi
+  # End testing IF-THEN
+  
+  # PACE's "slow" option only works with "testing"
+  if [[ "${do_pace}" == true ]]; then
+    if [[ "${vars[slow]}" == true ]] && [[ "${vars[testing]}" == false ]] ; then
+      echo -e "ERROR!! '--slow' option only valid with '--testing' option!"
+      exit
+    fi
+    
+    # Set default
+    do_parallel=true
+    
+    # Serial mode will be when testing is true and slow is false
+    if [[ "${vars[testing]}" == true ]] ; then
+      vars[outdir]="${vars[outdir]}/0-Testing"
+      
+      if [[ "${vars[slow]}" == false ]] ; then
+        do_parallel=false
+      fi
+    else
+      # Read GPU list as array
+      IFS=' ' read -r -a gpu_list <<< "${vars[gpus]}"
+    fi
+    # End parallel IF-THEN
+  fi
+  # End PACE IF-THEN
+}
+
 function check_args() {
 ###############################################################################
 #   Function:
 #     Checks for unfamiliar arguments
 #   
-#   Global variables:
+#   Global variable:
 #     ARGS
-#   Passed variables:
-#     $1 (integer)
+#     
+#   Positional variable:
+#     1) Number of expected positional arguments
+#     
 ###############################################################################
   
   local num_positional_args=$1
   
   if [[ "${#ARGS[@]}" -gt "${num_positional_args}" ]]; then
-    echo -e "\nERROR!!"
-    echo      "  Found unfamiliar arguments: ${ARGS[@]}"
-    echo      "  To list options & defaults, type:"
-    echo -e   "    $(basename $0) --help\n"
+    echo
+    echo "ERROR!!"
+    echo "  Found unfamiliar arguments: ${ARGS[@]}"
+    echo "  You may have forgotten quotes around wild cards or paameters with multiple values (such as GPUs)"
+    echo "  To list options & defaults, type:"
+    echo "    $(basename $0) --help"
+    echo
     exit 1
   fi  
+}
+
+function check_format() {
+###############################################################################
+#   Function:
+#     Checks format for movies
+#   
+#   Global variable:
+#     vars
+#     movie_ext
+#     
+###############################################################################
+  
+  local dir_counter=0
+  declare -a dir_array
+  
+  # Make sure only one format specified
+  for key in eer_dir tif_dir mrc_dir ; do 
+    if ! [[ -z "${vars[$key]}" ]] ; then
+      let "dir_counter++"
+      dir_array+=($key)
+    fi
+  done
+  
+  if [[ "${#dir_array[@]}" -eq 0 ]]; then
+    echo
+    echo "ERROR!! No movie directory provided!"
+    echo "  Either '--eer_dir', '--mrc_dir', or '--tif_dir' must be provided"
+    echo "  Exiting..."
+    echo 
+    exit
+  elif [[ "${#dir_array[@]}" -ge 2 ]]; then
+    echo
+    echo   "ERROR!! ${#dir_array[@]} movie directories provided:"
+    printf "  '--%s'\n" "${dir_array[@]}"
+    echo
+    echo   "  Only one can be provided"
+    echo   "  Exiting..."
+    echo 
+    exit
+  else
+    movie_ext="${dir_array[0]%_dir}"  # strip extension
+    vars[movie_dir]="${vars[${dir_array[0]}]}"
+# #     echo "122 dir_array '${dir_array[@]}' '${dir_array[0]}', movie_ext '$movie_ext' "  ; exit ### DIAGNOSTIC
+  fi
 }
 
 function create_directories() {
@@ -33,9 +132,10 @@ function create_directories() {
 #   
 #   Global variables:
 #     vars
-#     verbose
-#     do_pace
 #     rawdir
+#     movie_ext
+#     do_pace
+#     verbose
 #     log_dir
 #     temp_dir
 #     mc2_logs
@@ -49,20 +149,20 @@ function create_directories() {
 #
 ###############################################################################
   
-  local eer_template="${vars[outdir]}/${rawdir}/*.eer"
+  local movie_template="${vars[outdir]}/${rawdir}/*.${movie_ext}"
   
   # In Classic mode, move movies back to input directory 
   if [[ "${do_pace}" == false ]] && [[ "${vars[restore_movies]}" == true ]] ; then
     # Count movies
-    local num_moved_eers=$(ls ${eer_template} | wc -w 2> /dev/null)
+    local num_moved_movies=$(ls ${movie_template} | wc -w 2> /dev/null)
     
-    if [[ "${num_moved_eers}" -eq 0 ]]; then
+    if [[ "${num_moved_movies}" -eq 0 ]]; then
       echo "WARNING! There are no already-moved movies in output directory '${vars[outdir]}/${rawdir}/'"
       echo "  Flag '--restore_movies' was not needed"
       echo "  Continuing..."
       echo
     else
-      local move_cmd="mv ${eer_template} ${vars[eer_dir]}/"
+      local move_cmd="mv ${movie_template} ${vars[movie_dir]}/"
       
       if [[ "$verbose" -eq 0 ]]; then
         echo -e "${move_cmd}\n"
@@ -76,7 +176,7 @@ function create_directories() {
         
         # Exit on error
         if [[ $status_code -ne 0 ]] ; then
-          echo -e "\nERROR!! Couldn't move '${eer_template}' to '${vars[eer_dir]}'!"
+          echo -e "\nERROR!! Couldn't move '${movie_template}' to '${vars[movie_dir]}'!"
           echo -e   "  Exiting...\n"
           exit
         fi
@@ -91,17 +191,17 @@ function create_directories() {
   # Remove output directory if '--overwrite' option chosen (PACE only)
   if [[ "${vars[overwrite]}" == true ]]; then
     if [[ "${do_pace}" == false ]]; then
-      local num_moved_eers=$(ls ${eer_template} | wc -w 2> /dev/null)
+      local num_moved_movies=$(ls ${movie_template} | wc -w 2> /dev/null)
     
       # If non-empty, throw error
-      if [[ "${num_moved_eers}" -ge 1 ]]; then
+      if [[ "${num_moved_movies}" -ge 1 ]]; then
         echo
-        echo "ERROR!! Output directory '${vars[outdir]}/${rawdir}' has pre-existing '${num_moved_eers}' EER files!"
+        echo "ERROR!! Output directory '${vars[outdir]}/${rawdir}' has pre-existing '${num_moved_movies}' movie files!"
         echo "  1) If restarting from scratch, enter:"
-        echo "    mv ${eer_template} ${vars[eer_dir]}/"
+        echo "    mv ${movie_template} ${vars[movie_dir]}/"
         echo "    Then restart."
-        echo "  2) If continuing a partial run, move incomplete tilt series' EERs to input directory '${vars[eer_dir]}/'"
-        echo "    Only newly detected EERs will be included in new tilt series."
+        echo "  2) If continuing a partial run, move incomplete tilt series' movies to input directory '${vars[movie_dir]}/'"
+        echo "    Only newly detected movies will be included in new tilt series."
         echo "Exiting..."
         echo
         exit
@@ -164,55 +264,6 @@ function create_directories() {
   if [[ "${verbose}" -ge 1 ]]; then
     echo -e "Wrote settings to ${vars[outdir]}/${vars[settings]}\n"
   fi
-}
-
-function check_testing() {
-###############################################################################
-#   Function:
-#     Checks whether we're testing or not
-#   
-#   Global variables:
-#     vars
-#     ctf_exe
-#     do_pace
-#     do_parallel
-#     
-###############################################################################
-  
-  if [[ "${vars[testing]}" == "true" ]]; then
-    echo -e "TESTING...\n"
-    
-    # Instead of running, simply print that you're doing it
-    ctf_exe="TESTING ctffind4"
-  else
-    ctf_exe="$(basename ${vars[ctffind_dir]}/ctffind)"
-  fi
-  # End testing IF-THEN
-  
-  # PACE's "slow" option only works with "testing"
-  if [[ "${do_pace}" == true ]]; then
-    if [[ "${vars[slow]}" == true ]] && [[ "${vars[testing]}" == false ]] ; then
-      echo -e "ERROR!! '--slow' option only valid with '--testing' option!"
-      exit
-    fi
-    
-    # Set default
-    do_parallel=true
-    
-    # Serial mode will be when testing is true and slow is false
-    if [[ "${vars[testing]}" == true ]] ; then
-      vars[outdir]="${vars[outdir]}/0-Testing"
-      
-      if [[ "${vars[slow]}" == false ]] ; then
-        do_parallel=false
-      fi
-    else
-      # Read GPU list as array
-      IFS=' ' read -r -a gpu_list <<< "${vars[gpus]}"
-    fi
-    # End parallel IF-THEN
-  fi
-  # End PACE IF-THEN
 }
 
 function vprint() {
@@ -382,6 +433,7 @@ function validate_inputs() {
 #     do_pace
 #     do_cp_note (PACE only)
 #     imod_descr
+#     movie_ext
 #     ctffind_descr
 #     validated
 #     
@@ -416,7 +468,7 @@ function validate_inputs() {
   # End PACE IF-THEN
 
   imod_descr="IMOD executables directory"
-  check_dir "${vars[eer_dir]}" "EER directory" "${outlog}"
+  check_dir "${vars[movie_dir]}" "Movie directory" "${outlog}"
   check_dir "${vars[imod_dir]}" "${imod_descr}" "${outlog}"
   check_exe "$(which nvcc)" "CUDA libraries" "${outlog}"
   check_exe "${vars[motioncor_exe]}" "MotionCor2 executable" "${outlog}"
@@ -427,8 +479,23 @@ function validate_inputs() {
     vprint "    Use 'do_splitsum' instead. Continuing..." "1+" "${outlog}"
   fi
   
-  check_file "${vars[gain_file]}" "gain reference" "${outlog}"
-  check_file "${vars[frame_file]}" "frame file" "${outlog}"
+  if [[ "${vars[gain_file]}" != "" ]]; then
+    check_file "${vars[gain_file]}" "gain reference" "${outlog}"
+  else
+    # If you didn't supply a gain file, you probbaly forgot
+    if [[ "${vars[no_gain]}" == false ]]; then
+      vprint "  ERROR!! Gain file not supplied!" "1+" "${outlog}"
+      vprint "    Add flag '--no_gain' and restart..." "1+" "${outlog}"
+      validated=false
+    fi
+  fi
+  
+  if [[ "${movie_ext}" == "eer" ]] ; then
+    check_file "${vars[frame_file]}" "frame file" "${outlog}"
+  elif [[ "${movie_ext}" != "mrc" ]] && [[ "${movie_ext}" != "tif" ]]; then
+    vprint "  ERROR!! Unrecognized movie format: '${movie_ext}'" "0+" "${outlog}"
+    validated=false
+  fi
   
   ctffind_descr="CTFFIND executables directory"
   check_dir "${vars[ctffind_dir]}" "${ctffind_descr}" "${outlog}"
@@ -452,16 +519,19 @@ function validate_inputs() {
   if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
     if [[ "${vars[denoise_gpu]}" == false ]]; then
       vprint "    Denoising using CPU..." "1+" "${outlog}"
+    else
+      vprint "    Denoising using GPU..." "1+" "${outlog}"
     fi
   fi
   
-  # IMOD
-  if [[ "${vars[batch_directive]}" != "${batch_directive}" ]] && [[ "${vars[do_etomo]}" != true ]]; then
-    vprint "  WARNING! Batch directive specified, but '--do_etomo' flag not specified. Using eTomo..." "1+" "${outlog}"
-    vars[do_etomo]=true
-  fi
+#   # IMOD
+#   if [[ "${vars[batch_directive]}" != "${batch_directive}" ]] && [[ "${vars[do_etomo]}" != true ]]; then
+#     vprint "  WARNING! Batch directive specified, but '--do_etomo' flag not specified. Using eTomo..." "1+" "${outlog}"
+#     vars[do_etomo]=true
+#   fi
   
-  if [[ "${vars[do_etomo]}" == true ]]; then
+# #   if [[ "${vars[do_etomo]}" == true ]]; then
+  if [[ "${vars[batch_directive]}" != "" ]]; then
     vprint "  Computing reconstruction using IMOD" "1+" "${outlog}"
     check_file "${vars[batch_directive]}" "IMOD batch directive" "${outlog}"
     update_adoc "${outlog}"
@@ -471,7 +541,8 @@ function validate_inputs() {
   fi
   
   if [[ "${vars[do_ruotnocon]}" == true ]]; then
-    if [[ "${vars[do_etomo]}" != true ]]; then
+# #     if [[ "${vars[do_etomo]}" != true ]]; then
+    if [[ "${vars[batch_directive]}" != "" ]]; then
       validated=false
       vprint "  ERROR!! Can only remove contours if running eTomo!" "0+" "${outlog}"
     else
@@ -490,7 +561,7 @@ function validate_inputs() {
     vprint "Missing required inputs, exiting...\n" "0+" "${outlog}"
     exit 1
   else
-    vprint "Found required inputs. Continuing...\n" "1+" "${outlog}"
+    vprint "Found required inputs. Continuing..." "1+" "${outlog}"
   fi
 }
 
@@ -555,44 +626,44 @@ function validate_inputs() {
     # End pixel-found IF-THEN
   }
 
-function read_mdoc() {
-###############################################################################
-#   Function:
-#     Gets information from MDOC file
-#     Currently only gets pixel size
-#   
-#   Calls functions:
-#     check_apix_classic
-#     check_range
-#     vprint
-#   
-#   Global variables:
-#     vars
-#     verbose (by vprint)
-###############################################################################
-  
-  local outlog=$1
+  function read_mdoc() {
+  ###############################################################################
+  #   Function:
+  #     Gets information from MDOC file
+  #     Currently only gets pixel size
+  #   
+  #   Calls functions:
+  #     check_apix_classic
+  #     check_range
+  #     vprint
+  #   
+  #   Global variables:
+  #     vars
+  #     verbose (by vprint)
+  ###############################################################################
+    
+    local outlog=$1
 
-  # Check if MDOC exists
-  if [[ -f "${vars[mdoc_file]}" ]]; then
-    vprint "  Found MDOC file: ${vars[mdoc_file]}" "1+" "${outlog}"
-    check_apix_classic "${vars[mdoc_file]}" "${outlog}"
-    check_range "defocus values" "${vars[df_lo]}" "${vars[df_hi]}" "${outlog}"
-    vprint "" "7+" "${outlog}"
-    check_range "frame numbers" "${vars[min_frames]}" "${vars[max_frames]}" "${outlog}"
-  fi
-  # End MDOC IF-THEN
-  
-  # Floating-point comparison from https://stackoverflow.com/a/31087503/3361621
-  if (( $(echo "${vars[apix]} < 0.0" |bc -l) )); then
-    vprint "\nERROR!! Pixel size ${vars[apix]} is negative!" "0+" "${outlog}"
-    vprint "  Either provide pixel size (--apix) or provide MDOC file (--mdoc_file)" "0+" "${outlog}"
-    vprint "  Exiting...\n" "0+" "${outlog}"
-    exit 3
-  else
-    vprint "  Pixel size: ${vars[apix]}" "1+" "${outlog}"
-  fi
-}
+    # Check if MDOC exists
+    if [[ -f "${vars[mdoc_file]}" ]]; then
+      vprint "  Found MDOC file: ${vars[mdoc_file]}" "1+" "${outlog}"
+      check_apix_classic "${vars[mdoc_file]}" "${outlog}"
+      check_range "defocus values" "${vars[df_lo]}" "${vars[df_hi]}" "${outlog}"
+      vprint "" "7+" "${outlog}"
+      check_range "frame numbers" "${vars[min_frames]}" "${vars[max_frames]}" "${outlog}"
+    fi
+    # End MDOC IF-THEN
+    
+    # Floating-point comparison from https://stackoverflow.com/a/31087503/3361621
+    if (( $(echo "${vars[apix]} < 0.0" |bc -l) )); then
+      vprint "\nERROR!! Pixel size ${vars[apix]} is negative!" "0+" "${outlog}"
+      vprint "  Either provide pixel size (--apix) or provide MDOC file (--mdoc_file)" "0+" "${outlog}"
+      vprint "  Exiting...\n" "0+" "${outlog}"
+      exit 3
+    else
+      vprint "  Pixel size: ${vars[apix]}" "1+" "${outlog}"
+    fi
+  }
 
     function check_range() {
     ###############################################################################
@@ -618,7 +689,7 @@ function read_mdoc() {
     ###############################################################################
       
       local data_descr=$1
-      local limitecho_lo=$2
+      local limit_lo=$2
       local limit_hi=$3
       local outlog=$4
       
@@ -664,6 +735,7 @@ function read_mdoc() {
             vprint "      Micrograph #$mic_counter ${data_descr}: $fmt_value " "7+" "${outlog}"
         fi
       done
+      # End micrograph loop
       
       if [[ "$bad_counter" == 0 ]]; then
         vprint "    Found $mic_counter micrographs with ${data_descr} within specified range [${limit_lo}, ${limit_hi}]" "5+" "${outlog}"
@@ -1132,11 +1204,12 @@ function read_mdoc() {
     
     # Check if search file exists
     if [[ ! -f "${search_file}" ]]; then
+# #       echo "1209 movie_ext '$movie_ext' "  ; exit ### DIAGNOSTIC
       validated=false
       echo "  ERROR!! ${file_type^} not found: ${search_file}"
       # ("${string^}" capitalizes first letter: https://stackoverflow.com/a/12487455)
     
-      # Print instructions on creating a frame file
+      # Print instructions on creating a frame file (only for EER format)
       if [[ "${file_type}" == "frame file" ]]; then
         howto_frame
       fi
@@ -1157,25 +1230,27 @@ function read_mdoc() {
   }
 
     function howto_frame() {
-      echo    "  The frame file is a text file containing the following three values, separated by spaces:"
-      echo    "    1) The number of frames to include"
-      echo    "    2) The number of EER frames to merge in each motion-corrected frame"
-      echo -e "    3) The dose per EER frame\n"
-      
-      echo    "  For the second value, a reasonable rule of thumb is to accumulate 0.15-0.20 electrons per A2."
-      echo    "    For example, at a dose of 3e/A2 distributed over 600 frames, the dose per EER frame would be 0.005."
-      echo    "    To accumulate 0.15e/A2, you would need to merge 0.15/(3/600) = 30 frames."
-      echo    "    The line in the frame file would thus be:"
-      echo -e "      600 30 0.005\n"
-      
-      echo    "  You can create a frame file with SNARTomo's FrameCalc: "
-      echo -e "    https://rubenlab.github.io/snartomo-gui/#/framecalc\n"
-      
-      echo    "  The first N frames can be handled differently than the next M frames, "
-      echo    "    and thus the frame file would contain multiple lines, on for each set of conditions."
-      echo -e "    However, we haven't tested this functionality yet.\n"
-      
-      echo -e "  For more information, see MotionCor2 manual.\n"
+      echo
+      echo "  The frame file is a text file containing the following three values, separated by spaces:"
+      echo "    1) The number of frames to include"
+      echo "    2) The number of EER frames to merge in each motion-corrected frame"
+      echo "    3) The dose per EER frame"
+      echo 
+      echo "  For the second value, a reasonable rule of thumb is to accumulate 0.15-0.20 electrons per A2."
+      echo "    For example, at a dose of 3e/A2 distributed over 600 frames, the dose per EER frame would be 0.005."
+      echo "    To accumulate 0.15e/A2, you would need to merge 0.15/(3/600) = 30 frames."
+      echo "    The line in the frame file would thus be:"
+      echo "      600 30 0.005"
+      echo 
+      echo "  You can create a frame file with SNARTomo's FrameCalc: "
+      echo "    https://rubenlab.github.io/snartomo-gui/#/framecalc"
+      echo
+      echo "  The first N frames can be handled differently than the next M frames, "
+      echo "    and thus the frame file would contain multiple lines, on for each set of conditions."
+      echo "    However, we haven't tested this functionality yet."
+      echo
+      echo "  For more information, see MotionCor2 manual."
+      echo
     }
 
     function check_mc2_frame() {
@@ -1298,6 +1373,25 @@ function read_mdoc() {
     echo $stem
   }
 
+function get_version_number() {
+###############################################################################
+#   Function:
+#     Gets version number to two decimal places of MotionCor2 and AreTomo executables
+#   
+#   Positional argument:
+#     1) filename (can be soft link)
+#   
+#   Returns:
+#     version number (as an echo statement)
+#     
+###############################################################################
+  
+  local exe2check=$1
+  
+  local version_number=$(basename $(realpath $exe2check) | cut -d_ -f2)
+  echo $version_number  | cut -d. -f1-2
+}
+
 function check_gain_format() {
 ###############################################################################
 #   Function:
@@ -1319,61 +1413,62 @@ function check_gain_format() {
   
   local outlog=$1
   
-  # Check if MRC or TIFF
-  local ext=$(echo "${vars[gain_file]}" | rev | cut -d. -f1 | rev)
-  
-  vprint "Gain file format: $ext" "1+" "${main_log}"
-  
-  if [[ ! "$ext" == "mrc" ]]; then
-#     # MotionCor2 v1.5+ allows GAIN format natively
-#     local version_number=$(basename $(realpath ${vars[motioncor_exe]}) | cut -d_ -f2)
-#     local first_decimal=$(echo $version_number  | cut -d. -f1-2)
-#     
-#     if (( $( echo "$first_decimal >= 1.5" | bc -l) )) ; then
-#       vprint "  TIFF-format gain file allowed with MotionCor2 v${version_number}" "1+" "${main_log}"
-#     else
-      # Remove extension (last period-delimited string)
-      local stem_gain="$(file_stem ${vars[gain_file]})"
-      local mrc_gain="${vars[outdir]}/${stem_gain}.mrc"
-      
-      # Build command
-      local convert_cmd="${vars[imod_dir]}/tif2mrc ${vars[gain_file]} ${mrc_gain}"
-      
-      # Assume it's a TIFF, and try to convert it
-# #       vprint "  MRC-format gain file required with MotionCor2 v${version_number}" "1+" "${main_log}"
-      vprint "  Attempting conversion..." "1+" "${main_log}"
-      vprint "    Running: $convert_cmd\n" "1+" "${main_log}"
+  # Don't need to do anything if "--no_gain" flag used
+  if [[ "${vars[no_gain]}" == false ]]; then
+    # Check if MRC or TIFF
+    local ext=$(echo "${vars[gain_file]}" | rev | cut -d. -f1 | rev)
     
-      if [[ "${vars[testing]}" == false ]]; then
-        if [[ "$verbose" -ge 1 ]]; then
-          $convert_cmd | sed 's/^/    /'
-        else
-          $convert_cmd > /dev/null
+    vprint "Gain file format: $ext" "1+" "${main_log}"
+    
+    if [[ ! "$ext" == "mrc" ]]; then
+#       # Late versions of MotionCor2 v1.5+ allows GAIN format natively (FALSE)
+#       if (( $( $(get_version_number ${vars[motioncor_exe]}) >= 1.5" | bc -l) )) ; then
+#         vprint "  TIFF-format gain file allowed with MotionCor2 v${version_number}" "1+" "${main_log}"
+#       else
+        # Remove extension (last period-delimited string)
+        local stem_gain="$(file_stem ${vars[gain_file]})"
+        local mrc_gain="${vars[outdir]}/${stem_gain}.mrc"
+        
+        # Build command
+        local convert_cmd="${vars[imod_dir]}/tif2mrc ${vars[gain_file]} ${mrc_gain}"
+        
+        # Assume it's a TIFF, and try to convert it
+# #         vprint "  MRC-format gain file required with MotionCor2 v${version_number}" "1+" "${main_log}"
+        vprint "  Attempting conversion..." "1+" "${main_log}"
+        vprint "    Running: $convert_cmd\n" "1+" "${main_log}"
+      
+        if [[ "${vars[testing]}" == false ]]; then
+          if [[ "$verbose" -ge 1 ]]; then
+            $convert_cmd | sed 's/^/    /'
+          else
+            $convert_cmd > /dev/null
+          fi
+          
+          # Check exit status
+          local status_code=$?
+          # (0=successful, 1=fail)
+          
+          if [[ ! "$status_code" == 0 ]]; then
+            echo -e "ERROR!! tif2mrc failed with exit status $status_code\n"
+            exit
+          fi
+          
+          # Update gain file
+          vars[gain_file]="${mrc_gain}"
         fi
-        
-        # Check exit status
-        local status_code=$?
-        # (0=successful, 1=fail)
-        
-        if [[ ! "$status_code" == 0 ]]; then
-          echo -e "ERROR!! tif2mrc failed with exit status $status_code\n"
-          exit
-        fi
-        
-        # Update gain file
-        vars[gain_file]="${mrc_gain}"
-      fi
-      # End testing IF-THEN
-#     fi
-#     # End new-version IF-THEN
+        # End testing IF-THEN
+#       fi
+#       # End new-version IF-THEN
+    fi
+    # End MRC IF-THEN
   fi
-  # End MRC IF-THEN
+  # End no-gain IF-THEN
 }
 
 function check_frames() {
 ###############################################################################
 #   Function:
-#     Checks number of frames
+#     Checks number of frames (EERs only)
 #     Checks if we need to copy the EER files locally
 #   
 #   Positional variable:
@@ -1397,34 +1492,9 @@ function check_frames() {
   
   # Get number of frames
   if [[ "${vars[testing]}" == false ]]; then
-#     # TESTING
-#     echo -e "1401: $fn'  \t\teer_local0 '${vars[eer_local]}'"
-    
     # Optionally copy EERs locally 
     if [[ "${vars[eer_local]}" != "false" ]] ; then
-#       local cp_time=$( TIMEFORMAT="%R" ; { time cp "$fn" "${vars[outdir]}/${temp_dir}" ; } 2>&1 )
-#       vprint "    Copied '$fn'  \tto: ${vars[outdir]}/${temp_dir} (in ${cp_time} sec)" "0+" "${outlog}"
       copy_local "${outlog}"
-      
-#       # Update EER name
-#       if [[ "${vars[eer_local]}" == "true" ]] ; then
-#         fn="${vars[outdir]}/${temp_dir}/$(basename $fn)"
-#       
-#       # Start copying subsequent micrographs to temp directory
-#       elif [[ "${vars[eer_local]}" == "first" ]] ; then
-#         vars[eer_local]="true"
-#       
-#       else
-#         vprint "\nERROR!! Illegal state for 'eer_local': '${vars[eer_local]}'!" "0+" "${outlog}"
-#         vprint   "  Exiting...\n" "0+" "${outlog}"
-#         exit
-#       fi
-#       # End local-copy IF-THEN
-#     
-#     else
-#       if [[ "${vars[debug]}" == true ]] ; then
-#         echo -e "    Didn't copy '$fn'  \tto: ${vars[outdir]}/${temp_dir}/ (eer_local = '${vars[eer_local]}') \n"
-#       fi
     fi
     # End local-copy IF-THEN
       
@@ -1434,9 +1504,6 @@ function check_frames() {
     local hdr_time=$(echo "$hdr_out" | tail -n 1)
     
     vprint "    Micrograph $fn  \tnumber of frames: $num_sections (read in ${hdr_time} sec)\n" "1+" "${outlog}"
-    
-#     # TESTING
-#     echo -e "1439: $fn'  \t\thdr_time   '${hdr_time}'"
     
     # Check read time
     if (( $( echo "${hdr_time} > ${vars[eer_latency]}" | bc -l ) )) && [[ "${vars[eer_local]}" == "false" ]] ; then
@@ -1450,9 +1517,6 @@ function check_frames() {
       else
         # A parallel process may have done these steps already
         if ! [[ -e "${mc2_tempfile}" ]]; then
-#           # TESTING
-#           echo -e "1454: $fn'  \t\t'${mc2_tempfile}' DOESN'T EXIST, eer_local = '${vars[eer_local]}'"
-#           
           # Parallel process may have created temp file already
           if [[ -f "${vars[outdir]}/${temp_dir}/${do_cp_note}" ]]; then
             vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} ${warn_log}"
@@ -1461,11 +1525,6 @@ function check_frames() {
           touch "${vars[outdir]}/${temp_dir}/${do_cp_note}"
           vars[eer_local]="true"
           copy_local "${outlog}"
-        
-#         else
-#           # TESTING
-#           echo -e "1462: '$fn'  \t\t'${mc2_tempfile}' EXISTS, eer_local = '${vars[eer_local]}'"
-#           vars[eer_local]="true"  # don't know why this is necessary
         fi
       fi
       # End PACE IF-THEN
@@ -1478,9 +1537,6 @@ function check_frames() {
     if [[ "$num_sections" -lt "${vars[min_frames]}" || "$num_sections" -gt "${vars[max_frames]}" ]]; then
       vprint "    WARNING! Micrograph $fn: number of frames ($num_sections) outside of range (${vars[min_frames]} to ${vars[max_frames]})\n" "0+" "${outlog}"
     fi
-    
-#     # TESTING
-#     echo -e "1478: $fn'  \t\teer_local1 '${vars[eer_local]}'"
   fi
   # End testing IF-THEN
 }
@@ -1574,8 +1630,6 @@ function check_freegpus() {
         # End WHILE loop
         
         # Print warning if time limit reached
-# #         echo "SECONDS $SECONDS, start_time $start_time, mc2wait ${vars[mc2_wait]}"
-# #         if (( $(( $SECONDS - $start_time )) > "${vars[mc2_wait]}" )) && [[ "${tempfile_owner}" != "$(whoami)" ]] ; then
         if (( $( echo "$(( $SECONDS - $start_time )) < ${vars[mc2_wait]}" | bc -l ) )) && [[ "${tempfile_owner}" != "$(whoami)" ]] ; then
             vprint "  WARNING! ${mc2_tempfile} owned by ${tempfile_owner} and not you" "1+" "${outlog}"
             vprint "    Continuing...\n" "1+" "${outlog}"
@@ -1594,7 +1648,7 @@ function run_motioncor() {
 #     Returns MotionCor command line (as an echo statement)
 #   
 #   Positional variable:
-#     1) EER file
+#     1) movie file
 #     2) GPU number
 #     
 #   Calls functions:
@@ -1602,9 +1656,10 @@ function run_motioncor() {
 #   
 #   Global variables:
 #     vars
+#     movie_ext
 #     cor_mic
 #     mc2_logs
-#     stem_eer
+#     stem_movie
 #     
 ###############################################################################
   
@@ -1620,10 +1675,21 @@ function run_motioncor() {
     local mc_exe=${vars[motioncor_exe]}
   fi
   
-  mc_command="    ${mc_exe} \
-  -InEer $fn \
-  -Gain ${vars[gain_file]} \
-  -FmIntFile ${vars[frame_file]} \
+  mc_command="    ${mc_exe} "
+  
+  if [[ "${movie_ext}" == "eer" ]] ; then
+    mc_command+="-InEer $fn \
+    -FmIntFile ${vars[frame_file]} "
+  elif [[ "${movie_ext}" == "mrc" ]] ; then
+    mc_command+="-InMrc $fn "
+  elif [[ "${movie_ext}" == "tif" ]]; then
+    mc_command+="-InTiff $fn "
+  else
+    echo '  ERROR!! Unrecognized movie format: ${movie_ext}'
+    exit
+  fi
+  
+  mc_command+="-Gain ${vars[gain_file]} \
   -OutMrc $cor_mic  \
   -Patch ${vars[mcor_patches]} \
   -FmRef ${vars[reffrm]} \
@@ -1632,25 +1698,23 @@ function run_motioncor() {
   -Serial 0 \
   -SumRange 0 0 \
   -Gpu ${gpu_num} \
-  -LogFile ${vars[outdir]}/$micdir/${mc2_logs}/${stem_eer}_mic.log"
+  -LogFile ${vars[outdir]}/$micdir/${mc2_logs}/${stem_movie}_mic.log"
   
   if [[ "${vars[split_sum]}" == 1 || "${vars[do_splitsum]}" == true ]]; then
-    mc_command="${mc_command} -SplitSum 1"
+    mc_command+="-SplitSum 1 "
   fi
 
   if [[ "${vars[do_dosewt]}" == true ]]; then
-    mc_command="${mc_command} \
-    -Kv ${vars[kv]} \
-    -PixSize ${vars[apix]} \
-    "
+    mc_command+="-Kv ${vars[kv]} \
+    -PixSize ${vars[apix]} "
   fi
 
   if [[ "${vars[do_outstack]}" == true ]]; then
-    mc_command="${mc_command} -Outstack 1"
+    mc_command+="-Outstack 1 "
   fi
 
+  # Remove whitespace
   echo ${mc_command} | xargs
-  # (xargs removes whitespace)
 }
 
 function remove_local() {
@@ -1786,6 +1850,7 @@ function janni_denoise() {
     local conda_cmd="conda activate ${vars[janni_env]}"
     vprint "    Executing: $conda_cmd" "2+" "=${outlog}"
     $conda_cmd
+    vprint "conda environment: '$CONDA_DEFAULT_ENV'" "3+" "=${outlog}"
     
     vprint "\n  Denoising using JANNI..." "3+" "=${outlog}"
     vprint   "    Running: janni_denoise.py ${janni_args}" "3+" "=${outlog}"
@@ -1814,7 +1879,7 @@ function janni_denoise() {
     
     # Clean up
     conda deactivate
-    vprint "conda environment: $CONDA_DEFAULT_ENV\n" "3+" "=${outlog}"
+    vprint "conda environment: '$CONDA_DEFAULT_ENV'\n" "3+" "=${outlog}"
   
   # Testing
   else
@@ -1857,6 +1922,7 @@ function topaz_denoise() {
     local conda_cmd="conda activate ${vars[janni_env]}"
     vprint "    Executing: $conda_cmd" "2+" "${outlog}"
     $conda_cmd
+    vprint "conda environment: '$CONDA_DEFAULT_ENV'" "3+" "=${outlog}"
     
     vprint "$(date +"$time_format"): Denoising using Topaz..." "3+" "${main_log}"
     vprint "\n  Denoising using Topaz..." "3+" "=${outlog}"
@@ -1888,7 +1954,7 @@ function topaz_denoise() {
   
     # Clean up
     conda deactivate
-    vprint "conda environment: $CONDA_DEFAULT_ENV" "3+" "=${outlog}"
+    vprint "conda environment: '$CONDA_DEFAULT_ENV'" "3+" "=${outlog}"
   
   # Testing
   else
@@ -2034,7 +2100,8 @@ function imod_restack() {
   fi
   
   # AreTomo and IMOD expect different extensions for stacks
-  if [[ "${vars[do_etomo]}" == false ]]; then
+# #   if [[ "${vars[do_etomo]}" == false ]]; then
+  if [[ "${vars[batch_directive]}" != "" ]]; then
     reordered_stack="${tomo_root}_newstack.mrc"
   else
     reordered_stack="${tomo_root}_newstack.st"
@@ -2344,7 +2411,8 @@ function mdoc2tomo() {
   tomo_dir="${recdir}/${tomo_base}"
   tomo_root="${vars[outdir]}/${tomo_dir}/${tomo_base}"
   
-  if [[ "${vars[do_etomo]}" == true ]]; then
+# #   if [[ "${vars[do_etomo]}" == true ]]; then
+  if [[ "${vars[batch_directive]}" != "" ]]; then
     tomogram_3d="${vars[outdir]}/${tomo_dir}/${tomo_base}_newstack_full_rec.mrc"
     etomo_out="${vars[outdir]}/${tomo_dir}/${tomo_base}_std.out"
   else
@@ -2409,6 +2477,7 @@ function get_central_slice() {
   fi
   
   central_slice_num=$(echo "${min_dim}"/2 | bc)
+  echo ""
   echo "  Extracting central slice:"
   echo "    Shortest dimension: ${min_dim}"
   echo "    Shortest axis:      ${min_axis}"
