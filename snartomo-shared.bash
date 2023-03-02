@@ -2,6 +2,33 @@
 
 # THIS SCRIPT CONTAINS FUNCTIONS COMMON TO BOTH SNARTomoClassic and SNARTomoPACE
 
+function check_env() {
+###############################################################################
+#   Functions:
+#     Checks whether environmental variable SNARTOMO_DIR is set
+#     Sources shared functions from central SNARTomo directory
+#     
+#   Global variables:
+#     do_pace
+#     shared_libs
+#     
+###############################################################################
+
+  if [[ "${SNARTOMO_DIR}" == "" ]]; then
+    echo -e "\nERROR!! Environmental variable 'SNARTOMO_DIR' undefined!"
+    echo      "  Set variable with: export SNARTOMO_DIR=<path_to_snartomo_files>"
+    echo -e   "  Exiting...\n"
+    exit
+  else
+    source "${SNARTOMO_DIR}/${shared_libs}"
+    source "${SNARTOMO_DIR}/argumentparser_dynamic.sh"
+    
+    if [[ "${do_pace}" == true ]]; then
+      source "${SNARTOMO_DIR}/gpu_resources.bash"
+    fi
+  fi
+}
+
 function check_testing() {
 ###############################################################################
 #   Function:
@@ -17,6 +44,17 @@ function check_testing() {
   
   if [[ "${vars[testing]}" == "true" ]]; then
     echo -e "TESTING...\n"
+    
+    # Weird output if MOTIONCOR2_EXE undefined
+    if [ -z "$MOTIONCOR2_EXE" ] ; then
+# #       echo "50 MOTIONCOR2_EXE undefined" ; exit
+      vars[motioncor_exe]="MotionCor2"
+      
+      echo "WARNING! Environmental variable 'MOTIONCOR2_EXE' undefined"
+      echo "  Are you sure that you sourced 'snartomo.bashrc'?"
+      echo "  Continuing..."
+      echo
+    fi
     
     # Instead of running, simply print that you're doing it
     ctf_exe="TESTING ctffind4"
@@ -70,7 +108,7 @@ function check_args() {
     echo
     echo "ERROR!!"
     echo "  Found unfamiliar arguments: ${ARGS[@]}"
-    echo "  You may have forgotten quotes around wild cards or paameters with multiple values (such as GPUs)"
+    echo "  You may have forgotten quotes around wild cards or parameters with multiple values (such as GPUs)"
     echo "  To list options & defaults, type:"
     echo "    $(basename $0) --help"
     echo
@@ -420,7 +458,7 @@ function validate_inputs() {
 #   
 #   Calls functions:
 #     vprint
-#     read_mdoc
+#     read_mdoc (Classic only)
 #     check_targets
 #     check_file
 #     check_dir
@@ -448,14 +486,7 @@ function validate_inputs() {
   init_conda="$CONDA_DEFAULT_ENV"
 
   
-  if [[ "${do_pace}" != true ]]; then
-    read_mdoc "${outlog}"
-  
-    # Local copying is noted in paralleized process, so need to write a file.
-    if [[ "${vars[eer_local]}" == "true" ]] ; then
-      touch "${vars[outdir]}/${temp_dir}/${do_cp_note}"
-    fi
-  else
+  if [[ "${do_pace}" == true ]]; then
     check_targets "${outlog}"
     check_apix_pace "${outlog}"
     
@@ -463,6 +494,13 @@ function validate_inputs() {
     if [[ "${vars[live]}" == true ]] && [[ "${vars[last_tilt]}" == "$LAST_TILT" ]] ; then
       validated=false
       vprint "  ERROR!! In Live mode, need to define '--last_tilt'!" "0+" "${outlog}"
+    fi
+  else
+    read_mdoc "${outlog}"
+  
+    # Local copying is noted in paralleized process, so need to write a file.
+    if [[ "${vars[eer_local]}" == "true" ]] ; then
+      touch "${vars[outdir]}/${temp_dir}/${do_cp_note}"
     fi
   fi
   # End PACE IF-THEN
@@ -762,8 +800,6 @@ function validate_inputs() {
 
       local outlog=$1
       
-    # #   printf "'%s'\n" "${ARGS[@]}" ; exit
-
       # Get first match (https://unix.stackexchange.com/a/156326)
       first_target=$(set -- ${vars[target_files]}; echo "$1")
       
@@ -1144,7 +1180,9 @@ function validate_inputs() {
   function check_targets() {
   ###############################################################################
   #   Function:
+  #     Only used in PACE mode
   #     Looks for target files
+  #     If single MDOC file is provided, then a fake targets file is generated
   #   
   #   Positional arguments:
   #     1) output log file
@@ -1155,27 +1193,45 @@ function validate_inputs() {
   #   Global variables:
   #     validated
   #     vars
+  #     temp_dir
   #     
   ###############################################################################
     
     local outlog=$1
     
-  # #   read -a target_array <<< "${vars[target_files]}"
     target_array=$(ls ${vars[target_files]} 2> /dev/null)  # will exclude non-existent files
-  #   echo "target_files: '${vars[target_files]}'"
-  #   printf "'%s'\n" "${target_array[@]}"
-  #   exit
+# #     printf "'%s'\n" "${target_array[@]}"
     local num_targets=$(echo $target_array | wc -w)
     
-    if [[ "${num_targets}" -eq 0 ]]; then
-      validated=false
-      echo -e "  ERROR!! At least one target file is required!\n"
-      exit 3
-    elif [[ "${num_targets}" -eq 1 ]]; then
-      vprint "  Found target file: ${target_array[0]}" "1+" "${outlog}"
+    # Single-MDOC option
+    if [[ "${vars[mdoc_file]}" != "" ]] ; then
+      if [[ "${vars[target_files]}" != "" ]] ; then
+        echo -e "  ERROR!! Flags '--target_files' and '--mdoc_file' cannot be used simultaneously!\n"
+        exit 4
+      else
+        local fake_targets="${vars[outdir]}/${temp_dir}/single_tgts.txt"
+        vprint "  Creating target file: ${fake_targets}" "1+" "${outlog}"
+        
+        # Strip extension and write to fake targets file
+        echo "tsfile = $(basename ${vars[mdoc_file]%.mdoc})" > ${fake_targets}
+        vars[target_files]="${fake_targets}"
+        
+        # Copy MDOC to tmp directory
+# #         echo "cp ${vars[mdoc_file]} ${vars[outdir]}/${temp_dir}/" ; exit
+        cp ${vars[mdoc_file]} ${vars[outdir]}/${temp_dir}/
+      fi
     else
-      vprint "  Found ${num_targets} targets files" "1+" "${outlog}"
+      if [[ "${num_targets}" -eq 0 ]]; then
+        validated=false
+        echo -e "  ERROR!! At least one target file is required!\n"
+        exit 3
+      elif [[ "${num_targets}" -eq 1 ]]; then
+        vprint "  Found target file: ${target_array[0]}" "1+" "${outlog}"
+      else
+        vprint "  Found ${num_targets} targets files" "1+" "${outlog}"
+      fi
     fi
+    # End single-MDOC IF-THEN
   }
 
   function check_file() {
@@ -1671,6 +1727,7 @@ function run_motioncor() {
   
   if [[ "${vars[testing]}" == true ]]; then
     local mc_exe="$(basename ${vars[motioncor_exe]})"
+# #     echo "1691 motioncor_exe : '${vars[motioncor_exe]}'" >> motioncor.tmp
   else
     local mc_exe=${vars[motioncor_exe]}
   fi

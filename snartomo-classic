@@ -152,7 +152,7 @@ temp_dir=tmp                                       # Temporary files
 # Outline (multiline comment)
 : '
 main
-  shared.check_env
+  check_env
   parse_command_line
   shared.check_format
   shared.check_args

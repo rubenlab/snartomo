@@ -18,7 +18,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-02-28"
+  echo "Modified 2023-03-01"
   date
   echo 
 }
@@ -102,8 +102,6 @@ dosefit_resid=0.1                                 # Maximum residual during dose
 dosefit_verbose=6                                 # Verbosity level for dose-fitting log file (0..8)
 
 # IMOD
-# # do_etomo=false                                    # Run IMOD reconstruction
-# # batch_directive=batchDirective.adoc               # IMOD batchruntomo directive file
 imod_slots=2                                      # Maximum number of IMOD processes to run concurrently
 
 # Ruotnocon contour removal
@@ -179,7 +177,7 @@ do_cp_note=DO_CPLOCAL.txt
 # Outline (multiline comment)
 : '
 main
-  shared.check_env
+  check_env
   parse_command_line
   shared.check_testing
   shared.check_format
@@ -209,7 +207,7 @@ main
     detect_new_movies
     distribute_motioncor
       motioncor_parallel
-        run_motioncor
+        shared.run_motioncor
         shared.check_frames
   distribute_ctffind 
     ctffind_parallel
@@ -242,8 +240,9 @@ function parse_command_line() {
 #   
 ###############################################################################
   
-  add_section "REQUIRED SETTINGS" "These files/directories are required."
+  add_section "SERIALEM SETTINGS" "Either one or more target files, or an MDOC file, is required."
   add_argument "target_files" "" "PACE target files (more than one -> must be enclosed in quotes)" "ANY"
+  add_argument "mdoc_file" "" "Single MDOC file" "ANY"
   
   add_section "INPUT MOVIE SETTINGS" "One of these directories is required."
   add_argument "eer_dir" "" "Input EER directory" "ANY"
@@ -1808,7 +1807,7 @@ function read_init() {
       if [[ "${current_input}" != "" ]]; then
         # Check whether output already exists
         local current_output="$(${io_function} ${current_input})"
-        
+
         # If pre-exising output
         if [[ -e $current_output ]]; then
           let "old_counter++"
@@ -2989,27 +2988,11 @@ function clean_up_mdoc() {
       local first_movie_file="$(grep -l $stem_movie ${chunk_prefix}*)"  # assuming single hit
       local first_movie_chunk="$(basename $first_movie_file | sed 's/[^0-9]*//g')"
       local last_header_chunk=$(( $first_movie_chunk - 1 ))
-#       echo "first_movie_file='$first_movie_file'"
-#       echo "first_movie_chunk='$first_movie_chunk'"
-#       echo "last_header_chunk='$last_header_chunk'"
     fi
     
     # Check that motion-corrected micrograph exists
     if [[ -f "$mc2_mic" ]]; then
-#       echo "2958 : mdoc_idx='$mdoc_idx', old_subframe_array[${mdoc_idx}]='${old_subframe_array[${mdoc_idx}]}', $(basename $mc2_mic) exists"  ### DIAGNOSTIC
-#       
-#       printf "%2d  %5.1f  %6.3f\n" "$mdoc_idx" "${mdoc_angle_array[${mdoc_idx}]}" "${dose_rate_array[${mdoc_idx}]}" >> ${dose_list}
-#       
-# #       # Append to micrograph lists
-# #       mcorr_mic_array+=($mc2_mic)
-# #       denoise_array+=(${vars[outdir]}/${denoisedir}/${stem_movie}${cor_ext})
       good_mdoc_array+=($mdoc_idx)
-#       
-#       # Write CTF summary
-#       if [[ "${vars[testing]}" == false ]] ; then
-#         local ctf_txt="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.txt"
-#         echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${ctf_summary}
-#       fi
        
 # #       ### DIAGNOSTIC
 # #       else
