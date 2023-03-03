@@ -13,3 +13,7 @@ The name is derived from the programs that were originally run by it:
 We since added other functionalities, such as MotionCor2, IMOD, Topaz, PACE-tomo, and JANNI, but the name remains.
 
 See the wiki at: https://github.com/rubenlab/snartomo/wiki
+
+## Recent news
+
+2023-02-28 -- MRC and TIFF movies now supported!
