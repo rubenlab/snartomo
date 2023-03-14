@@ -16,4 +16,4 @@ See the wiki at: https://github.com/rubenlab/snartomo/wiki
 
 ## Recent news
 
-2023-02-28 -- MRC and TIFF movies now supported!
+2023-03-14 -- Denoising using CPU should work again, GPU not working yet
