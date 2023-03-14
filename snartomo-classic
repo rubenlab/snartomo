@@ -59,7 +59,7 @@ function howto_stop() {
 #################### Filenames ####################
 
 # Inputs
-shared_libs=snartomo-shared-13mar.bash                   # Shared libraries
+shared_libs=snartomo-shared.bash                   # Shared libraries
 mdoc_file=None                                     # Input MDOC file (to read pixel size, etc.)
 log_file=log-snartomo.txt                          # Log file
 outdir=SNARTomo                                    # Output top-level directory

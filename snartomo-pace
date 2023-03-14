@@ -35,7 +35,7 @@ function print_usage() {
 
 #################### Filenames ####################
 
-shared_libs=snartomo-shared-13mar.bash                   # Shared libraries
+shared_libs=snartomo-shared.bash                   # Shared libraries
 frame_file=motioncor-frame.txt                     # Frames file
 outdir=SNARTomoPACE                                # Output top-level directory
 
