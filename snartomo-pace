@@ -18,7 +18,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-03-01"
+  echo "Modified 2023-03-14"
   date
   echo 
 }
@@ -35,7 +35,7 @@ function print_usage() {
 
 #################### Filenames ####################
 
-shared_libs=snartomo-shared.bash                   # Shared libraries
+shared_libs=snartomo-shared-13mar.bash                   # Shared libraries
 frame_file=motioncor-frame.txt                     # Frames file
 outdir=SNARTomoPACE                                # Output top-level directory
 
@@ -47,7 +47,7 @@ max_minutes=200                                   # Maximum run time, minutes
 apix=-1.00                                        # A/px
 voltage=300.0                                     # F20: 200, Krios: 300
 gpus="0 1"                                        # List of GPUs to use, delimited by spaces
-verbosity=5                                       # Verbosity level
+verbosity=4                                       # Verbosity level
 #                                                 #   0: prints nothing
 #                                                 #   1: prints brief overall summary
 #                                                 #   2: prints warnings 
@@ -75,7 +75,7 @@ SplitSum=0                                        # (boolean) Split frames into 
 mc2_wait=120.0                                    # (seconds) How long to wait for /tmp/MotionCor2_FreeGpus.txt to be removed
 
 # CTFFIND
-ctf_slots=2                                       #!? Maximum number of CTFFIND4 processes to run concurrently
+ctf_slots=2                                       # Maximum number of CTFFIND4 processes to run concurrently
 cs=2.7                                            # F20: 2.0, Krios: 2.7
 ac=0.07                                           # 300.0 amplitude contrast: 0.07-0.1 for cryo data, 0.14-0.2 for neg.stain data
 boxSz=512                                         # Box size
@@ -94,7 +94,7 @@ janni_batch=4                                     # Number of patches predicted 
 # TOPAZ
 do_topaz=false                                    # Run Topaz denoise
 topaz_patch=2048                                  # Patch size
-topaz_time=5m                                     # Maximum duration, Topaz sometimes hangs
+topaz_time=5m                                     # Maximum duration, Topaz sometimes hangs, needs to be longer for CPU
 
 # DoseDiscriminator
 dosefit_min=0.1                                   # Minimum dose rate allowed, as a fraction of maximum dose rate
@@ -123,37 +123,37 @@ are_time=30m                                      # Maximum duration, AreTomo so
 
 #################### Outputs ###################
 
-cmd_file=commands.txt                              # Output commands file (in ${outdir})
-set_file=settings.txt                              # Output settings file (in ${outdir})
-log_dir=Logs                                       # Log file directory
-rawdir=1-Movies                                    # Directory where raw movie files will go
-micdir=2-MotionCor2                                # MotionCor directory
-mc2_logs=Logs                                      # Directory for MotionCor log files, relative to $MICDIR
-ctfdir=3-CTFFIND4                                  # CTFFIND directory
-denoisedir=4-Denoise                               # Denoised micrograph directory
-recdir=5-Tomo                                      # Reconstruction directory
-imgdir=Images                                      # Image directory
-thumbdir=Thumbnails                                # Central sections of tomograms
-dose_imgdir=DoseFit                                # Dose fitting plot directory
-contour_imgdir=Contours                            # Contour removal plot directory
-temp_dir=tmp                                       # Temporary files
+cmd_file=commands.txt                             # Output commands file (in ${outdir})
+set_file=settings.txt                             # Output settings file (in ${outdir})
+log_dir=Logs                                      # Log file directory
+rawdir=1-Movies                                   # Directory where raw movie files will go
+micdir=2-MotionCor2                               # MotionCor directory
+mc2_logs=Logs                                     # Directory for MotionCor log files, relative to $MICDIR
+ctfdir=3-CTFFIND4                                 # CTFFIND directory
+denoisedir=4-Denoise                              # Denoised micrograph directory
+recdir=5-Tomo                                     # Reconstruction directory
+imgdir=Images                                     # Image directory
+thumbdir=Thumbnails                               # Central sections of tomograms
+dose_imgdir=DoseFit                               # Dose fitting plot directory
+contour_imgdir=Contours                           # Contour removal plot directory
+temp_dir=tmp                                      # Temporary files
+dir2denoise=TmpDenoised                           # Denoised micrographs will go here
 
 # Log files (in $log_dir)
-main_log=snartomo.txt                              # Main log file
-file_log=files.txt                                 # Events for individual files will be here
-mc2_out=motioncor2.txt                             # MotionCor2 log file
-ctf_log=ctffind4.txt                               # CTFFIND4 log file
-rec_log=recon.txt                                  # Reconstruction log file
-gpu_log=log-gpu.txt                                # Log of GPU-memory usage
-gpu_plotfile=plot-gpu.gnu                          # Gnuplot script for GPU usage
-mem_log=log-mem.txt                                # Log of system-memory usage
-mem_plot=plot-mem.gnu                              # Gnuplot script for RAM usage
-power_log=log-power.txt                            # Log of system-memory usage
-power_plotfile=plot-power.gnu                      # Gnuplot script for RAM usage
-heat_log=log-heat.txt                              # Log of system-memory usage
-heat_plot=plot-heat.gnu                            # Gnuplot script for RAM usage
-warn_log=warnings.txt                              # Warnings log
-# # debug_log=debug.txt                                # Diagnostics log
+main_log=snartomo.txt                             # Main log file
+file_log=files.txt                                # Events for individual files will be here
+mc2_out=motioncor2.txt                            # MotionCor2 log file
+ctf_log=ctffind4.txt                              # CTFFIND4 log file
+rec_log=recon.txt                                 # Reconstruction log file
+gpu_log=log-gpu.txt                               # Log of GPU-memory usage
+gpu_plotfile=plot-gpu.gnu                         # Gnuplot script for GPU usage
+mem_log=log-mem.txt                               # Log of system-memory usage
+mem_plot=plot-mem.gnu                             # Gnuplot script for RAM usage
+power_log=log-power.txt                           # Log of system-memory usage
+power_plotfile=plot-power.gnu                     # Gnuplot script for RAM usage
+heat_log=log-heat.txt                             # Log of system-memory usage
+heat_plot=plot-heat.gnu                           # Gnuplot script for RAM usage
+warn_log=warnings.txt                             # Warnings log
 
 # Temporary files (in $temp_dir)
 init_movies=list-movies-init.txt
@@ -213,8 +213,7 @@ main
     ctffind_parallel
   compute_tomograms
     dose_discriminator.py
-    shared.janni_denoise
-    shared.topaz_denoise
+    shared.denoise_wrapper
     shared.imod_restack
     shared.wrapper_aretomo
     shared.wrapper_etomo
@@ -240,7 +239,7 @@ function parse_command_line() {
 #   
 ###############################################################################
   
-  add_section "SERIALEM SETTINGS" "Either one or more target files, or an MDOC file, is required."
+  add_section "SERIAL SETTINGS" "Either an MDOC file or one or more target files are required."
   add_argument "target_files" "" "PACE target files (more than one -> must be enclosed in quotes)" "ANY"
   add_argument "mdoc_file" "" "Single MDOC file" "ANY"
   
@@ -313,8 +312,9 @@ function parse_command_line() {
 
   # TOPAZ
   add_section "TOPAZ SETTINGS" "Settings for Topaz denoise."
-# #   add_argument "do_topaz" "${do_topaz}" "Denoise micrographs using Topaz" "BOOL"
+  add_argument "do_topaz" "${do_topaz}" "Denoise micrographs using Topaz" "BOOL"
   add_argument "topaz_patch" "${topaz_patch}" "Patch size for Topaz denoising" "INT"
+  add_argument "topaz_time" "${topaz_time}" "Maximum duration, Topaz sometimes hangs" "ANY"
   add_argument "topaz_env" "${TOPAZ_ENV}" "Topaz conda environment" "ANY"
 
   # DoseDiscriminator
@@ -680,7 +680,6 @@ function targets_init() {
 ###############################################################################
   
   # Initialize
-# #   declare -a movie_array
   rm ${mc2_movies} 2> /dev/null
   touch ${mc2_movies}
   
@@ -1325,12 +1324,9 @@ function distribute_motioncor() {
       else
         local num_mics="${#mic_array[@]}"  # shouldn't need to recount
         
-#         if [[ "${movies_found}" -eq "${num_mics}" ]]; then
         if [[ "$(echo $num_mics + $missing_movies | bc -l )" -eq "${movies_found}" ]]; then
           vprint "$(date +"$time_format"): Movie detection complete, found ${movies_found} movies, waiting for MotionCor2..." "1+" "${main_log}"
-          
           printf "'%s'\n" "${mic_array[@]}" > "${ctf_mics}.test"
-          
           break
         fi
       fi
@@ -1392,6 +1388,8 @@ function motioncor_parallel() {
   
   local remaining_movies=$3
   local mc2_pid=-1
+  
+# #   echo "1395 target file : '${vars[target_file]}'"  ; exit  ### DIAGNOSTIC
   
   # Filenames
   stem_movie=$(basename ${fn} | rev | cut -d. -f2- | rev)  # (TODO: Can be local?)
@@ -2451,7 +2449,6 @@ function compute_tomograms() {
 #     imgdir
 #     dose_imgdir
 #     file_log
-#     denoisedir
 #     ctfdir
 #     verbose
 #     tomo_list
@@ -2666,6 +2663,7 @@ function tomogram_parallel() {
 #   
 #   Calls functions:
 #     resource_liberate
+#     denoise_wrapper
 #     wrapper_aretomo
 #     wrapper_etomo
 #   
@@ -2676,6 +2674,7 @@ function tomogram_parallel() {
 #     imgdir
 #     dose_imgdir
 #     cor_ext
+#     tomo_dns_dir
 #     denoisedir
 #     ctfdir
 #     warn_log
@@ -2716,8 +2715,6 @@ function tomogram_parallel() {
   # Write MDOC file with existing micrographs
   clean_up_mdoc "$old_mdoc" "$new_mdoc" "$temp_mdoc_dir"  # "$dose_list" "$ctf_summary"
   
-  ### TESTING make sure stripped_angle_array is up-to-date
-  
   # Parse MDOC (awk notation from Tat)
   mapfile -t mdoc_angle_array < <( grep "TiltAngle" "${new_mdoc}" | awk '{print $3}' | sed 's/\r//' )
   mapfile -t new_subframe_array < <( grep "SubFramePath" "${new_mdoc}" | awk '{print $3}' | sed 's/\r//' )
@@ -2733,6 +2730,10 @@ function tomogram_parallel() {
   # Clean up pre-existing files
   rm ${dose_list} 2> /dev/null
   
+  if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]] ; then
+    local do_denoise=true  # IF-OR statement is a mouthful
+  fi
+  
   # Loop through angles
   for mdoc_idx in "${!mdoc_angle_array[@]}"; do 
     # Get movie filename
@@ -2742,10 +2743,15 @@ function tomogram_parallel() {
     local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
     local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
     
+    # Create micrograph directory (only used if denoising)
+    if [[ "${mdoc_idx}" -eq 0 ]] ; then
+      local tomo_mic_dir="${vars[outdir]}/${tomo_dir}/${temp_dir}"
+      tomo_dns_dir="${vars[outdir]}/${tomo_dir}/${temp_dir}/${dir2denoise}"
+      mkdir ${tomo_mic_dir} ${tomo_dns_dir} 2> /dev/null
+    fi
+    
     # Check that motion-corrected micrograph exists
     if [[ -f "$mc2_mic" ]]; then
-# #       echo "2734 : $mc2_mic exists"  ### DIAGNOSTIC
-      
       printf "%2d  %5.1f  %6.3f\n" "$mdoc_idx" "${mdoc_angle_array[${mdoc_idx}]}" "${dose_rate_array[${mdoc_idx}]}" >> ${dose_list}
       
       stripped_angle_array+=(${mdoc_angle_array[${mdoc_idx}]})
@@ -2759,10 +2765,10 @@ function tomogram_parallel() {
         local ctf_txt="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.txt"
         echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${ctf_summary}
       fi
-      
-      ### DIAGNOSTIC
-      else
-        echo "2758 : $mc2_mic doesn't exist"
+#       
+#       ### DIAGNOSTIC
+#       else
+#         echo "2758 : $mc2_mic doesn't exist"
     fi
   done
   # End angles loop
@@ -2800,6 +2806,8 @@ function tomogram_parallel() {
   fi
   # End dose-list IF-THEN
   
+  # TODO: Use shared.write_angles_lists
+  
   # Clean up pre-existing files
   rm ${angles_list} ${mcorr_list} ${denoise_list} 2> /dev/null
   
@@ -2813,10 +2821,13 @@ function tomogram_parallel() {
   for idx in ${sorted_keys[@]} ; do
     echo    "${stripped_angle_array[${idx}]}" >> $angles_list
     echo -e "${mcorr_mic_array[$idx]}\n/" >> $mcorr_list
-# #     echo    "2803 mcorr_mic_array[$idx]='${mcorr_mic_array[$idx]}'"
     
-    if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
+# #     if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]] ; then
+    if [[ "${do_denoise}" == true ]]; then
       echo -e "${denoise_array[$idx]}\n/" >> $denoise_list
+      
+      # Temporarily move to temporary directory
+      mv ${mcorr_mic_array[$idx]} ${tomo_mic_dir}/
     fi
   done  
   
@@ -2824,7 +2835,8 @@ function tomogram_parallel() {
   vprint "  Wrote list of ${ts_mics} angles to $angles_list" "2+" "=${tomo_log}"
   vprint "  Wrote list of ${#mcorr_mic_array[*]} images to $mcorr_list" "2+" "=${tomo_log}"
   
-  if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
+# #   if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]] ; then
+  if [[ "${do_denoise}" == true ]]; then
     vprint "  Wrote list of ${#denoise_array[*]} images to $denoise_list" "2+" "=${tomo_log}"
   fi
   
@@ -2837,13 +2849,22 @@ function tomogram_parallel() {
   
   # Optionally denoise
   if [[ "${vars[do_janni]}" == true ]]; then
-    janni_denoise "${tomo_log}"
+# #     janni_denoise "${tomo_log}"
+    denoise_wrapper "janni" "${tomo_mic_dir}" "${tomo_log}"
   elif [[ "${vars[do_topaz]}" == true ]]; then
-    topaz_denoise "${tomo_log}"
+# #     topaz_denoise "${tomo_mic_dir}" "${tomo_dns_dir}" "${tomo_log}"
+    denoise_wrapper "topaz" "${tomo_mic_dir}" "${tomo_log}"
   fi
     
+  # Move micrographs and remove temp directory
+  if [[ "${do_denoise}" == true ]]; then
+    mv ${tomo_mic_dir}/*mic.mrc ${vars[outdir]}/${micdir}/
+    mv ${tomo_dns_dir}/*mic.mrc ${vars[outdir]}/${denoisedir}/ 2> /dev/null
+  fi
+  
+  rmdir ${tomo_dns_dir}
+  rmdir ${tomo_mic_dir}
   imod_restack "${tomo_log}"
-# #   echo "2831 : starting IMOD restack" ; exit  ### DIAGNOSTIC
   
   if [[ "${vars[do_janni]}" == true ]]; then
     local mic_type="JANNI-denoised micrographs"

@@ -192,7 +192,7 @@ function create_directories() {
   # In Classic mode, move movies back to input directory 
   if [[ "${do_pace}" == false ]] && [[ "${vars[restore_movies]}" == true ]] ; then
     # Count movies
-    local num_moved_movies=$(ls ${movie_template} | wc -w 2> /dev/null)
+    local num_moved_movies=$(ls ${movie_template} 2> /dev/null | wc -w )
     
     if [[ "${num_moved_movies}" -eq 0 ]]; then
       echo "WARNING! There are no already-moved movies in output directory '${vars[outdir]}/${rawdir}/'"
@@ -202,26 +202,21 @@ function create_directories() {
     else
       local move_cmd="mv ${movie_template} ${vars[movie_dir]}/"
       
-      if [[ "$verbose" -eq 0 ]]; then
+      if [[ "$verbose" -ne 0 ]]; then
         echo -e "${move_cmd}\n"
       fi
       
-      if [[ "${vars[testing]}" == false ]]; then
-        ${move_cmd}
-        
-        # Get status code
-        local status_code=$?
-        
-        # Exit on error
-        if [[ $status_code -ne 0 ]] ; then
-          echo -e "\nERROR!! Couldn't move '${movie_template}' to '${vars[movie_dir]}'!"
-          echo -e   "  Exiting...\n"
-          exit
-        fi
-      else
-        echo -e "TESTING ${move_cmd}\n"
+      ${move_cmd}
+      
+      # Get status code
+      local status_code=$?
+      
+      # Exit on error
+      if [[ $status_code -ne 0 ]] ; then
+        echo -e "\nERROR!! Couldn't move '${movie_template}' to '${vars[movie_dir]}'!"
+        echo -e   "  Exiting...\n"
+        exit
       fi
-      # End testing IF-THEN
     fi
     # End zero-movie IF-THEN
   fi
@@ -229,7 +224,7 @@ function create_directories() {
   # Remove output directory if '--overwrite' option chosen (PACE only)
   if [[ "${vars[overwrite]}" == true ]]; then
     if [[ "${do_pace}" == false ]]; then
-      local num_moved_movies=$(ls ${movie_template} | wc -w 2> /dev/null)
+      local num_moved_movies=$(ls ${movie_template} 2> /dev/null | wc -w)
     
       # If non-empty, throw error
       if [[ "${num_moved_movies}" -ge 1 ]]; then
@@ -396,17 +391,25 @@ function vprint() {
   
   # Loop through logfile array
   for log_file in "${log_array[@]}" ; do
+#     echo "do_print2file '${do_print2file}', log_file '${log_file}', string2print '${string2print}'"
+#     
     if [[ "${do_print2file}" == true ]]; then
       # Check whether to print only to the log file
       local firstchar=${log_file:0:1}
-      if [[ "${firstchar}" == "=" ]]; then
-        do_echo2screen=false
-        
+      if [[ "${firstchar}" == "=" ]] ; then
         # Remove first character
         log_file=${log_file:1}
+        
+        do_echo2screen=false
       else
         do_echo2screen=true
       fi
+      
+      if [[ "${firstchar}" == "=" ]] && [[ "$log_file" == "" ]] ; then
+        do_echo2screen=true
+      fi
+      
+# #       echo "418 log_file '${log_file}', do_echo2screen '${do_echo2screen}', string2print '${string2print}'"
       
       if [[ "${do_echo2screen}" == true ]]; then
         # If no log file is specified simply write to the screen
@@ -434,6 +437,7 @@ function vprint() {
             exit
           fi
         fi
+        # End empty-logfile IF-THEN
       fi
       # End echo-to-screen IF-THEN
     
@@ -506,7 +510,7 @@ function validate_inputs() {
   # End PACE IF-THEN
 
   imod_descr="IMOD executables directory"
-  check_dir "${vars[movie_dir]}" "Movie directory" "${outlog}"
+  check_dir "${vars[movie_dir]}" "movie directory" "${outlog}"
   check_dir "${vars[imod_dir]}" "${imod_descr}" "${outlog}"
   check_exe "$(which nvcc)" "CUDA libraries" "${outlog}"
   check_exe "${vars[motioncor_exe]}" "MotionCor2 executable" "${outlog}"
@@ -544,17 +548,18 @@ function validate_inputs() {
     vprint "  ERROR!! Can't use JANNI and Topaz simultaneously!" "0+" "${outlog}"
   fi
   
-  if [[ "${vars[do_janni]}" == true ]]; then
-    try_conda "JANNI executable" "${vars[janni_env]}" "${outlog}"
-    check_file "${vars[janni_model]}" "JANNI model" "${outlog}"
-  fi
-  
-  if [[ "${vars[do_topaz]}" == true ]]; then
-# #     check_exe "${vars[topaz_exe]}" "Topaz executable" "${outlog}" "${vars[topaz_env]}"
-    try_conda "Topaz executable" "${vars[topaz_env]}" "${outlog}"
-  fi
-  
   if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
+    if [[ "${vars[do_janni]}" == true ]]; then
+      vprint "  Denoising using JANNI" "1+" "${outlog}"
+      try_conda "JANNI executable" "${vars[janni_env]}" "${outlog}"
+      check_file "${vars[janni_model]}" "JANNI model" "${outlog}"
+    fi
+    
+    if [[ "${vars[do_topaz]}" == true ]]; then
+      vprint "  Denoising using Topaz" "1+" "${outlog}"
+      try_conda "Topaz executable" "${vars[topaz_env]}" "${outlog}"
+    fi
+    
     if [[ "${vars[denoise_gpu]}" == false ]]; then
       vprint "    Denoising using CPU..." "1+" "${outlog}"
     else
@@ -569,7 +574,9 @@ function validate_inputs() {
 #   fi
   
 # #   if [[ "${vars[do_etomo]}" == true ]]; then
-  if [[ "${vars[batch_directive]}" != "" ]]; then
+# #   echo "577 batch_directive : '${vars[batch_directive]}'"
+# #   if [[ "${vars[batch_directive]}" == "" ]]; then
+  if [[ ! -z "${vars[batch_directive]}" ]]; then
     vprint "  Computing reconstruction using IMOD" "1+" "${outlog}"
     check_file "${vars[batch_directive]}" "IMOD batch directive" "${outlog}"
     update_adoc "${outlog}"
@@ -579,7 +586,6 @@ function validate_inputs() {
   fi
   
   if [[ "${vars[do_ruotnocon]}" == true ]]; then
-# #     if [[ "${vars[do_etomo]}" != true ]]; then
     if [[ "${vars[batch_directive]}" != "" ]]; then
       validated=false
       vprint "  ERROR!! Can only remove contours if running eTomo!" "0+" "${outlog}"
@@ -599,7 +605,7 @@ function validate_inputs() {
     vprint "Missing required inputs, exiting...\n" "0+" "${outlog}"
     exit 1
   else
-    vprint "Found required inputs. Continuing..." "1+" "${outlog}"
+    vprint "Found required inputs. Continuing...\n" "1+" "${outlog}"
   fi
 }
 
@@ -1150,20 +1156,20 @@ function validate_inputs() {
     local outlog=$3
     
   if [[ "${vars[testing]}" == "false" ]]; then
-    vprint "    Current conda environment: ${CONDA_DEFAULT_ENV}" '2+' "${outlog}"
-    vprint "    Temporarily activating conda environment: ${conda_env}" "1+" "${outlog}"
+    vprint "    Current conda environment: ${CONDA_DEFAULT_ENV}" '5+' "${outlog}"
+    vprint "    Temporarily activating conda environment: ${conda_env}" "5+" "${outlog}"
     
-    vprint '    Executing: eval "$(conda shell.bash hook)"' "2+" "${outlog}"
+    vprint '    Executing: eval "$(conda shell.bash hook)"' "5+" "${outlog}"
     eval "$(conda shell.bash hook)"
     # (Can't combine the eval command into a variable and run it, for some reason)
     
     local conda_cmd="conda activate ${conda_env}"
-    vprint "    Executing: $conda_cmd" "2+" "${outlog}"
+    vprint "    Executing: $conda_cmd" "5+" "${outlog}"
     $conda_cmd
     
     # Sanity check
     if [[ "${CONDA_DEFAULT_ENV}" == "${conda_env}"  ]]; then
-      vprint "    New conda environment: ${CONDA_DEFAULT_ENV}" "2+" "${outlog}"
+      vprint "    New conda environment: ${CONDA_DEFAULT_ENV}" "5+" "${outlog}"
     else
       echo -e "\nERROR!! Conda environment not found: ${conda_env}"
       echo    "Install ${conda_env} or disable option!"
@@ -1260,7 +1266,6 @@ function validate_inputs() {
     
     # Check if search file exists
     if [[ ! -f "${search_file}" ]]; then
-# #       echo "1209 movie_ext '$movie_ext' "  ; exit ### DIAGNOSTIC
       validated=false
       echo "  ERROR!! ${file_type^} not found: ${search_file}"
       # ("${string^}" capitalizes first letter: https://stackoverflow.com/a/12487455)
@@ -1331,9 +1336,7 @@ function validate_inputs() {
       
       # Read space-delimited string as array
       IFS=' ' read -r -a frame_array <<< "$(cat ${vars[frame_file]})"
-      local mic_dose=$(printf "%.3f" $(echo "${frame_array[0]} * ${frame_array[2]}" | bc) )
-      
-    # #   vprint "  Frame file : ${vars[frame_file]}" "1+" "${outlog}"
+      local mic_dose=$(printf "%.3f" $(echo "${frame_array[0]} * ${frame_array[2]}" | bc 2> /dev/null) )
       
       # If the dose is less than 10, show a warning and perform a sanity check on the frames file
       if (( $( echo "$mic_dose < 10" | bc -l) )) ; then
@@ -1720,14 +1723,16 @@ function run_motioncor() {
 ###############################################################################
   
   local fn=$1
-  local gpu_num=$2
+  local gpu_local=$2
   
+  # Get single GPU number if there are more than one
+  get_gpu
+
   # Initialize command
   local mc_command=""
   
   if [[ "${vars[testing]}" == true ]]; then
     local mc_exe="$(basename ${vars[motioncor_exe]})"
-# #     echo "1691 motioncor_exe : '${vars[motioncor_exe]}'" >> motioncor.tmp
   else
     local mc_exe=${vars[motioncor_exe]}
   fi
@@ -1754,7 +1759,7 @@ function run_motioncor() {
   -Tol 0.5 \
   -Serial 0 \
   -SumRange 0 0 \
-  -Gpu ${gpu_num} \
+  -Gpu ${gpu_local} \
   -LogFile ${vars[outdir]}/$micdir/${mc2_logs}/${stem_movie}_mic.log"
   
   if [[ "${vars[split_sum]}" == 1 || "${vars[do_splitsum]}" == true ]]; then
@@ -1871,155 +1876,206 @@ eof
   # End testing IF-THEN
 }
 
-function janni_denoise() {
+function denoise_wrapper() {
 ###############################################################################
 #   Function:
-#     Runs JANNI denoising
+#     Runs JANNI or Topaz denoising
 #
 #   Positional variables:
-#     1) output log
-#     2) (optional) GPU number 
+#     1) JANNI or Topaz
+#     2) input directory
+#     3) output log
+#     4) (optional) GPU number 
 #   
 #   Global variables:
-#     gpu_num
+#     gpu_local
 #     vars
-#     denoisedir
+#     tomo_dns_dir
 #     
 ###############################################################################
   
-  local outlog=$1
-  gpu_num=$2  # might be updated
+  local dns_type=$1
+  local indir=$2
+  local outlog=$3
+  gpu_local=$4  # might be updated
   
   # Get single GPU number if there are more than one
   get_gpu
 
   # Optionally use CPU
   if [[ "${vars[denoise_gpu]}" == false ]]; then
-    gpu_num=-1
+    gpu_local=-1
   fi
   
-  local janni_args="--ignore-gooey denoise --overlap=${vars[janni_overlap]} --batch_size=${vars[janni_batch]} --gpu=${gpu_num} -- ${vars[outdir]}/${micdir} ${vars[outdir]}/${denoisedir}_tmp ${vars[janni_model]}"
-  local janni_cmd="janni_denoise.py ${janni_args}"
-    
-  vprint "$(date +"$time_format"): Denoising using JANNI..." "3+" "=${outlog}"
-  
-  if [[ "${vars[testing]}" == false ]]; then
+  if [[ "${dns_type}" == "janni" ]] ; then
     local conda_cmd="conda activate ${vars[janni_env]}"
-    vprint "    Executing: $conda_cmd" "2+" "=${outlog}"
-    $conda_cmd
-    vprint "conda environment: '$CONDA_DEFAULT_ENV'" "3+" "=${outlog}"
+    local denoise_exe="janni_denoise.py"
+    local denoise_args="--ignore-gooey denoise --overlap=${vars[janni_overlap]} --batch_size=${vars[janni_batch]} --gpu=${gpu_local} -- ${indir} ${tomo_dns_dir} ${vars[janni_model]}"
+    local denoise_cmd="${denoise_exe} ${denoise_args}"
+    local dns_name="JANNI"
     
-    vprint "\n  Denoising using JANNI..." "3+" "=${outlog}"
-    vprint   "    Running: janni_denoise.py ${janni_args}" "3+" "=${outlog}"
-    
-    # Run JANNI
-    if [[ "$verbose" -le 2 ]]; then
-      $janni_cmd 2>&1 > /dev/null
-      # Suppress all output
-      
-    elif [[ "$verbose" -eq 6 ]]; then
-      vprint "    $(date)" "6=" "=${outlog}"
-      
-      # https://stackoverflow.com/a/2409214
-      { time ${janni_cmd} 2> /dev/null ; } 2>&1 | grep real | sed 's/real\t/    Run time: /'
-      # Do NOT use quotes around ${janni_cmd} above...
-    elif [[ "$verbose" -ge 7 ]]; then
-      time $janni_cmd
-    else
-      $janni_cmd 2> /dev/null >> "${outlog}"
-      # (Output will be written in chunks to the log file.)
-    fi
-    
-    # JANNI writes output to <output_directory>/<input_directory>, so fix it.
-    mv ${vars[outdir]}/${denoisedir}_tmp/${micdir}/* ${vars[outdir]}/${denoisedir}/ && rmdir -p ${vars[outdir]}/${denoisedir}_tmp
-    vprint "    Denoised $(ls ${vars[outdir]}/${denoisedir}/${prev_name}*_mic.mrc | wc -w) micrographs\n" "3+" "=${outlog}"
-    
-    # Clean up
-    conda deactivate
-    vprint "conda environment: '$CONDA_DEFAULT_ENV'\n" "3+" "=${outlog}"
-  
-  # Testing
+    # For some reason JANNI appends the input directory to the output directory
+    tomo_dns_dir="${tomo_dns_dir}/$(basename ${indir})"
+  elif [[ "${dns_type}" == "topaz" ]] ; then
+    local conda_cmd="conda activate ${vars[topaz_env]}"
+    local denoise_exe="topaz"
+    local denoise_args="denoise ${indir}/*_mic.mrc --device ${gpu_local} --patch-size ${vars[topaz_patch]} --output ${tomo_dns_dir}"
+    local denoise_cmd="timeout ${vars[topaz_time]} ${denoise_exe} ${denoise_args}"
+    local dns_name="Topaz"
   else
-    vprint "\n  TESTING: janni_denoise.py ${janni_args}\n" "3+" "=${outlog}"
+    echo -e "\nERROR!! Denoising type unknown: ${dns_type} " 
+    echo -e "  Exiting...\n"
+    exit
   fi
-  # End testing IF-THEN
-}
-
-function topaz_denoise() {
-###############################################################################
-#   Function:
-#     Runs Topaz denoising
-#
-#   Positional variables:
-#     1) output log
-#     2) (optional) GPU number 
-#   
-#   Global variables:
-#     gpu_num
-#     vars
-#     denoisedir
-#     
-###############################################################################
-  
-  local outlog=$1
-  gpu_num=$2  # might be updated
-  
-  # Get single GPU number if there are more than one
-  get_gpu
-
-  # Optionally use CPU
-  if [[ "${vars[denoise_gpu]}" == false ]]; then
-    gpu_num=-1
-  fi
-  
-  local topaz_args="denoise ${vars[outdir]}/${micdir}/${prev_name}*_mic.mrc --device ${gpu_num} --patch-size ${vars[topaz_patch]} --output ${vars[outdir]}/${denoisedir}"
-  local topaz_cmd="timeout ${vars[topaz_time]} topaz ${topaz_args}"
-    
-  if [[ "${vars[testing]}" != true ]]; then
-    local conda_cmd="conda activate ${vars[janni_env]}"
-    vprint "    Executing: $conda_cmd" "2+" "${outlog}"
+      
+  if [[ "${vars[testing]}" == false ]]; then
+    vprint "\n  Executing: $conda_cmd" "2+" "=${outlog}"
     $conda_cmd
-    vprint "conda environment: '$CONDA_DEFAULT_ENV'" "3+" "=${outlog}"
+    vprint   "    conda environment: '$CONDA_DEFAULT_ENV'" "3+" "=${outlog}"
+    vprint   "    Denoising using ${dns_name}..." "3+" "=${outlog}"
+    vprint   "    Executing: ${denoise_cmd}" "3+" "=${outlog}"
     
-    vprint "$(date +"$time_format"): Denoising using Topaz..." "3+" "${main_log}"
-    vprint "\n  Denoising using Topaz..." "3+" "=${outlog}"
-    vprint   "    Running: topaz ${topaz_args}" "3+" "=${outlog}"
-    
-    # Run Topaz
+    # Run denoising
     if [[ "$verbose" -le 2 ]]; then
-      $topaz_cmd 2>&1 > /dev/null
+      $denoise_cmd 2>&1 > /dev/null
       # Suppress all output
       
     elif [[ "$verbose" -eq 6 ]]; then
-      vprint "    $(date)" "6=" "=${outlog}"
+      vprint "      $(date)" "6=" "=${outlog}"
       
-      # https://stackoverflow.com/a/2409214
-      { time ${topaz_cmd} 2> /dev/null ; } 2>&1 | grep real | sed 's/real\t/    Run time: /'
+      # Time execution and redirect output (https://stackoverflow.com/a/2409214)
+      { time ${denoise_cmd} 2> /dev/null ; } 2>&1 | grep real | sed 's/real\t/    Run time: /'
       local status_code=("${PIPESTATUS[0]}")
-      # Do NOT use quotes around ${topaz_cmd} above...
+      # Do NOT use quotes around ${denoise_cmd} above...
     elif [[ "$verbose" -ge 7 ]]; then
-      time $topaz_cmd
+      time $denoise_cmd
       local status_code=("${PIPESTATUS[0]}")
     else
-      $topaz_cmd 2> /dev/null
-      local status_code=("${PIPESTATUS[0]}")
+      if [[ "${outlog}" != "" ]] ; then
+# #         $denoise_cmd 2> /dev/null >> ${outlog} 
+        $denoise_cmd >${outlog} 2>&1
+        local status_code=("${PIPESTATUS[0]}")
+      else
+        # Suppress output (https://stackoverflow.com/a/46009371)
+        $denoise_cmd >/dev/null 2>&1
+        local status_code=("${PIPESTATUS[0]}")
+      fi
     fi
     
     # TODO: Figure out why Topaz hangs sometimes
-    vprint "    Topaz complete, status code: ${status_code}" "3+" "=${outlog}"
-    vprint "    Denoised $(ls ${vars[outdir]}/${denoisedir}/${prev_name}*_mic.mrc | wc -w) micrographs\n" "3+" "=${outlog}"
+    vprint "    ${dns_name} complete, status code: ${status_code}" "3+" "=${outlog}"
+    # Topaz status code 124: bad
+    
+    local num_orig="$(ls ${indir}/*_mic.mrc | wc -w)"
+    local num_dns="$(ls ${tomo_dns_dir}/*_mic.mrc | wc -w)"
+    if [[ "${num_orig}" -ne "${num_dns}" ]] ; then
+      vprint "\n    WARNING!" "3+" "=${outlog}"
+    fi
+    
+    vprint "    Denoised ${num_dns}/${num_orig} micrographs" "3+" "=${outlog}"
   
     # Clean up
     conda deactivate
-    vprint "conda environment: '$CONDA_DEFAULT_ENV'" "3+" "=${outlog}"
+    vprint "  conda environment: '$CONDA_DEFAULT_ENV'\n" "3+" "=${outlog}"
   
   # Testing
   else
-    vprint "\n  TESTING: topaz ${topaz_args}\n" "3+" "=${outlog}"
+    vprint "  TESTING: ${denoise_exe} ${denoise_args}\n" "3+" "=${outlog}"
   fi
   # End testing IF-THEN
 }
 
+# function topaz_denoise() {
+# ###############################################################################
+# #   Function:
+# #     Runs Topaz denoising
+# #
+# #   Positional variables:
+# #     1) input directory
+# #     2) output directory
+# #     3) output log
+# #     4) (optional) GPU number 
+# #   
+# #   Global variables:
+# #     gpu_local
+# #     vars
+# #     denoisedir
+# #     
+# ###############################################################################
+#   
+#   local indir=$1
+#   local outdir=$2
+#   local outlog=$3
+#   gpu_local=$4  # might be updated
+#   
+#   # Get single GPU number if there are more than one
+#   get_gpu
+# 
+#   # Optionally use CPU
+#   if [[ "${vars[denoise_gpu]}" == false ]]; then
+#     gpu_local=-1
+#   fi
+#   
+#   local topaz_args="denoise ${indir}/*_mic.mrc --device ${gpu_local} --patch-size ${vars[topaz_patch]} --output ${outdir}"
+#   local topaz_cmd="timeout ${vars[topaz_time]} topaz ${topaz_args}"
+#     
+#   if [[ "${vars[testing]}" == false ]]; then
+#     local conda_cmd="conda activate ${vars[topaz_env]}"
+#     vprint "\n  Executing: $conda_cmd" "2+" "=${outlog}"
+#     $conda_cmd
+#     vprint   "    conda environment: '$CONDA_DEFAULT_ENV'" "3+" "=${outlog}"
+#     
+#     vprint   "    Denoising using Topaz..." "3+" "=${outlog}"
+#     vprint   "      Executing: topaz ${topaz_args}" "3+" "=${outlog}"
+#     
+#     # Run Topaz
+#     if [[ "$verbose" -le 2 ]]; then
+#       $topaz_cmd 2>&1 > /dev/null
+#       # Suppress all output
+#       
+#     elif [[ "$verbose" -eq 6 ]]; then
+#       vprint "      $(date)" "6=" "=${outlog}"
+#       
+#       # Time execution and redirect output (https://stackoverflow.com/a/2409214)
+#       { time ${topaz_cmd} 2> /dev/null ; } 2>&1 | grep real | sed 's/real\t/    Run time: /'
+#       local status_code=("${PIPESTATUS[0]}")
+#       # Do NOT use quotes around ${topaz_cmd} above...
+#     elif [[ "$verbose" -ge 7 ]]; then
+#       time $topaz_cmd
+#       local status_code=("${PIPESTATUS[0]}")
+#     else
+#       if [[ "${outlog}" != "" ]] ; then
+#         $topaz_cmd >> ${outlog}  # 2> /dev/null
+#         local status_code=("${PIPESTATUS[0]}")
+#       else
+#         $topaz_cmd
+#         local status_code=("${PIPESTATUS[0]}")
+#       fi
+#     fi
+#     
+#     # TODO: Figure out why Topaz hangs sometimes
+#     vprint "    Topaz complete, status code: ${status_code}" "3+" "=${outlog}"
+#     # Status code 124: bad
+#     
+#     local num_orig="$(ls ${indir}/*_mic.mrc | wc -w)"
+#     local num_dns="$(ls ${outdir}/*_mic.mrc | wc -w)"
+#     if [[ "${num_orig}" -ne "${num_dns}" ]] ; then
+#       vprint "\n    WARNING!"
+#     fi
+#     
+#     vprint "    Denoised ${num_dns}/${num_orig} micrographs" "3+" "=${outlog}"
+#   
+#     # Clean up
+#     conda deactivate
+#     vprint "  conda environment: '$CONDA_DEFAULT_ENV'\n" "3+" "=${outlog}"
+#   
+#   # Testing
+#   else
+#     vprint "\n  TESTING: topaz ${topaz_args}\n" "3+" "=${outlog}"
+#   fi
+#   # End testing IF-THEN
+# }
+# 
 function get_gpu() {
 ###############################################################################
 #   Function:
@@ -2027,24 +2083,20 @@ function get_gpu() {
 #     Intended for serial GPU usage
 #   
 #   Global variables:
-#     gpu_num
+#     gpu_local
 #     vars
 #   
 ###############################################################################
   
-#   echo "gpu_num, before '${gpu_num}'"
-  
-  if [[ "$gpu_num" == "" ]]; then
+  if [[ "$gpu_local" == "" ]]; then
     # If GPU number specified, use it
     if [[ "${vars[gpus]}" != "" ]]; then
-      gpu_num=$(echo "${vars[gpus]}" | awk '{print $1}')
+      gpu_local=$(echo "${vars[gpus]}" | awk '{print $1}')
     else
       # Use CPU, if allowed
-      gpu_num="-1"
+      gpu_local="-1"
     fi
   fi
-  
-#   echo "gpu_num, after '${gpu_num}'"
 }
 
 function write_angles_lists() {
@@ -2075,7 +2127,7 @@ function write_angles_lists() {
   
   # Write new IMOD list file (overwrites), starting with number of images
   echo ${#mcorr_mic_array[*]} > $mcorr_list
-  if [[ "${vars[do_topaz]}" == true ]]; then
+  if [[ "${vars[do_topaz]}" == true ]] || [[ "${vars[do_janni]}" == true ]] ; then
     echo ${#denoise_array[*]} > $denoise_list
   fi
   
@@ -2088,14 +2140,14 @@ function write_angles_lists() {
   for idx in $sorted_keys ; do
     echo    "${stripped_angle_array[${idx}]}" >> $angles_list
     echo -e "${mcorr_mic_array[$idx]}\n/" >> $mcorr_list
-    if [[ "${vars[do_topaz]}" == true ]]; then
+    if [[ "${vars[do_topaz]}" == true ]] || [[ "${vars[do_janni]}" == true ]] ; then
       echo -e "${denoise_array[$idx]}\n/" >> $denoise_list
     fi
   done  
   
   vprint "  Wrote list of ${#stripped_angle_array[*]} angles to $angles_list" "2+" "=${outlog}"
   vprint "  Wrote list of ${#mcorr_mic_array[*]} images to $mcorr_list" "2+" "=${outlog}"
-  if [[ "${vars[do_topaz]}" == true ]]; then
+  if [[ "${vars[do_topaz]}" == true ]] || [[ "${vars[do_janni]}" == true ]] ; then
     vprint "  Wrote list of ${#denoise_array[*]} images to $denoise_list" "2+" "=${outlog}"
   fi
   
@@ -2150,14 +2202,13 @@ function imod_restack() {
   local newstack_log="${tomo_root}_newstack.log"
   
   # Choose list for restacking
-  if [[ "${vars[do_janni]}" == true ]] && [[ "${vars[do_topaz]}" == true ]]; then
+  if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
     local imod_list="${denoise_list}"
   else
     local imod_list="${mcorr_list}"
   fi
   
   # AreTomo and IMOD expect different extensions for stacks
-# #   if [[ "${vars[do_etomo]}" == false ]]; then
   if [[ "${vars[batch_directive]}" != "" ]]; then
     reordered_stack="${tomo_root}_newstack.mrc"
   else
@@ -2179,12 +2230,16 @@ function imod_restack() {
       
       if [[ "$verbose" -ge 8 ]]; then
         ${vars[imod_dir]}/${restack_cmd} 2>&1 | tee $newstack_log
+        local newstack_status=("${PIPESTATUS[0]}")
       elif [[ "$verbose" -ge 6 ]]; then
         # ${vars[imod_dir]}/${restack_cmd} | tee $newstack_log | grep --line-buffered "RO image"
         ${vars[imod_dir]}/${restack_cmd} | tee $newstack_log | stdbuf -o0 grep "RO image" | sed 's/^/   /'
         # line-buffered & stdbuf: https://stackoverflow.com/questions/7161821/how-to-grep-a-continuous-stream
+        
+        local newstack_status=("${PIPESTATUS[0]}")
       else
         ${vars[imod_dir]}/${restack_cmd} > $newstack_log
+        local newstack_status=("${PIPESTATUS[0]}")
       fi
     
       # Sanity check
@@ -2195,12 +2250,12 @@ function imod_restack() {
         fi
         
         if [[ "$verbose" -ge 1 ]]; then
-          vprint "WARNING! restack output $reordered_stack does not exist!" "0+" "${main_log} =${outlog} =${warn_log}"
-          vprint "         Continuing...\n" "0+" "${main_log} =${outlog} =${warn_log}"
+          vprint "WARNING! Newstack output '$reordered_stack' does not exist! Status code: ${newstack_status}" "0+" "${outlog} =${warn_log}"
+          vprint "         Continuing..." "0+" "${outlog} =${warn_log}"
         fi
       else
         # Update pixel size
-        vprint "  Running: ${apix_cmd}\n" "3+" "=${outlog}"
+        vprint "  Running: ${apix_cmd}" "3+" "=${outlog}"
         
         if [[ "$verbose" -ge 8 ]]; then
           ${vars[imod_dir]}/${apix_cmd} 2>&1 | tee $newstack_log
@@ -2254,7 +2309,7 @@ function wrapper_aretomo() {
 ###############################################################################
   
   local num_mics=$1
-  local gpu_num=$2
+  local gpu_local=$2
   
   if [[ "$3" == "" ]]; then
     local do_overwrite=true
@@ -2266,7 +2321,7 @@ function wrapper_aretomo() {
   # Output files
   tomogram_3d="${tomo_root}_aretomo.mrc"
   local aretomo_log="${tomo_root}_aretomo.log"
-  local aretomo_cmd=$(run_aretomo ${gpu_num})
+  local aretomo_cmd=$(run_aretomo ${gpu_local})
   
   # Run AreTomo
   if [[ "${vars[testing]}" != true ]]; then
@@ -2295,10 +2350,10 @@ function wrapper_aretomo() {
       
       if [[ "$verbose" -ge 4 ]]; then
         echo -e "\n  $(date)"
-        echo      "  Computing tomogram reconstruction '`basename $tomogram_3d`' from $num_mics micrographs on GPU #${gpu_num}"
+        echo      "  Computing tomogram reconstruction '`basename $tomogram_3d`' from $num_mics micrographs on GPU #${gpu_local}"
         echo -e "\n  Running: ${aretomo_cmd}"
       elif [[ "$verbose" -eq 3 ]]; then
-        echo      "  Computing tomogram reconstruction '`basename $tomogram_3d`' from $num_mics micrographs on GPU #${gpu_num}"
+        echo      "  Computing tomogram reconstruction '`basename $tomogram_3d`' from $num_mics micrographs on GPU #${gpu_local}"
       fi
 
       if [[ "$verbose" -ge 7 ]]; then
@@ -2340,7 +2395,7 @@ function wrapper_aretomo() {
       # Sanity check
       if [[ ! -f "$tomogram_3d" ]]; then
         if [[ "$verbose" -ge 1 ]]; then
-          echo    ""
+# #           echo    ""
           date
           if [[ "$status_code" -eq 139 ]]; then
             echo    "WARNING! AreTomo output $tomogram_3d does not exist!"
@@ -2382,9 +2437,9 @@ function wrapper_aretomo() {
       fi
     else
       if [[ "$verbose" -ge 4 ]]; then
-        echo -e "\n  TESTING ${aretomo_cmd}"
+        echo -e "\n  TESTING: ${aretomo_cmd}"
       elif [[ "$verbose" -eq 3 ]]; then
-        echo      "  TESTING tomogram reconstruction '`basename $tomogram_3d`' from $num_mics micrographs"
+        echo      "  TESTING: tomogram reconstruction '`basename $tomogram_3d`' from $num_mics micrographs"
       fi
       
       touch "$tomogram_3d"
@@ -2406,7 +2461,7 @@ function wrapper_aretomo() {
   #     1) (optional) GPU number 
   #   
   #   Global variables:
-  #     gpu_num
+  #     gpu_local
   #     vars
   #     reordered_stack
   #     tomogram_3d
@@ -2414,7 +2469,7 @@ function wrapper_aretomo() {
   #     
   ###############################################################################
     
-    gpu_num=$1  # might be updated
+    gpu_local=$1  # might be updated
     
     # Get single GPU number if there are more than one
     get_gpu
@@ -2427,7 +2482,7 @@ function wrapper_aretomo() {
       -VolZ ${vars[vol_zdim]} \
       -OutBin ${vars[are_bin]} \
       -TiltAxis ${vars[tilt_axis]} \
-      -Gpu ${gpu_num} \
+      -Gpu ${gpu_local} \
       -TiltCor ${vars[tilt_cor]} \
       -FlipVol ${vars[flip_vol]} \
       -PixSize ${vars[apix]} \

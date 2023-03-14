@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2023-02-28"
+  echo "Modified 2023-03-13"
   date
   echo 
 }
@@ -59,7 +59,7 @@ function howto_stop() {
 #################### Filenames ####################
 
 # Inputs
-shared_libs=snartomo-shared.bash                   # Shared libraries
+shared_libs=snartomo-shared-13mar.bash                   # Shared libraries
 mdoc_file=None                                     # Input MDOC file (to read pixel size, etc.)
 log_file=log-snartomo.txt                          # Log file
 outdir=SNARTomo                                    # Output top-level directory
@@ -116,10 +116,6 @@ do_topaz=false                                    # Run Topaz denoise
 topaz_patch=2048                                  # Patch size
 topaz_time=5m                                     # maximum duration, Topaz sometimes hangs
 
-# # IMOD
-# do_etomo=false                                    # Run IMOD reconstruction
-# batch_directive=batchDirective.adoc               # IMOD batchruntomo directive file
-
 # AreTomo parameters
 bin_factor=8                                      # binning factor
 vol_zdim=1600                                     # z-dimension for volume
@@ -135,17 +131,18 @@ are_time=30m                                      # maximum duration, AreTomo so
 
 #################### Outputs #################### 
 
-cmd_file=commands.txt                              # Output commands file (in ${outdir})
-set_file=settings.txt                              # Output settings file (in ${outdir})
-rawdir=1-Movies                                    # directory where raw movie files will go
-micdir=2-MotionCor2                                # MotionCor directory
-mc2_logs=Logs                                      # directory for resource and MotionCor log files
-ctfdir=3-CTFFIND4                                  # CTFFIND directory
-topazdir=4-Topaz                                   # Topaz directory
-recdir=5-Tomo                                      # Reconstruction directory
-imgdir=Images                                      # Image directory
-thumbdir=Thumbnails                                # Central sections of tomograms
-temp_dir=tmp                                       # Temporary files
+cmd_file=commands.txt                             # Output commands file (in ${outdir})
+set_file=settings.txt                             # Output settings file (in ${outdir})
+rawdir=1-Movies                                   # directory where raw movie files will go
+micdir=2-MotionCor2                               # MotionCor directory
+mc2_logs=Logs                                     # directory for resource and MotionCor log files
+ctfdir=3-CTFFIND4                                 # CTFFIND directory
+denoisedir=4-Denoise                              # Denoised micrograph directory
+recdir=5-Tomo                                     # Reconstruction directory
+imgdir=Images                                     # Image directory
+thumbdir=Thumbnails                               # Central sections of tomograms
+temp_dir=tmp                                      # Temporary files
+dir2denoise=TmpDenoised                           # Denoised micrographs will go here
 
 ################ END BATCH HEADER ################
 
@@ -171,8 +168,8 @@ main
         check_new_tilt_series
           compute_tomogram
             janni_denoise
-            topaz_denoise
-            write_angles_lists
+            shared.topaz_denoise
+            shared.write_angles_lists
             imod_restack
             wrapper_aretomo
             wrapper_etomo
@@ -241,7 +238,7 @@ function do_real_work() {
   check_gain_format
   
   if [[ "${verbose}" -ge 1 ]]; then
-    echo -e "\nLooking for files in '${vars[movie_dir]}/' for up to ${vars[max_minutes]} minutes\n"
+    echo -e "Looking for files in '${vars[movie_dir]}/' for up to ${vars[max_minutes]} minutes\n"
     howto_stop
   fi
 
@@ -328,6 +325,8 @@ function parse_command_line() {
   add_argument "max_minutes" "${max_minutes}" "Maximum run time, minutes" "INT"
   add_argument "kv" "${voltage}" "Voltage, kV" "FLOAT"
   add_argument "gpus" "${gpus}" "GPU to use (only single GPU supported in Classic mode)" "ANY"
+  add_argument "no_redo3d" "false" "Flag to NOT overwrite pre-existing 3D reconstructions" "BOOL"
+  add_argument "denoise_gpu" "${DENOISE_GPU}" "Flag to denoise using GPUs" "BOOL"
 
   add_section "ADVANCED SETTINGS" "These settings will rarely need to be changed."
   add_argument "search_interval" "${search_interval}" "Interval to check for new micrographs, seconds" "INT"
@@ -366,7 +365,8 @@ function parse_command_line() {
 
   # JANNI
   add_section "JANNI SETTINGS" "Settings for JANNI denoise."
-# #   add_argument "do_janni" "${do_janni}" "Denoise micrographs using JANNI" "BOOL"
+  add_argument "do_janni" "${do_janni}" "Denoise micrographs using JANNI" "BOOL"
+  add_argument "janni_model" "${JANNI_MODEL}" "JANNI 'h5' model file" "ANY"
   add_argument "janni_batch" "${janni_batch}" "Number of patches predicted in parallel" "INT"
   add_argument "janni_overlap" "${janni_overlap}" "Overlap between patches, pixels" "INT"
   add_argument "janni_env" "${JANNI_ENV}" "JANNI conda environment" "ANY"
@@ -375,6 +375,7 @@ function parse_command_line() {
   add_section "TOPAZ SETTINGS" "Settings for denoising."
   add_argument "do_topaz" "${do_topaz}" "Denoise micrographs using Topaz" "BOOL"
   add_argument "topaz_patch" "${topaz_patch}" "Patch size for Topaz denoising" "INT"
+  add_argument "topaz_time" "${topaz_time}" "Maximum duration, Topaz sometimes hangs" "ANY"
   add_argument "topaz_env" "${TOPAZ_ENV}" "Topaz conda environment" "ANY"
 
   # IMOD
@@ -555,7 +556,7 @@ function initialize_vars() {
   kill_all_humans=false
   
   # Create a blank file of previously-known micrographs
-  rm $old_state
+  rm $old_state 2> /dev/null
   touch $old_state
   
   max_seconds=`echo "${vars[max_minutes]}"*60 | bc`
@@ -609,7 +610,7 @@ function parse_filename() {
   # Cut directory name and extension (last period-delimited string)
   stem_movie=$(basename $fn | rev | cut -d. -f2- | rev)
   cor_mic="${vars[outdir]}/${micdir}/${stem_movie}_mic.mrc"
-  dns_mic="${vars[outdir]}/${topazdir}/${stem_movie}_mic.mrc"
+  dns_mic="${vars[outdir]}/${denoisedir}/${stem_movie}_mic.mrc"
   ali_out="${vars[outdir]}/${micdir}/${mc2_logs}/${stem_movie}_mic.out"
 
   # Remove extension (last period-delimited string)
@@ -696,11 +697,10 @@ function move_micrograph() {
     if ! [[ "$fn" == *."${movie_ext}" ]]; then 
       echo    "WARNING: Filename '$fn' doesn't end in '.${movie_ext}'"
       echo -e "         Continuing...\n"
-# #       echo "702 movie_ext : '$movie_ext', fn : '$fn'" ; exit  # DIAGNOSTIC
     fi
     
-    # Move micrograph to output directory so that it isn't processed again
-    if [[ "${vars[testing]}" == false ]]; then
+#     # Move micrograph to output directory so that it isn't processed again
+#     if [[ "${vars[testing]}" == false ]]; then
       # In case EER format and was copied locally, use original directory explicitly
       local orig_movie="${vars[movie_dir]}/$(basename $fn)"
       
@@ -709,12 +709,12 @@ function move_micrograph() {
       else
         mv ${orig_movie} ${vars[outdir]}/${rawdir}/
       fi
-    
-    else
-      vprint "    TESTING mv -v $fn "${vars[outdir]}"/$rawdir/" "5+"
-    fi
-    # End testing IF-THEN
-    
+#     
+#     else
+#       vprint "    TESTING mv -v $fn "${vars[outdir]}"/$rawdir/" "5+"
+#     fi
+#     # End testing IF-THEN
+#     
   fi
   # End continue IF-THEN
 }
@@ -741,6 +741,13 @@ function check_new_tilt_series() {
   
   # Check if new tomogram
   if [[ "$prev_name" != "$tomo_name"  ]]; then
+#     if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
+#       echo "prev_name : '$prev_name'"
+#       echo "tomo_name : '$tomo_name'"
+#       echo
+#       exit  ### TESTING
+#     fi
+  
     if [[ "$prev_name" != "" ]]; then
       # Write restack images and compute tomogram
       compute_tomogram
@@ -759,7 +766,6 @@ function check_new_tilt_series() {
     denoise_array[$tilt_idx]=$dns_mic
   fi
   
-#   echo "    TESTING: '$tilt_idx' $dns_mic $angle"
   mcorr_mic_array[$tilt_idx]=$cor_mic
   
   # Angle array (with same index keys) will be used to sort
@@ -861,8 +867,10 @@ function motioncor2_serial() {
       
       # If pre-exising output
       else
-        echo    "    WARNING: MotionCor2 output $cor_mic already exists"
-        echo -e "      Skipping...\n"
+        if [[ "$verbose" -ge 4 ]] ; then
+          echo    "    WARNING: MotionCor2 output $cor_mic already exists"
+          echo -e "      Skipping...\n"
+        fi
         
         move_micrograph "${fn}"
       fi
@@ -940,8 +948,8 @@ function ctffind4_serial() {
           \rm /tmp/tmp.txt 2> /dev/null
           # (Temp file may cause problems if lying around)
         else
-          echo    "WARNING! CTFFIND4 output $avg_rot does not exist!"
-          echo -e "         Continuing...\n"
+          echo    "    WARNING! CTFFIND4 output $avg_rot does not exist!"
+          echo -e "             Continuing...\n"
           
           return
         fi
@@ -960,8 +968,10 @@ function ctffind4_serial() {
         fi
 
       else
-        echo    "    WARNING: CTFFIND4 output $ctf_mrc already exists"
-        echo -e "      Skipping...\n"
+        if [[ "$verbose" -ge 4 ]] ; then
+          echo    "    WARNING: CTFFIND4 output $ctf_mrc already exists"
+          echo -e "      Skipping...\n"
+        fi
       fi
       # End preexisting-file IF-THEN
     
@@ -1001,9 +1011,11 @@ function compute_tomogram() {
 #     tomo_dir
 #     recdir
 #     prev_name
+#     tomo_dns_dir
 #     tomo_root
-#     outdir
 #     angles_list
+#     denoise_list
+#     micdir
 #     stripped_angle_array
 #     
 ###############################################################################
@@ -1022,11 +1034,19 @@ function compute_tomogram() {
   tomo_dir="${recdir}/${prev_name}"
   
   if [[ "$verbose" -ge 2 ]]; then
+    echo
     mkdir -pv "${vars[outdir]}/${tomo_dir}" | sed 's/^/  /'
   else
     mkdir -p "${vars[outdir]}/${tomo_dir}"
   fi
   
+  if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
+    # Create micrograph directory
+    local tomo_mic_dir="${vars[outdir]}/${tomo_dir}/${temp_dir}"
+    tomo_dns_dir="${vars[outdir]}/${tomo_dir}/${temp_dir}/${dir2denoise}"
+    mkdir ${tomo_mic_dir} ${tomo_dns_dir} 2> /dev/null
+  fi
+
   # Find MDOC file
   if [[ "${vars[mdoc_dir]}" != "" ]] ; then
     local last_mic="$(basename ${mcorr_mic_array[-1]%_mic.mrc})"
@@ -1046,32 +1066,42 @@ function compute_tomogram() {
     # End found-MDOC IF-THEN
   fi
   
-# #   echo "last_mic '$last_mic', mdoc_dir '${vars[mdoc_dir]}', found_mdoc '$found_mdoc'" ; exit  ### DIAGNOSTIC
-  
   # Output files
   tomo_root="${vars[outdir]}/${tomo_dir}/${prev_name}"
   local mcorr_list="${tomo_root}_mcorr.txt"
-  local denoise_list="${tomo_root}_topaz.txt"
   angles_list="${tomo_root}_newstack.rawtlt"
+  denoise_list="${tomo_root}_denoise.txt"
   
   # Write new IMOD list file (overwrites), starting with number of images
   echo ${#mcorr_mic_array[*]} > $mcorr_list
 
   # Optionally denoise
   if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]] ; then
+    # Move to temp directory
+    if [[ "${vars[testing]}" == false ]] ; then
+      for idx in ${!mcorr_mic_array[@]} ; do
+        mv ${mcorr_mic_array[$idx]} ${tomo_mic_dir}/
+      done
+    fi
+    
     # Write micrograph list
     echo ${#denoise_array[*]} > $denoise_list
     
     if [[ "${vars[do_janni]}" == true ]]; then
-      janni_denoise
+# #       janni_denoise
+      denoise_wrapper "janni" "${tomo_mic_dir}" 
     elif [[ "${vars[do_topaz]}" == true ]]; then
-      topaz_denoise
+      denoise_wrapper "topaz" "${tomo_mic_dir}" 
     fi
+    
+    # Move micrographs to final directory
+    mv ${tomo_dns_dir}/*mic.mrc ${vars[outdir]}/${denoisedir}/ 2> /dev/null
+    rmdir -p ${tomo_dns_dir} 2> /dev/null
+    mv ${tomo_mic_dir}/*mic.mrc ${vars[outdir]}/${micdir}/ 2> /dev/null
+# #     rmdir ${tomo_mic_dir}
   fi
     
-# #   vprint "" "2+"
   write_angles_lists
-# #   vprint "" "2+"
   
   # Restack micrographs from lowest angle (most negative) to highest
   imod_restack
@@ -1128,7 +1158,7 @@ function summary_info() {
       
   # Check if there are remaining files (excluding the dummy file)
   let "remaining_files--"
-  if [[ "$verbose" -ge 2 ]] && [[ "${vars[testing]}" == false ]]; then
+  if [[ "$verbose" -ge 2 ]] && [[ "${vars[testing]}" == false ]] ; then
     if [[ "$remaining_files" -ge 2 ]]; then
       echo "WARNING! There are ${remaining_files} movie files remaining (excluding the dummy file)"
       echo "         Are you sure you know what your (sic.) doing?"
