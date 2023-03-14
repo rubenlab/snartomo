@@ -94,7 +94,7 @@ janni_batch=4                                     # Number of patches predicted 
 # TOPAZ
 do_topaz=false                                    # Run Topaz denoise
 topaz_patch=2048                                  # Patch size
-topaz_time=5m                                     # Maximum duration, Topaz sometimes hangs, needs to be longer for CPU
+topaz_time=2h                                     # Maximum duration, Topaz sometimes hangs, needs to be longer for CPU
 
 # DoseDiscriminator
 dosefit_min=0.1                                   # Minimum dose rate allowed, as a fraction of maximum dose rate
