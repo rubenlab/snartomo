@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2023-03-13"
+  echo "Modified 2023-03-16"
   date
   echo 
 }
@@ -114,7 +114,7 @@ janni_batch=4                                     # number of patches predicted 
 # TOPAZ
 do_topaz=false                                    # Run Topaz denoise
 topaz_patch=2048                                  # Patch size
-topaz_time=2h                                     # maximum duration, Topaz sometimes hangs
+topaz_time=2h                                     # maximum duration, Topaz sometimes hangs, needs to be longer for CPU
 
 # AreTomo parameters
 bin_factor=8                                      # binning factor
@@ -1072,9 +1072,11 @@ function compute_tomogram() {
   angles_list="${tomo_root}_newstack.rawtlt"
   denoise_list="${tomo_root}_denoise.txt"
   
-  # Write new IMOD list file (overwrites), starting with number of images
-  echo ${#mcorr_mic_array[*]} > $mcorr_list
+#   # Write new IMOD list file (overwrites), starting with number of images
+#   echo ${#mcorr_mic_array[*]} > $mcorr_list
 
+  write_angles_lists
+  
   # Optionally denoise
   if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]] ; then
     # Move to temp directory
@@ -1088,7 +1090,6 @@ function compute_tomogram() {
     echo ${#denoise_array[*]} > $denoise_list
     
     if [[ "${vars[do_janni]}" == true ]]; then
-# #       janni_denoise
       denoise_wrapper "janni" "${tomo_mic_dir}" 
     elif [[ "${vars[do_topaz]}" == true ]]; then
       denoise_wrapper "topaz" "${tomo_mic_dir}" 
@@ -1098,16 +1099,13 @@ function compute_tomogram() {
     mv ${tomo_dns_dir}/*mic.mrc ${vars[outdir]}/${denoisedir}/ 2> /dev/null
     rmdir -p ${tomo_dns_dir} 2> /dev/null
     mv ${tomo_mic_dir}/*mic.mrc ${vars[outdir]}/${micdir}/ 2> /dev/null
-# #     rmdir ${tomo_mic_dir}
   fi
     
-  write_angles_lists
-  
   # Restack micrographs from lowest angle (most negative) to highest
   imod_restack
   
-# #   if [[ "${vars[do_etomo]}" == false ]]; then
-  if [[ "${vars[batch_directive]}" == "" ]]; then
+# #   if [[ "${vars[batch_directive]}" == "" ]]; then
+  if [[ ! -z "${vars[batch_directive]}" ]] ; then
     wrapper_aretomo "${num_mics}" "${vars[gpus]}"
   else
     wrapper_etomo "${prev_name}" "${num_mics}"

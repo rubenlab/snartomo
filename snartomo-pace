@@ -18,7 +18,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-03-14"
+  echo "Modified 2023-03-17"
   date
   echo 
 }
@@ -44,19 +44,20 @@ outdir=SNARTomoPACE                                # Output top-level directory
 # General parameters
 LAST_TILT=-999.9                                  # Last (not highest) tilt angle in tilt series
 max_minutes=200                                   # Maximum run time, minutes
-apix=-1.00                                        # A/px
+apix=-1.00                                        # Pixel size, Angstroms
 voltage=300.0                                     # F20: 200, Krios: 300
 gpus="0 1"                                        # List of GPUs to use, delimited by spaces
 verbosity=4                                       # Verbosity level
 #                                                 #   0: prints nothing
 #                                                 #   1: prints brief overall summary
-#                                                 #   2: prints warnings 
+#                                                 #   2: prints warnings, more thorough sanity check
 #                                                 #   3: prints summary for each tomogram 
-#                                                 #   4: lists each micrograph 
+#                                                 #   4: (NOT USED) lists each micrograph 
 #                                                 #   5: prints commands for each micrograph
-#                                                 #   6: prints summary of reconstruction info
-#                                                 #   7: prints full MotionCor/CTFFIND/IMOD/AreTomo info
-#                                                 #   8: Shows file unlocking & locking
+#                                                 #   6: prints summary of CTFFIND, denoising, etc.
+#                                                 #   7: prints full CTFFIND/denoising/IMOD/AreTomo info
+#                                                 #   8: shows file unlocking & locking
+#                                                 #   9: shows TIFF header warnings when reading EERs
 
 # Advanced
 search_interval=2                                 # Monitors files & resources every N seconds
@@ -304,7 +305,7 @@ function parse_command_line() {
 
   # JANNI
   add_section "JANNI SETTINGS" "Settings for JANNI denoise."
-# #   add_argument "do_janni" "${do_janni}" "Denoise micrographs using JANNI" "BOOL"
+  add_argument "do_janni" "${do_janni}" "Denoise micrographs using JANNI" "BOOL"
   add_argument "janni_batch" "${janni_batch}" "Number of patches predicted in parallel" "INT"
   add_argument "janni_overlap" "${janni_overlap}" "Overlap between patches, pixels" "INT"
   add_argument "janni_model" "${JANNI_MODEL}" "JANNI 'h5' model file" "ANY"
@@ -369,6 +370,7 @@ function main() {
   declare -A original_vars
   declare -a var_sequence
   declare -A vars
+  declare -A gpu_array
   
   do_pace=true
   check_env
@@ -383,7 +385,6 @@ function main() {
   print2log "program_info" "1+" "${main_log}"
   print2log "print_usage" "1+" "${main_log}"
   check_format
-# #   echo "movie_dir : '${vars[movie_dir]}'" ; exit  ### DIAGNOSTIC
   print2log "check_args 0" "0+" "${main_log}"
   print2log "print_arguments" "7+" "${set_file}"
   
@@ -427,14 +428,13 @@ function main() {
     # Read pre-existing CTFFIND files
     read_init "${ctf_mics}"   "${ctf_list}" "mic_to_ctf"   "MotionCor2"     "CTFFIND4"   "CTFs"
     
-#     do_parallel=false  ### TESTING
-#     
+# #     do_parallel=false  ### TESTING
+    
     # If fast testing, run in series
     if [[ "${do_parallel}" == false ]] ; then
       parse_targets
       distribute_ctffind
       compute_tomograms
-# #       exit  ### TESTING
     else
       # Kill subprocesses if main process is killed
       trap 'kill -9 %1' 2
@@ -636,8 +636,6 @@ function print2log() {
     exit
   fi
   
-#   echo "status_code: ${status_code}"
-  
   return $status_code
 }
 
@@ -672,7 +670,6 @@ function targets_init() {
 #     Initialize parsing of targets file
 #     
 #   Global variables:
-# # #     movie_array (OUTPUT)
 #     mc2_movies
 #     vars
 #     temp_dir
@@ -702,7 +699,6 @@ function targets_init() {
     rm "${old_mdoc}" 2> /dev/null
     touch "${old_mdoc}"
   done <<< $(grep "^tsfile" "${vars[target_file]}")
-  # TODO: May need to look for new tilt series later too
   
   # Write it out so that the reconstruction step can read it
   declare -p mdoc_array > ${mdoc_list}
@@ -751,7 +747,7 @@ function movies_init() {
 #     
 ###############################################################################
 
-  declare -a movie_array
+  declare -a init_movie_array
   
   # Set range for last tilt angle ( $((expression)) works only for integers)
   if [[ "${vars[last_tilt]}" != "${LAST_TILT}" ]] ; then
@@ -793,9 +789,9 @@ function movies_init() {
         let "movie_counter++"
         
         # Sanity check: look for duplicates
-        if [[ ! " ${movie_array[*]} " =~ " ${current_movie} " ]]; then
+        if [[ ! " ${init_movie_array[*]} " =~ " ${current_movie} " ]]; then
           # Make sure that EER exists
-          movie_array+=("${current_movie}")
+          init_movie_array+=("${current_movie}")
         else
           echo "ERROR!! FOUND DUPLICATE: ${movie_line}"
           exit
@@ -827,7 +823,7 @@ function movies_init() {
         fi
         # End checking-last IF-THEN
             
-        vprint "$(date +"$time_format"): Found EER in tilt series #${series_num}, MDOC '$(basename $mdoc_file)': ${movie_array[-1]}, angle: ${movie_angle}, remaining EERs: ${#movie_array[@]}" "0+" "=${file_log}"
+        vprint "$(date +"$time_format"): Found EER in tilt series #${series_num}, MDOC '$(basename $mdoc_file)': ${init_movie_array[-1]}, angle: ${movie_angle}, remaining EERs: ${#init_movie_array[@]}" "0+" "=${file_log}"
         
         if [[ "$verbose" -ge 1 ]]; then
           echo -ne "Found ${movie_counter} pre-existing EERs\r"
@@ -845,10 +841,10 @@ function movies_init() {
   # End tilt-series loop
         
   # Update list on disk
-  printf '%s\n' "${movie_array[@]}" > ${mc2_movies}
+  printf '%s\n' "${init_movie_array[@]}" > ${mc2_movies}
   
   # Clear array, but don't undeclare it
-  movie_array=()
+  init_movie_array=()
       
   # While loop will finish either when last image has been collected or when time limit reached
   vprint "$(date +"$time_format"): Found initial ${movie_counter} EERs from targets file '${vars[target_file]}', last angle ${movie_angle}" "1+" "${main_log}"
@@ -947,16 +943,17 @@ function detect_new_movies() {
 #     vprint
 #     
 #   Global variables:
+#     movies_done
 #     vars
 #     max_seconds
 #     mdoc_array
 #     mc2_movies
-#     init_movies
 #     main_log
+#     movie_angle
 #     movie_counter
+#     init_movies
 #     do_parallel
 #     last_old_angle
-#     movies_done
 #     
 ###############################################################################
 
@@ -988,16 +985,15 @@ function detect_new_movies() {
           new_idx=0
           
           # Read movie list from disk (only need when continuing)
-          readarray -t movie_array < "${mc2_movies}"
-          # (TODO: More unique variable than 'movie_array')
+          readarray -t new_movie_array < "${mc2_movies}"
           
           while read -r movie_line ; do
             local current_movie=$(get_movie_from_mdoc "${movie_line}")
             
             # Sanity check: look for duplicates
-            if [[ ! " ${movie_array[*]} " =~ " ${current_movie} " ]]; then
+            if [[ ! " ${new_movie_array[*]} " =~ " ${current_movie} " ]]; then
               # Make sure that movie exists
-              movie_array+=("${current_movie}")
+              new_movie_array+=("${current_movie}")
             else
               echo "ERROR!! FOUND DUPLICATE: ${movie_line}"
               exit
@@ -1005,7 +1001,6 @@ function detect_new_movies() {
             
             # Greedy search after last space, and remove CRLF terminator
             movie_angle="$(echo ${new_angles[${new_idx}]##* } | tr -d '\r')"
-            # TODO: Can it be local?
             
             # Sometimes angle is blank, and we need it for the termination signal
             if [[ "${movie_angle}" == "" ]]; then
@@ -1013,7 +1008,7 @@ function detect_new_movies() {
               exit
             fi
             
-            vprint "$(date +"$time_format"): Found movie in tilt series #${series_num}, MDOC '$(basename mdoc_file)': ${movie_array[-1]}, angle: ${movie_angle}, remaining movies: ${#movie_array[@]}" "0+" "=${file_log}"
+            vprint "$(date +"$time_format"): Found movie in tilt series #${series_num}, MDOC '$(basename mdoc_file)': ${new_movie_array[-1]}, angle: ${movie_angle}, remaining movies: ${#new_movie_array[@]}" "0+" "=${file_log}"
             
             let "new_idx++"
             let "movie_counter++"
@@ -1031,17 +1026,17 @@ function detect_new_movies() {
             local movie_lock=${lock_file}
           
             # Update list on disk
-            printf '%s\n' "${movie_array[@]}" > ${mc2_movies}
+            printf '%s\n' "${new_movie_array[@]}" > ${mc2_movies}
             
             # Remove lock file
             rm ${movie_lock} 2> /dev/null
           else
             # Update list on disk
-            printf '%s\n' "${movie_array[@]}" > ${mc2_movies}
+            printf '%s\n' "${new_movie_array[@]}" > ${mc2_movies}
           fi
           
           # Clear array, but don't undeclare it
-          movie_array=()
+          new_movie_array=()
           
         # If no movie found, set angle to dummy value so that while loop isn't broken before all tilt series have been generated
         else
@@ -1103,7 +1098,6 @@ function distribute_motioncor() {
 #   
 #   Global variables:
 #     vars
-#     gpu_list
 #     ctf_mics
 #     do_parallel
 #     mc2_out
@@ -1122,6 +1116,10 @@ function distribute_motioncor() {
   rm $mcor_done 2> /dev/null
   
   # Read GPU list as array
+#   init_gpus
+#   declare -p gpu_array
+#   echo "1121" ; exit  ### TESTING
+
   declare -A gpu_array
   IFS=' ' read -r -a gpu_list <<< "${vars[gpus]}"
 
@@ -1158,19 +1156,18 @@ function distribute_motioncor() {
           local movie_lock=${lock_file}
         fi
         
-        # Get movie list (TODO: More unique name than 'movie_array')
-        readarray -t movie_array < "${mc2_movies}"
-        local num_movies=${#movie_array[@]}
+        # Get movie list
+        readarray -t input_movie_array < "${mc2_movies}"
+        local num_movies=${#input_movie_array[@]}
         
         # If there are movies, get first one, remove from array, update list, and write list
         if (( "${num_movies}" > 0 )); then
-          local current_movie=${movie_array[0]}
-          unset movie_array[0]
-          # TODO: More unique name than 'current_movie'
+          local current_movie=${input_movie_array[0]}
+          unset input_movie_array[0]
           
           # Re-index array (doesn't remove empty entries)
-          movie_array=("${movie_array[@]}")
-          printf '%s\n' "${movie_array[@]}" > ${mc2_movies}
+          input_movie_array=("${input_movie_array[@]}")
+          printf '%s\n' "${input_movie_array[@]}" > ${mc2_movies}
   
           if [[ "${do_parallel}" == true ]]; then
             # Remove lock file
@@ -1207,7 +1204,7 @@ function distribute_motioncor() {
                 
                 let "counter++"
                 
-                motioncor_parallel "${vars[movie_dir]}/${current_movie}" "${gpu_num}" "${#movie_array[@]}" &
+                motioncor_parallel "${vars[movie_dir]}/${current_movie}" "${gpu_num}" "${#input_movie_array[@]}" &
                 
                 # Monitor RAM
                 if [[ "${vars[testing]}" == false ]]; then
@@ -1340,212 +1337,208 @@ function distribute_motioncor() {
   
   # While loop will finish either when last image has been processed or when time limit reached
   check_completion "${num_mics}" "${movies_found}" "MotionCor2" "${mcor_done}" "$start_time" "${missing_movies}"
-  
-#   # TESTING
-#   echo -e "$(ls --full-time ${mcor_done})    \t$(cat ${mcor_done})" >> "${debug_log}"
 }
 
-function motioncor_parallel() {
-###############################################################################
-#   Function:
-#     Wrapper for MotionCor2
-#     Default behavior is to NOT overwrite pre-existing outputs.
-#   
-#   Positional variables:
-#     1) Movie filename
-#     2) GPU number
-#     
-#   Calls functions:
-#     check_frames
-#     check_freegpus
-#     run_motioncor
-#     file_lock
-#     resource_liberate
-#   
-#   Global variables:
-#     fn (OUTPUT)
-#     gpu_num (OUTPUT)
-#     do_cp_note
-#     time_format
-#     vars
-#     cor_mic
-#     mc2_tempfile
-#     mc2_out
-#     verbose
-#     ali_out
-#     ali_err
-#     mc2_time (OUTPUT)
-#     main_log
-#     mc2_movies
-#     do_parallel
-#     ctf_mics
-#     gpu_status
-#     
-###############################################################################
-  
-  fn=$1
-  gpu_num=$2
-  
-  local remaining_movies=$3
-  local mc2_pid=-1
-  
-# #   echo "1395 target file : '${vars[target_file]}'"  ; exit  ### DIAGNOSTIC
-  
-  # Filenames
-  stem_movie=$(basename ${fn} | rev | cut -d. -f2- | rev)  # (TODO: Can be local?)
-  cor_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
-  ali_out="${vars[outdir]}/${micdir}/${mc2_logs}/${stem_movie}_mic.out"
-  ali_err="${vars[outdir]}/${micdir}/${mc2_logs}/${stem_movie}_mic.err"
-  mc2_tempfile="/tmp/MotionCor2_FreeGpus.txt"
+  function motioncor_parallel() {
+  ###############################################################################
+  #   Function:
+  #     Wrapper for MotionCor2
+  #     Default behavior is to NOT overwrite pre-existing outputs.
+  #   
+  #   Positional variables:
+  #     1) Movie filename
+  #     2) GPU number
+  #     
+  #   Calls functions:
+  #     check_frames
+  #     check_freegpus
+  #     run_motioncor
+  #     file_lock
+  #     resource_liberate
+  #   
+  #   Global variables:
+  #     fn (OUTPUT)
+  #     gpu_num (OUTPUT)
+  #     do_cp_note
+  #     time_format
+  #     vars
+  #     cor_mic
+  #     mc2_tempfile
+  #     mc2_out
+  #     verbose
+  #     ali_out
+  #     ali_err
+  #     mc2_time (OUTPUT)
+  #     main_log
+  #     mc2_movies
+  #     do_parallel
+  #     ctf_mics
+  #     gpu_status
+  #     
+  ###############################################################################
+    
+    fn=$1
+    gpu_num=$2
+    
+    local remaining_movies=$3
+    local mc2_pid=-1
+    
+    # Filenames
+  # #   stem_movie=$(basename ${fn} | rev | cut -d. -f2- | rev)  # (TODO: Can be local?)
+    local stem_movie=$(basename ${fn} | rev | cut -d. -f2- | rev)
+    cor_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
+    ali_out="${vars[outdir]}/${micdir}/${mc2_logs}/${stem_movie}_mic.out"
+    ali_err="${vars[outdir]}/${micdir}/${mc2_logs}/${stem_movie}_mic.err"
+    mc2_tempfile="/tmp/MotionCor2_FreeGpus.txt"
 
-  if [[ "${vars[testing]}" == false ]]; then
-    # Check whether copying locally
-    if [[ -f "${vars[outdir]}/${temp_dir}/${do_cp_note}" ]]; then
-      vars[eer_local]="true"
-      local cp_note_exists=true
-    else
-      local cp_note_exists=false
-    fi
-    
-    # Check number of frames
-    if [[ "${movie_ext}" == "eer" ]] ; then
-      check_frames "=${mc2_out}"
-    fi
-    
-    # If someone else owns /tmp/MotionCor2_FreeGpus.txt, MotionCor will be unhappy
-    check_freegpus "=${mc2_out}"
-    
-    vprint "$(date +"$time_format"): Starting MotionCor2 on '${fn}' on GPU #${gpu_num}, movies remaining: ${remaining_movies}" "0+" "=${file_log}"
-    vprint "$(run_motioncor ${fn} $gpu_num)" "5+" "=${mc2_out}" 
-    
-    local mc2_cmd=$(run_motioncor ${fn} $gpu_num)
-    
-    if [[ "$verbose" -le 6 ]]; then
-      # Suppress warning: "TIFFReadDirectory: Warning, Unknown field with tag 65001 (0xfde9) encountered."
-      ${mc2_cmd} 2> ${ali_err} 1> $ali_out
-      mc2_pid=$!
-    
-    # Full output
-    else
-      # If I use a "|", then I can't store the PID (https://stackoverflow.com/a/59011390)
-      ${mc2_cmd} 2>&1 > >(tee $ali_out)
-      mc2_pid=$!
-    fi
-    
-    # Remove temp file
-    \rm -r ${mc2_tempfile} 2> /dev/null
-    
-    # Remove locally-copied movie file (make sure it's in the temp directory and not the original)
-    remove_local "$fn"
-        
-    # Append to log file 
-    cat $ali_out >> ${mc2_out}
-    # (TODO: May need to lock. Processes might try to write at the same time.)
-      
-  # If testing
-  else
-    vprint "$(date +"$time_format"): Starting MotionCor2 on '${fn}' on GPU #${gpu_num}, movies remaining: ${remaining_movies}" "0+" "=${file_log}"
-    vprint "$(run_motioncor ${fn} $gpu_num)" "5+" "=${mc2_out}" 
-    vprint "" "5+" "=${mc2_out}" 
-
-    # Delay in slow mode
-    if [[ "${vars[slow]}" == true ]]; then
-      sleep $(( (RANDOM % 4) + 2 ))
-#     else
-#       sleep 0.1
-    fi
-    
-    touch "${cor_mic}"
-  fi
-  # End testing IF-THEN
-  
-  # Make sure process is actually gone (TODO: Move to function)
-  if [[ "$mc2_pid" -gt 0 ]]; then
-    mc2_time=0
-    local wait_incr=0.25
-    
-    # Check process ID
-    pid_wait "$mc2_pid" "$wait_incr"
-    
-    # Check child processes
-    if [[ "$(ps --ppid $mc2_pid -o "%p" --noheaders | wc -w)" -gt 0 ]]; then
-      while read -r child_process ; do
-        pid_wait "$child_process" "$wait_incr"
-      done <<< $(ps --ppid $mc2_pid -o "%p" --noheaders)
-    fi
-    
-    vprint "WAITED $mc2_time SEC TOTAL FOR PID $mc2_pid\n" "8+" "=${mc2_out}"
-  fi
-  
-  # Make sure output exists
-  if [[ ! -f "$cor_mic" ]]; then
-    vprint "\n$(date +"$time_format"): WARNING! MotionCor2 output '$cor_mic' does not exist" "2+" "${warn_log}"
-    vprint   "             Command line was:" "2+" "${warn_log}"
-    vprint   "             ${mc2_cmd}" "2+" "${warn_log}"
-    vprint   "$(cat ${ali_err} | sed 's/^/             /')" "2+" "${warn_log}"
-    vprint   "             Re-adding to queue\n" "2+" "${warn_log}"
-    
-    # Add to movie list (TODO: function)
-    
-    # Lock movie list
-    if [[ "${do_parallel}" == true ]]; then
-      file_lock "${mc2_movies}" "2" "${FUNCNAME[0]}"
-      local movie_lock=${lock_file}
-    fi
-    
-    # Read movie list (TODO: More unique variable name than 'movie_array')
-    readarray -t movie_array < "${mc2_movies}"
-    
-    # Append to array
-    movie_array+=( $(basename ${fn}) )
-    
-    # Update movie list & unlock
-    printf '%s\n' "${movie_array[@]}" > ${mc2_movies}
-    
-    if [[ "${do_parallel}" == true ]]; then
-      rm ${movie_lock} 2> /dev/null
-    fi
-    
-  # Output exists
-  else
-    # Add to micrograph list for own self (TODO: function)
-    if [[ "${do_parallel}" == true ]]; then
-      file_lock "${mc2_mics}" "4" "${FUNCNAME[0]}"
-      local mic_lock=${lock_file}
-    fi
-    
-    readarray -t mic_array < "${mc2_mics}"
-    mic_array+=(${cor_mic})
-    printf '%s\n' "${mic_array[@]}" > ${mc2_mics}
-    
-    if [[ "${do_parallel}" == true ]]; then
-      rm ${mic_lock} 2> /dev/null
-    fi
-    
     if [[ "${vars[testing]}" == false ]]; then
-      # Write information to log file
-      vprint "\n    Finished MotionCor2 on micrograph $fn" "0+" "=${mc2_out}"
-      
-      local mesg=$(grep 'Total time' $ali_out)
-      if [[ "$mc2_pid" -gt 0 ]]; then
-        local wait_float=$(printf "%.2f" "$mc2_time")
-        mesg="$mesg, waited $wait_float sec for PID $mc2_pid to clear"
+      # Check whether copying locally
+      if [[ -f "${vars[outdir]}/${temp_dir}/${do_cp_note}" ]]; then
+        vars[eer_local]="true"
+        local cp_note_exists=true
+      else
+        local cp_note_exists=false
       fi
-      vprint   "    ${mesg}\n" "0+" "=${mc2_out}"
+      
+      # Check number of frames
+      if [[ "${movie_ext}" == "eer" ]] ; then
+        check_frames "${mc2_out}"
+      fi
+      
+      # If someone else owns /tmp/MotionCor2_FreeGpus.txt, MotionCor will be unhappy
+      check_freegpus "=${mc2_out}"
+      
+      vprint "$(date +"$time_format"): Starting MotionCor2 on '${fn}' on GPU #${gpu_num}, movies remaining: ${remaining_movies}" "0+" "=${file_log}"
+      vprint "$(run_motioncor ${fn} $gpu_num)" "5+" "=${mc2_out}" 
+      
+      local mc2_cmd=$(run_motioncor ${fn} $gpu_num)
+      
+      if [[ "$verbose" -le 8 ]]; then
+        # Suppress warning: "TIFFReadDirectory: Warning, Unknown field with tag 65001 (0xfde9) encountered."
+        ${mc2_cmd} 2> ${ali_err} 1> $ali_out
+        mc2_pid=$!
+      
+      # Full output
+      else
+        # If I use a "|", then I can't store the PID (https://stackoverflow.com/a/59011390)
+        ${mc2_cmd} 2>&1 > >(tee $ali_out)
+        mc2_pid=$!
+      fi
+      
+      # Remove temp file
+      \rm -r ${mc2_tempfile} 2> /dev/null
+      
+      # Remove locally-copied movie file (make sure it's in the temp directory and not the original)
+      remove_local "$fn"
+          
+      # Append to log file 
+      cat $ali_out >> ${mc2_out}
+      # (TODO: May need to lock. Processes might try to write at the same time.)
+        
+    # If testing
+    else
+      vprint "$(date +"$time_format"): Starting MotionCor2 on '${fn}' on GPU #${gpu_num}, movies remaining: ${remaining_movies}" "0+" "=${file_log}"
+      vprint "$(run_motioncor ${fn} $gpu_num)" "5+" "=${mc2_out}" 
+      vprint "" "5+" "=${mc2_out}" 
+
+      # Delay in slow mode
+      if [[ "${vars[slow]}" == true ]]; then
+        sleep $(( (RANDOM % 4) + 2 ))
+  #     else
+  #       sleep 0.1
+      fi
+      
+      touch "${cor_mic}"
     fi
-  fi
-  # End output-exists IF-THEN
-  
-  # Update GPU status
-  if [[ "${do_parallel}" == true ]]; then
-    resource_liberate "${gpu_status}" "${gpu_num}" "2" "1"
-  fi
-  
-  vprint "$(date +"$time_format"): Finished MotionCor2 on '${fn}' on GPU #${gpu_num}" "0+" "=${file_log}"
-  
-  # Create temporary file to indicate to watcher that we're finished
-  touch "$(to_tempname ${cor_mic})"
-}
+    # End testing IF-THEN
+    
+    # Make sure process is actually gone (TODO: Move to function)
+    if [[ "$mc2_pid" -gt 0 ]]; then
+      mc2_time=0
+      local wait_incr=0.25
+      
+      # Check process ID
+      pid_wait "$mc2_pid" "$wait_incr"
+      
+      # Check child processes
+      if [[ "$(ps --ppid $mc2_pid -o "%p" --noheaders | wc -w)" -gt 0 ]]; then
+        while read -r child_process ; do
+          pid_wait "$child_process" "$wait_incr"
+        done <<< $(ps --ppid $mc2_pid -o "%p" --noheaders)
+      fi
+      
+      vprint "WAITED $mc2_time SEC TOTAL FOR PID $mc2_pid\n" "8+" "=${mc2_out}"
+    fi
+    
+    # Make sure output exists
+    if [[ ! -f "$cor_mic" ]]; then
+      vprint "\n$(date +"$time_format"): WARNING! MotionCor2 output '$cor_mic' does not exist" "2+" "${warn_log}"
+      vprint   "             Command line was:" "2+" "${warn_log}"
+      vprint   "             ${mc2_cmd}" "2+" "${warn_log}"
+      vprint   "$(cat ${ali_err} | sed 's/^/             /')" "2+" "${warn_log}"
+      vprint   "             Re-adding to queue\n" "2+" "${warn_log}"
+      
+      # Add to movie list (TODO: function)
+      
+      # Lock movie list
+      if [[ "${do_parallel}" == true ]]; then
+        file_lock "${mc2_movies}" "2" "${FUNCNAME[0]}"
+        local movie_lock=${lock_file}
+      fi
+      
+      # Read movie list
+      readarray -t mc2_movie_array < "${mc2_movies}"
+      
+      # Append to array
+      mc2_movie_array+=( $(basename ${fn}) )
+      
+      # Update movie list & unlock
+      printf '%s\n' "${mc2_movie_array[@]}" > ${mc2_movies}
+      
+      if [[ "${do_parallel}" == true ]]; then
+        rm ${movie_lock} 2> /dev/null
+      fi
+      
+    # Output exists
+    else
+      # Add to micrograph list for own self (TODO: function)
+      if [[ "${do_parallel}" == true ]]; then
+        file_lock "${mc2_mics}" "4" "${FUNCNAME[0]}"
+        local mic_lock=${lock_file}
+      fi
+      
+      readarray -t mic_array < "${mc2_mics}"
+      mic_array+=(${cor_mic})
+      printf '%s\n' "${mic_array[@]}" > ${mc2_mics}
+      
+      if [[ "${do_parallel}" == true ]]; then
+        rm ${mic_lock} 2> /dev/null
+      fi
+      
+      if [[ "${vars[testing]}" == false ]]; then
+        # Write information to log file
+        vprint "\n    Finished MotionCor2 on micrograph $fn" "0+" "=${mc2_out}"
+        
+        local mesg=$(grep 'Total time' $ali_out)
+        if [[ "$mc2_pid" -gt 0 ]]; then
+          local wait_float=$(printf "%.2f" "$mc2_time")
+          mesg="$mesg, waited $wait_float sec for PID $mc2_pid to clear"
+        fi
+        vprint   "    ${mesg}\n" "0+" "=${mc2_out}"
+      fi
+    fi
+    # End output-exists IF-THEN
+    
+    # Update GPU status
+    if [[ "${do_parallel}" == true ]]; then
+      resource_liberate "${gpu_status}" "${gpu_num}" "2" "1"
+    fi
+    
+    vprint "$(date +"$time_format"): Finished MotionCor2 on '${fn}' on GPU #${gpu_num}" "0+" "=${file_log}"
+    
+    # Create temporary file to indicate to watcher that we're finished
+    touch "$(to_tempname ${cor_mic})"
+  }
 
 function pid_wait() {
 ###############################################################################
@@ -1976,11 +1969,6 @@ function distribute_ctffind() {
           if [[ "${do_parallel}" == true ]] ; then
             
             if (( "$(($num_ctfs + ${#new_ctfs[@]}))" < "${mics_found}" )); then
-#               if [[ "${#new_ctfs[@]}" -ge 1 ]]; then
-#                 echo "In-progress CTFS:"
-#                 printf "  '%s'\n" "${new_ctfs[@]}"
-#               fi
-              
               if [[ "${already_warned}" == false ]] ; then
                 # Only warn once
                 already_warned=true
@@ -2025,6 +2013,7 @@ function distribute_ctffind() {
           # Re-index array (doesn't remove empty entries)
           mic_array=("${mic_array[@]}")
           printf '%s\n' "${mic_array[@]}" > ${ctf_mics}
+# #           echo -e "2028 $(ls -l ${ctf_mics})" ### TESTING
           
           if [[ "${do_parallel}" == true ]]; then
             rm ${mic_lock} 2> /dev/null
@@ -2158,10 +2147,6 @@ function distribute_ctffind() {
   
   # While loop will finish either when last image has been processed or when time limit reached
   check_completion "${num_ctfs}" "${mics_found}" "CTFFIND4" "${ctf_done}" "$start_time"
-  
-#   # TESTING
-#   vprint "\n$(date +"$time_format"):" "0+" "=${debug_log}"
-#   echo -e "$(ls --full-time ${ctf_done})    \t$(cat ${ctf_done})" >> "${debug_log}"
 }
 
   function ctffind_parallel() {
@@ -2204,9 +2189,7 @@ function distribute_ctffind() {
     
       if [[ "${vars[testing]}" == false ]]; then
         # Print command
-        if [[ "$verbose" -ge 5 ]]; then
-          run_ctffind4 "false" >> ${ctf_log}
-        fi
+        run_ctffind4 "false" >> ${ctf_log}
 
         if [[ "$verbose" -ge 7 ]]; then
           run_ctffind4 "true" 2>&1 | tee $ctf_out
@@ -2473,11 +2456,6 @@ function compute_tomograms() {
       local mics_found=$(cat ${mcor_done})
       local num_ctfs=$(cat ${ctf_done})
       
-#       # TESTING
-#       vprint "\n$(date +"$time_format"):" "0+" "=${debug_log}"
-#       echo -e "$(ls --full-time ${mcor_done})    \t$(cat ${mcor_done})" >> "${debug_log}"
-#       echo -e "$(ls --full-time ${ctf_done})    \t$(cat ${ctf_done})" >> "${debug_log}"
-#       
       if [[ "${mics_found}" != "${num_ctfs}" ]] ; then
         vprint "\n$(date +"$time_format"): WARNING! Micrographs from MotionCor2 (${mics_found}) not equal to from CTFFIND4 (${num_ctfs})" "0+" "${main_log} =${warn_log}"
       fi
@@ -2503,8 +2481,8 @@ function compute_tomograms() {
     vprint "\n$(date +"$time_format"): Finished MotionCor2/CTFFIND4 on $mics_found/$num_ctfs micrographs, computing ${num_mdocs} 3D reconstructions" "1+" "${main_log}"
   fi
   
-# #   if [[ "${vars[do_etomo]}" == true ]]; then
   if [[ "${vars[batch_directive]}" != "" ]]; then
+# #   if [[ ! -z "${vars[batch_directive]}" ]] ; then
     local slot_list=( $(seq "${vars[imod_slots]}") )
   else
     IFS=' ' read -r -a slot_list <<< "${vars[gpus]}"
@@ -2599,9 +2577,8 @@ function compute_tomograms() {
         # Remove temp file
         rm "${temp_mdoc}"
         
+        # Get filename based on MDOC nume
         mdoc2tomo "${mdoc_key}"
-#         echo "etomo_out : '$etomo_out'"
-#         echo "tomogram_3d : '$tomogram_3d'"
         
         # If tomo doesn't exist...
         if [[ -e $tomogram_3d ]]; then
@@ -2662,22 +2639,24 @@ function tomogram_parallel() {
 #     2) slot number
 #   
 #   Calls functions:
-#     resource_liberate
+# #     init_gpus
 #     denoise_wrapper
 #     wrapper_aretomo
 #     wrapper_etomo
+#     resource_liberate
 #   
 #   Global variables:
 #     recdir
 #     vars
-#     verbose
 #     imgdir
 #     dose_imgdir
+#     warn_log
 #     cor_ext
 #     tomo_dns_dir
 #     denoisedir
 #     ctfdir
-#     warn_log
+#     verbose
+# #     gpu_status : from init_gpus
 #     num_bad_residuals : from ruotnocon_wrapper
 #     tomogram_3d : from wrapper functions
 #     rec_log
@@ -2773,7 +2752,7 @@ function tomogram_parallel() {
   done
   # End angles loop
   
-  # TODO: Move to function
+  # Fit dose to cosine (TODO: Move to function)
   if [[ ! -f "${dose_list}" ]]; then
     vprint "\nWARNING! Dose list '${dose_list}' not found" "0+" "${main_log} =${warn_log}"
     vprint "  Continuing...\n" "0+" "${main_log} =${warn_log}"
@@ -2807,63 +2786,25 @@ function tomogram_parallel() {
   # End dose-list IF-THEN
   
   # TODO: Use shared.write_angles_lists
-  
-  # Clean up pre-existing files
-  rm ${angles_list} ${mcorr_list} ${denoise_list} 2> /dev/null
-  
-  # Write new IMOD list file (overwrites), starting with number of images
-  echo ${#sorted_keys[*]} > $mcorr_list
-  if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]] ; then
-    echo ${#sorted_keys[*]} > $denoise_list
-  fi
-  
-  # Write sorted micrograph filenames
-  for idx in ${sorted_keys[@]} ; do
-    echo    "${stripped_angle_array[${idx}]}" >> $angles_list
-    echo -e "${mcorr_mic_array[$idx]}\n/" >> $mcorr_list
-    
-# #     if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]] ; then
-    if [[ "${do_denoise}" == true ]]; then
-      echo -e "${denoise_array[$idx]}\n/" >> $denoise_list
-      
-      # Temporarily move to temporary directory
-      mv ${mcorr_mic_array[$idx]} ${tomo_mic_dir}/
-    fi
-  done  
-  
-  local ts_mics="${#stripped_angle_array[*]}"
-  vprint "  Wrote list of ${ts_mics} angles to $angles_list" "2+" "=${tomo_log}"
-  vprint "  Wrote list of ${#mcorr_mic_array[*]} images to $mcorr_list" "2+" "=${tomo_log}"
-  
-# #   if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]] ; then
-  if [[ "${do_denoise}" == true ]]; then
-    vprint "  Wrote list of ${#denoise_array[*]} images to $denoise_list" "2+" "=${tomo_log}"
-  fi
-  
-  vprint "" "2+" "=${tomo_log}"
-
-  # Clean up
-  unset mcorr_mic_array
-  unset denoise_array
-  unset stripped_angle_array
+  write_angles_lists "${tomo_log}"
   
   # Optionally denoise
   if [[ "${vars[do_janni]}" == true ]]; then
-# #     janni_denoise "${tomo_log}"
     denoise_wrapper "janni" "${tomo_mic_dir}" "${tomo_log}"
   elif [[ "${vars[do_topaz]}" == true ]]; then
-# #     topaz_denoise "${tomo_mic_dir}" "${tomo_dns_dir}" "${tomo_log}"
     denoise_wrapper "topaz" "${tomo_mic_dir}" "${tomo_log}"
   fi
     
   # Move micrographs and remove temp directory
-  if [[ "${do_denoise}" == true ]]; then
+  if [[ "${do_denoise}" == true ]] && [[ "${vars[testing]}" == false ]] ; then
     mv ${tomo_mic_dir}/*mic.mrc ${vars[outdir]}/${micdir}/
     mv ${tomo_dns_dir}/*mic.mrc ${vars[outdir]}/${denoisedir}/ 2> /dev/null
   fi
   
-  rmdir ${tomo_dns_dir}
-  rmdir ${tomo_mic_dir}
+  rmdir ${tomo_dns_dir} 2> /dev/null
+  rmdir ${tomo_mic_dir} 2> /dev/null
+  
+  # Stack micrographs
   imod_restack "${tomo_log}"
   
   if [[ "${vars[do_janni]}" == true ]]; then
@@ -2876,8 +2817,8 @@ function tomogram_parallel() {
   
   vprint "$(date +"$time_format"): Start computing 3D reconstruction from ${mic_type} from MDOC file '${new_mdoc}' on slot #${slot_num}" "1+" "=${file_log} =${tomo_log} =${rec_log}"
   
-# #   if [[ "${vars[do_etomo]}" == false ]]; then
   if [[ "${vars[batch_directive]}" == "" ]]; then
+# #   if [[ ! -z "${vars[batch_directive]}" ]] ; then
     wrapper_aretomo "${ts_mics}" "${slot_num}" "false" >> "${tomo_log}"
   else
     # If removing bad contours
@@ -2946,14 +2887,10 @@ function clean_up_mdoc() {
 #     vprint
 #   
 #   Global variables:
-# #     main_log
-# #     warn_log
 #     vars
 #     micdir
-#     stem_movie
+# #     stem_movie
 #     cor_ext
-# #     denoisedir
-# #     ctfdir
 #   
 ###############################################################################
   

@@ -573,9 +573,6 @@ function validate_inputs() {
 #     vars[do_etomo]=true
 #   fi
   
-# #   if [[ "${vars[do_etomo]}" == true ]]; then
-# #   echo "577 batch_directive : '${vars[batch_directive]}'"
-# #   if [[ "${vars[batch_directive]}" == "" ]]; then
   if [[ ! -z "${vars[batch_directive]}" ]]; then
     vprint "  Computing reconstruction using IMOD" "1+" "${outlog}"
     check_file "${vars[batch_directive]}" "IMOD batch directive" "${outlog}"
@@ -586,7 +583,8 @@ function validate_inputs() {
   fi
   
   if [[ "${vars[do_ruotnocon]}" == true ]]; then
-    if [[ "${vars[batch_directive]}" != "" ]]; then
+# #     if [[ "${vars[batch_directive]}" != "" ]]; then
+    if [[ ! -z "${vars[batch_directive]}" ]]; then
       validated=false
       vprint "  ERROR!! Can only remove contours if running eTomo!" "0+" "${outlog}"
     else
@@ -627,7 +625,7 @@ function validate_inputs() {
     
     local outlog=$1
     
-    if ! [[ -f "${vars[batch_directive]}" ]]; then
+    if ! [[ -f "${vars[batch_directive]}" ]] ; then
       return
     fi
     
@@ -1553,49 +1551,66 @@ function check_frames() {
   if [[ "${vars[testing]}" == false ]]; then
     # Optionally copy EERs locally 
     if [[ "${vars[eer_local]}" != "false" ]] ; then
-      copy_local "${outlog}"
+      copy_local "=${outlog}"
     fi
     # End local-copy IF-THEN
       
     # Record both the line with the numbers of sections and the time
     local hdr_out=$( TIMEFORMAT="%R" ; { time ${vars[imod_dir]}/header $fn | grep sections ; } 2>&1 )
-    local num_sections=$(echo "$hdr_out" | head -n 1 | rev | cut -d" " -f1 | rev)
-    local hdr_time=$(echo "$hdr_out" | tail -n 1)
     
-    vprint "    Micrograph $fn  \tnumber of frames: $num_sections (read in ${hdr_time} sec)\n" "1+" "${outlog}"
+    if [[ "${hdr_out}" == *"Fail"* ]] ; then
+      vprint "    ERROR!!! Unable to read micrograph $fn, may be corrupted!" "0+" "${outlog} =${warn_log}"
+      vprint "      $(echo $hdr_out | grep Fail)" "0+" "${outlog} =${warn_log}"
+      vprint "      Enter CTRL-c to exit..." "0+" "${outlog}"
+      exit
     
-    # Check read time
-    if (( $( echo "${hdr_time} > ${vars[eer_latency]}" | bc -l ) )) && [[ "${vars[eer_local]}" == "false" ]] ; then
-      if [[ "${do_pace}" == false ]]; then
-        vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} ${warn_log}"
-        mkdir "${vars[outdir]}/${temp_dir}" 2> /dev/null
-        
-        # Start copying locally
-        vars[eer_local]="true"
-        copy_local "${outlog}"
-      else
-        # A parallel process may have done these steps already
-        if ! [[ -e "${mc2_tempfile}" ]]; then
-          # Parallel process may have created temp file already
-          if [[ -f "${vars[outdir]}/${temp_dir}/${do_cp_note}" ]]; then
-            vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} ${warn_log}"
-          fi
+    else
+      local num_sections=$(echo "$hdr_out" | head -n 1 | rev | cut -d" " -f1 | rev)
+      local hdr_time=$(echo "$hdr_out" | tail -n 1)
+      
+      vprint "    Micrograph $fn  \tnumber of frames: $num_sections (read in ${hdr_time} sec)\n" "1+" "=${outlog}"
+      
+      # Check read time
+      if (( $( echo "${hdr_time} > ${vars[eer_latency]}" | bc -l ) )) && [[ "${vars[eer_local]}" == "false" ]] ; then
+        if [[ "${do_pace}" == false ]]; then
+          vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} ${warn_log}"
+          mkdir "${vars[outdir]}/${temp_dir}" 2> /dev/null
           
-          touch "${vars[outdir]}/${temp_dir}/${do_cp_note}"
+          # Start copying locally
           vars[eer_local]="true"
           copy_local "${outlog}"
+        else
+          # A parallel process may have done these steps already
+          if ! [[ -e "${mc2_tempfile}" ]]; then
+            # Parallel process may have created temp file already
+            if [[ -f "${vars[outdir]}/${temp_dir}/${do_cp_note}" ]]; then
+              vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} ${warn_log}"
+            fi
+            
+            touch "${vars[outdir]}/${temp_dir}/${do_cp_note}"
+            vars[eer_local]="true"
+            copy_local "${outlog}"
+          fi
         fi
+        # End PACE IF-THEN
+  #       
+  #     else
+  #       vprint "   num_sections $num_sections, hdr_time ${hdr_time}, eer_latency ${vars[eer_latency]}, eer_local ${vars[eer_local]}\n" "0+" "${outlog}"
       fi
-      # End PACE IF-THEN
-#       
-#     else
-#       vprint "   num_sections $num_sections, hdr_time ${hdr_time}, eer_latency ${vars[eer_latency]}, eer_local ${vars[eer_local]}\n" "0+" "${outlog}"
+      
+  #     ### TESTING
+  #     echo "1593 fn: '$fn'"
+  #     echo "1593 hdr_status '$hdr_status'"
+  #     echo "1593 num_sections '$num_sections', min_frames '${vars[min_frames]}', max_frames '${vars[max_frames]}'" 
+  #     exit 
+  #     
+      # Check if within range
+      if [[ "$num_sections" -lt "${vars[min_frames]}" ]] || [[ "$num_sections" -gt "${vars[max_frames]}" ]] ; then
+        vprint "    WARNING! Micrograph $fn: number of frames ($num_sections) outside of range (${vars[min_frames]} to ${vars[max_frames]})\n" "0+" "${outlog} =${warn_log}"
+      fi
     fi
+    # End success IF-THEN
     
-    # Check if within range
-    if [[ "$num_sections" -lt "${vars[min_frames]}" || "$num_sections" -gt "${vars[max_frames]}" ]]; then
-      vprint "    WARNING! Micrograph $fn: number of frames ($num_sections) outside of range (${vars[min_frames]} to ${vars[max_frames]})\n" "0+" "${outlog}"
-    fi
   fi
   # End testing IF-THEN
 }
@@ -1915,7 +1930,9 @@ function denoise_wrapper() {
     local dns_name="JANNI"
     
     # For some reason JANNI appends the input directory to the output directory
-    tomo_dns_dir="${tomo_dns_dir}/$(basename ${indir})"
+    if [[ "${vars[testing]}" == false ]]; then
+      tomo_dns_dir="${tomo_dns_dir}/$(basename ${indir})"
+    fi
   elif [[ "${dns_type}" == "topaz" ]] ; then
     local conda_cmd="conda activate ${vars[topaz_env]}"
     local denoise_exe="topaz"
@@ -1931,9 +1948,9 @@ function denoise_wrapper() {
   if [[ "${vars[testing]}" == false ]]; then
     vprint "\n  Executing: $conda_cmd" "2+" "=${outlog}"
     $conda_cmd
-    vprint   "    conda environment: '$CONDA_DEFAULT_ENV'" "3+" "=${outlog}"
-    vprint   "    Denoising using ${dns_name}..." "3+" "=${outlog}"
-    vprint   "    Executing: ${denoise_cmd}" "3+" "=${outlog}"
+    vprint   "    conda environment: '$CONDA_DEFAULT_ENV'" "2+" "=${outlog}"
+    vprint   "    Denoising using ${dns_name}..." "2+" "=${outlog}"
+    vprint   "    Executing: ${denoise_cmd}" "2+" "=${outlog}"
     
     # Run denoising
     if [[ "$verbose" -le 2 ]]; then
@@ -1969,14 +1986,14 @@ function denoise_wrapper() {
     local num_orig="$(ls ${indir}/*_mic.mrc | wc -w)"
     local num_dns="$(ls ${tomo_dns_dir}/*_mic.mrc | wc -w)"
     if [[ "${num_orig}" -ne "${num_dns}" ]] ; then
-      vprint "\n    WARNING!" "3+" "=${outlog}"
+      vprint "\n    WARNING!" "2+" "=${outlog}"
     fi
     
     vprint "    Denoised ${num_dns}/${num_orig} micrographs" "3+" "=${outlog}"
   
     # Clean up
     conda deactivate
-    vprint "  conda environment: '$CONDA_DEFAULT_ENV'\n" "3+" "=${outlog}"
+    vprint "  conda environment: '$CONDA_DEFAULT_ENV'\n" "2+" "=${outlog}"
   
   # Testing
   else
@@ -1985,97 +2002,6 @@ function denoise_wrapper() {
   # End testing IF-THEN
 }
 
-# function topaz_denoise() {
-# ###############################################################################
-# #   Function:
-# #     Runs Topaz denoising
-# #
-# #   Positional variables:
-# #     1) input directory
-# #     2) output directory
-# #     3) output log
-# #     4) (optional) GPU number 
-# #   
-# #   Global variables:
-# #     gpu_local
-# #     vars
-# #     denoisedir
-# #     
-# ###############################################################################
-#   
-#   local indir=$1
-#   local outdir=$2
-#   local outlog=$3
-#   gpu_local=$4  # might be updated
-#   
-#   # Get single GPU number if there are more than one
-#   get_gpu
-# 
-#   # Optionally use CPU
-#   if [[ "${vars[denoise_gpu]}" == false ]]; then
-#     gpu_local=-1
-#   fi
-#   
-#   local topaz_args="denoise ${indir}/*_mic.mrc --device ${gpu_local} --patch-size ${vars[topaz_patch]} --output ${outdir}"
-#   local topaz_cmd="timeout ${vars[topaz_time]} topaz ${topaz_args}"
-#     
-#   if [[ "${vars[testing]}" == false ]]; then
-#     local conda_cmd="conda activate ${vars[topaz_env]}"
-#     vprint "\n  Executing: $conda_cmd" "2+" "=${outlog}"
-#     $conda_cmd
-#     vprint   "    conda environment: '$CONDA_DEFAULT_ENV'" "3+" "=${outlog}"
-#     
-#     vprint   "    Denoising using Topaz..." "3+" "=${outlog}"
-#     vprint   "      Executing: topaz ${topaz_args}" "3+" "=${outlog}"
-#     
-#     # Run Topaz
-#     if [[ "$verbose" -le 2 ]]; then
-#       $topaz_cmd 2>&1 > /dev/null
-#       # Suppress all output
-#       
-#     elif [[ "$verbose" -eq 6 ]]; then
-#       vprint "      $(date)" "6=" "=${outlog}"
-#       
-#       # Time execution and redirect output (https://stackoverflow.com/a/2409214)
-#       { time ${topaz_cmd} 2> /dev/null ; } 2>&1 | grep real | sed 's/real\t/    Run time: /'
-#       local status_code=("${PIPESTATUS[0]}")
-#       # Do NOT use quotes around ${topaz_cmd} above...
-#     elif [[ "$verbose" -ge 7 ]]; then
-#       time $topaz_cmd
-#       local status_code=("${PIPESTATUS[0]}")
-#     else
-#       if [[ "${outlog}" != "" ]] ; then
-#         $topaz_cmd >> ${outlog}  # 2> /dev/null
-#         local status_code=("${PIPESTATUS[0]}")
-#       else
-#         $topaz_cmd
-#         local status_code=("${PIPESTATUS[0]}")
-#       fi
-#     fi
-#     
-#     # TODO: Figure out why Topaz hangs sometimes
-#     vprint "    Topaz complete, status code: ${status_code}" "3+" "=${outlog}"
-#     # Status code 124: bad
-#     
-#     local num_orig="$(ls ${indir}/*_mic.mrc | wc -w)"
-#     local num_dns="$(ls ${outdir}/*_mic.mrc | wc -w)"
-#     if [[ "${num_orig}" -ne "${num_dns}" ]] ; then
-#       vprint "\n    WARNING!"
-#     fi
-#     
-#     vprint "    Denoised ${num_dns}/${num_orig} micrographs" "3+" "=${outlog}"
-#   
-#     # Clean up
-#     conda deactivate
-#     vprint "  conda environment: '$CONDA_DEFAULT_ENV'\n" "3+" "=${outlog}"
-#   
-#   # Testing
-#   else
-#     vprint "\n  TESTING: topaz ${topaz_args}\n" "3+" "=${outlog}"
-#   fi
-#   # End testing IF-THEN
-# }
-# 
 function get_gpu() {
 ###############################################################################
 #   Function:
@@ -2110,11 +2036,13 @@ function write_angles_lists() {
 #   Global variables:
 #     stripped_angle_array
 #     mcorr_mic_array
-#     denoise_array
 #     vars
+#     denoise_array
 #     mcorr_list
-#     denoise_list
 #     angles_list
+#     denoise_list
+#     tomo_mic_dir
+#     ts_mics : OUTPUT
 #     
 ###############################################################################
   
@@ -2129,6 +2057,7 @@ function write_angles_lists() {
   echo ${#mcorr_mic_array[*]} > $mcorr_list
   if [[ "${vars[do_topaz]}" == true ]] || [[ "${vars[do_janni]}" == true ]] ; then
     echo ${#denoise_array[*]} > $denoise_list
+    local do_denoise=true  # IF-OR statement is a mouthful
   fi
   
   # Delete pre-existing angles file (AreTomo will crash if appended to)
@@ -2140,14 +2069,25 @@ function write_angles_lists() {
   for idx in $sorted_keys ; do
     echo    "${stripped_angle_array[${idx}]}" >> $angles_list
     echo -e "${mcorr_mic_array[$idx]}\n/" >> $mcorr_list
-    if [[ "${vars[do_topaz]}" == true ]] || [[ "${vars[do_janni]}" == true ]] ; then
+    
+    # If denoising
+# #     if [[ "${vars[do_topaz]}" == true ]] || [[ "${vars[do_janni]}" == true ]] ; then
+    if [[ "${do_denoise}" == true ]]; then
       echo -e "${denoise_array[$idx]}\n/" >> $denoise_list
+      
+      # Temporarily move to temporary directory
+      if [[ "${vars[testing]}" == false ]] ; then
+        mv ${mcorr_mic_array[$idx]} ${tomo_mic_dir}/
+      fi
     fi
   done  
   
-  vprint "  Wrote list of ${#stripped_angle_array[*]} angles to $angles_list" "2+" "=${outlog}"
+  ts_mics="${#stripped_angle_array[*]}"
+  vprint "  Wrote list of ${ts_mics} angles to $angles_list" "2+" "=${outlog}"
   vprint "  Wrote list of ${#mcorr_mic_array[*]} images to $mcorr_list" "2+" "=${outlog}"
-  if [[ "${vars[do_topaz]}" == true ]] || [[ "${vars[do_janni]}" == true ]] ; then
+  
+# #   if [[ "${vars[do_topaz]}" == true ]] || [[ "${vars[do_janni]}" == true ]] ; then
+  if [[ "${do_denoise}" == true ]]; then
     vprint "  Wrote list of ${#denoise_array[*]} images to $denoise_list" "2+" "=${outlog}"
   fi
   
@@ -2209,7 +2149,8 @@ function imod_restack() {
   fi
   
   # AreTomo and IMOD expect different extensions for stacks
-  if [[ "${vars[batch_directive]}" != "" ]]; then
+# #   if [[ "${vars[batch_directive]}" != "" ]]; then
+  if [[ ! -z "${vars[batch_directive]}" ]] ; then
     reordered_stack="${tomo_root}_newstack.mrc"
   else
     reordered_stack="${tomo_root}_newstack.st"
@@ -2228,10 +2169,10 @@ function imod_restack() {
     if [[ ! -e $reordered_stack ]]; then
       vprint "  Running: ${restack_cmd}\n" "3+" "=${outlog}"
       
-      if [[ "$verbose" -ge 8 ]]; then
+      if [[ "$verbose" -ge 7 ]]; then
         ${vars[imod_dir]}/${restack_cmd} 2>&1 | tee $newstack_log
         local newstack_status=("${PIPESTATUS[0]}")
-      elif [[ "$verbose" -ge 6 ]]; then
+      elif [[ "$verbose" -eq 6 ]]; then
         # ${vars[imod_dir]}/${restack_cmd} | tee $newstack_log | grep --line-buffered "RO image"
         ${vars[imod_dir]}/${restack_cmd} | tee $newstack_log | stdbuf -o0 grep "RO image" | sed 's/^/   /'
         # line-buffered & stdbuf: https://stackoverflow.com/questions/7161821/how-to-grep-a-continuous-stream
@@ -2257,9 +2198,9 @@ function imod_restack() {
         # Update pixel size
         vprint "  Running: ${apix_cmd}" "3+" "=${outlog}"
         
-        if [[ "$verbose" -ge 8 ]]; then
+        if [[ "$verbose" -ge 7 ]]; then
           ${vars[imod_dir]}/${apix_cmd} 2>&1 | tee $newstack_log
-        elif [[ "$verbose" -ge 6 ]]; then
+        elif [[ "$verbose" -eq 6 ]]; then
           ${vars[imod_dir]}/${apix_cmd} | tee $newstack_log | stdbuf -o0 grep "Pixel spacing" | sed 's/^/   /'
           # line-buffered & stdbuf: https://stackoverflow.com/questions/7161821/how-to-grep-a-continuous-stream
         else
@@ -2436,9 +2377,9 @@ function wrapper_aretomo() {
         echo -e "\n  AreTomo output $tomogram_3d already exists, skipping..."
       fi
     else
-      if [[ "$verbose" -ge 4 ]]; then
-        echo -e "\n  TESTING: ${aretomo_cmd}"
-      elif [[ "$verbose" -eq 3 ]]; then
+#       if [[ "$verbose" -ge 4 ]]; then
+#         echo -e "\n  TESTING: ${aretomo_cmd}"
+      if [[ "$verbose" -ge 3 ]]; then
         echo      "  TESTING: tomogram reconstruction '`basename $tomogram_3d`' from $num_mics micrographs"
       fi
       
@@ -2523,8 +2464,8 @@ function mdoc2tomo() {
   tomo_dir="${recdir}/${tomo_base}"
   tomo_root="${vars[outdir]}/${tomo_dir}/${tomo_base}"
   
-# #   if [[ "${vars[do_etomo]}" == true ]]; then
-  if [[ "${vars[batch_directive]}" != "" ]]; then
+# #   if [[ "${vars[batch_directive]}" != "" ]]; then
+  if [[ ! -z "${vars[batch_directive]}" ]] ; then
     tomogram_3d="${vars[outdir]}/${tomo_dir}/${tomo_base}_newstack_full_rec.mrc"
     etomo_out="${vars[outdir]}/${tomo_dir}/${tomo_base}_std.out"
   else
@@ -2602,10 +2543,10 @@ function get_central_slice() {
   # Take central slice
   mrc_slice="${tomo_stem}_slice.mrc"
   trim_cmd="trimvol ${rot_flag} ${min_axis} 1 $fn ${mrc_slice}" 
-  if [[ "$verbose" -ge 3 ]]; then
-    echo -e "    $trim_cmd"
-  fi
-  if [[ "$verbose" -ge 8 ]]; then
+# #   if [[ "$verbose" -ge 3 ]]; then
+  vprint "    $trim_cmd" "3+"
+# #   fi
+  if [[ "$verbose" -ge 7 ]]; then
     ${vars[imod_dir]}/$trim_cmd 2>&1 | tee ${trim_log}
   else
     ${vars[imod_dir]}/$trim_cmd 1> ${trim_log}
@@ -2613,9 +2554,9 @@ function get_central_slice() {
   
   jpg_slice="${tomo_stem}_slice.jpg"
   jpg_cmd="mrc2tif -j ${mrc_slice} ${jpg_slice}"
-  if [[ "$verbose" -ge 3 ]]; then
-    echo -e "    $jpg_cmd"
-  fi
+# #   if [[ "$verbose" -ge 3 ]]; then
+  vprint "    $jpg_cmd" "3+"
+# #   fi
   
   # Suppress "Writing JPEG images"
   if [[ "$verbose" -le 6 ]]; then
@@ -2627,9 +2568,9 @@ function get_central_slice() {
   
   central_slice_jpg="${vars[outdir]}/${imgdir}/${thumbdir}/$(basename ${tomo_stem})_slice_norm.jpg"
   norm_cmd="convert ${jpg_slice} -normalize $central_slice_jpg "
-  if [[ "$verbose" -ge 3 ]]; then
-    echo "    $norm_cmd"
-  fi
+# #   if [[ "$verbose" -ge 3 ]]; then
+  vprint "    $norm_cmd" "3+"
+# #   fi
   $norm_cmd && rm ${jpg_slice}
 }
 
@@ -2681,13 +2622,13 @@ function wrapper_etomo() {
         do_reconstruct=false
         
         if [[ "$verbose" -ge 2 ]]; then
-          vprint "\n  eTomo output $tomogram_3d already exists, skipping..."
+          echo -e "\n  eTomo output $tomogram_3d already exists, skipping..."
         else
           mv $tomogram_3d ${tomogram_3d}.bak
         fi
       else
         if [[ "$verbose" -ge 2 ]]; then
-          vprint "\n  WARNING: eTomo output $tomogram_3d already exists"
+          echo -e "\n  WARNING: eTomo output $tomogram_3d already exists"
           echo "    $(mv -v $tomogram_3d ${tomogram_3d}.bak)"
         else
           mv $tomogram_3d ${tomogram_3d}.bak
@@ -2697,7 +2638,7 @@ function wrapper_etomo() {
     
     if [[ "${do_reconstruct}" == true ]] ; then
       vprint "\n  $(date)" "3+"
-      vprint   "  Computing tomogram reconstruction 'batchruntomo' from $num_mics micrographs" "2+"
+      vprint   "  Computing tomogram reconstruction 'batchruntomo' from $num_mics micrographs" "3+"
       vprint "\n  Running: ${etomo_cmd}" "3+"
 
       # Full screen output
@@ -2716,8 +2657,8 @@ function wrapper_etomo() {
       fi
       # End verbosity cases
       
-      vprint "" "2+"
-      
+#       vprint "" "2+"
+#       
       # If final alignment
       if [[ "${vars[do_ruotnocon]}" == false ]] || [[ "${more_flags}" == "-start 6" ]] ; then
         # Sanity check: tomogram exists
@@ -2746,14 +2687,14 @@ function wrapper_etomo() {
     if [[ "${do_overwrite}" == false ]] && [[ "${vars[no_redo3d]}" != "false" ]] ; then
       do_reconstruct=false
       
-      if [[ "$verbose" -ge 2 ]]; then
-        vprint "\n  eTomo output $tomogram_3d already exists, skipping..."
-      fi
+# #       if [[ "$verbose" -ge 2 ]]; then
+      vprint "\n  eTomo output $tomogram_3d already exists, skipping..." "2+"
+# #       fi
     else
       if [[ "$verbose" -ge 3 ]]; then
-        vprint "\n  TESTING $etomo_cmd\n"
+        echo -e "\n  TESTING $etomo_cmd\n"
       elif [[ "$verbose" -eq 2 ]]; then
-        vprint "  ${etomo_cmd}"
+        echo      "  ${etomo_cmd}"
       fi
       
       touch $tomogram_3d
@@ -2882,9 +2823,9 @@ function ruotnocon_wrapper() {
     # Create temporary directory
     if [[ "${test_contour}" != true ]]; then
       \rm -r ${temp_contour_dir} 2> /dev/null
-      if [[ ${verbose} -ge 5 ]] ; then
-        echo "  Creating directory: ${temp_contour_dir}/"
-      fi
+# #       if [[ ${verbose} -ge 5 ]] ; then
+      vprint "  Creating directory: ${temp_contour_dir}/" "%+"
+# #       fi
       mkdir ${temp_contour_dir}
     fi
     
@@ -3072,16 +3013,16 @@ function ruotnocon_wrapper() {
       for curr_resid in "${bad_residuals[@]}" ; do
         local contour2rm=$(( $curr_resid - 1))
 
-        if [[ ${verbose} -ge 3 ]] ; then
-          echo "    Removed contour #${curr_resid}"
-        fi
+# #         if [[ ${verbose} -ge 3 ]] ; then
+        vprint "    Removed contour #${curr_resid}" "3+"
+# #         fi
       
       
         # Remove index from array
         unset 'chunk_array[$contour2rm]'
-        if [[ ${verbose} -ge 7 ]] ; then
-          echo "  chunk_array: '${#chunk_array[@]}' '${chunk_array[@]}'"
-        fi
+# #         if [[ ${verbose} -ge 7 ]] ; then
+        vprint "  chunk_array: '${#chunk_array[@]}' '${chunk_array[@]}'" "7+"
+# #         fi
       done
       
       # Initialize new array
@@ -3139,15 +3080,15 @@ function ruotnocon_wrapper() {
         return
       fi
       
-      if [[ "$verbose" == "" ]]; then
+      if [ -z "$verbose" ] ; then
         local verbose=1
       fi
       
       # Check if file exists
       if [[ -f "$fn" ]]; then
-        if [[ "$verbose" -ge 7 ]]; then
-          echo "  File exists: '$fn'"
-        fi
+# #         if [[ "$verbose" -ge 8 ]]; then
+        vprint "  File exists: '$fn'" "8+"
+# #         fi
         
         # Initialize version counter
         local counter=0
@@ -3187,16 +3128,16 @@ function backup_file() {
   if [[ "$2" != "" ]]; then
     local verbose=$2
   else
-    if [[ "$verbose" == "" ]]; then
+    if [ -z "$verbose" ] ; then
       local verbose=1
     fi
   fi
   
   # Check if file exists
   if [[ -f "$fn" ]]; then
-    if [[ "$verbose" -ge 8 ]]; then
-      echo "File exists: '$fn'"
-    fi
+# #     if [[ "$verbose" -ge 8 ]]; then
+    vprint "File exists: '$fn'" "8+"
+# #     fi
     
     # Initialize version counter
     counter=0
