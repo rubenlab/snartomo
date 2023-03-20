@@ -427,7 +427,7 @@ function power_resources() {
   
   if [ -x "$(which nvidia-smi)" ]; then
     # Read GPU devices into array
-    readarray -t gpu_array   < <(nvidia-smi -q | grep "^GPU")
+    readarray -t gpu_array   < <(nvidia-smi -q | grep "^GPU") 2> /dev/null
     readarray -t power_array < <(nvidia-smi -q | grep "Power Draw" --color=never | cut -d: -f2 | sed -e 's/^[[:space:]]*//')
     readarray -t temp_array  < <(nvidia-smi -q | grep "GPU Current Temp" --color=never | cut -d: -f2 | sed -e 's/^[[:space:]]*//')
     
@@ -486,7 +486,13 @@ function power_plot() {
   local termination_file=$5
   
   # Get GPU IDs
-  readarray -t gpu_array < <(nvidia-smi -q | grep "^GPU")
+  readarray -t gpu_array < <(nvidia-smi -q | grep "^GPU") 2> /dev/null
+#   
+#   ### TESTING
+#   echo -e "492 status code '$?'"
+#   echo -e "493\n$(nvidia-smi -q | grep "^GPU")"
+#   printf '%s\n' "${gpu_array[@]}"
+#   exit
   
   # Build header line
   for gpu_num in "${!gpu_array[@]}"; do 
@@ -606,7 +612,7 @@ function temperature_plot() {
   local termination_file=$5
   
   # Get GPU IDs
-  readarray -t gpu_array < <(nvidia-smi -q | grep "^GPU")
+  readarray -t gpu_array < <(nvidia-smi -q | grep "^GPU") 2> /dev/null
   
   # Build header line
   for gpu_num in "${!gpu_array[@]}"; do 

@@ -18,7 +18,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-03-17"
+  echo "Modified 2023-03-20"
   date
   echo 
 }
@@ -36,6 +36,7 @@ function print_usage() {
 #################### Filenames ####################
 
 shared_libs=snartomo-shared.bash                   # Shared libraries
+gpu_libs=gpu_resources.bash                  # Resource (GPUs, etc.) libraries
 frame_file=motioncor-frame.txt                     # Frames file
 outdir=SNARTomoPACE                                # Output top-level directory
 
@@ -47,6 +48,7 @@ max_minutes=200                                   # Maximum run time, minutes
 apix=-1.00                                        # Pixel size, Angstroms
 voltage=300.0                                     # F20: 200, Krios: 300
 gpus="0 1"                                        # List of GPUs to use, delimited by spaces
+# # cpu_slots=2                                       # Maximum number of CPU processes (CTFFIND4, eTomo, CPU-denoising) to run concurrently
 verbosity=4                                       # Verbosity level
 #                                                 #   0: prints nothing
 #                                                 #   1: prints brief overall summary
@@ -165,7 +167,7 @@ ctf_mics=list-mics-ctf.txt  # this file WILL  be subtracted from as CTFFIND proc
 ctf_list=list-ctfs.txt
 mdoc_list=list-mdocs.txt
 tomo_list=list-tomos.txt
-ctf_status=status-ctf.txt
+cpu_status=status-cpu.txt
 recon_status=status-recon.txt
 movies_done=DONE-movies.txt
 mcor_done=DONE-motioncor.txt
@@ -251,6 +253,7 @@ function parse_command_line() {
   
   add_section "GLOBAL SETTINGS" "These settings affect multiple steps."
   add_argument "gpus" "${gpus}" "GPUs to use (surrounding quotes & space-delimited if more than one)" "ANY"
+# #   add_argument "cpu_slots" "${cpu_slots}" "Maximum number of CPU processes (CTFFIND4, eTomo, CPU-denoising) to run concurrently" "INT"
   add_argument "live" "false" "Flag to detect new files on-the-fly" "BOOL"
   add_argument "last_tilt" "${LAST_TILT}" "Last (not highest) tilt angle in tilt series (required in live mode)" "FLOAT"
   add_argument "outdir" "${outdir}" "Output directory" "ANY"
@@ -436,6 +439,10 @@ function main() {
       distribute_ctffind
       compute_tomograms
     else
+#       ### TESTING
+#       power_plot "${max_seconds}" "${vars[search_interval]}" "${power_log}" "${power_plotfile}" "${rec_done}"
+#       exit
+#       
       # Kill subprocesses if main process is killed
       trap 'kill -9 %1' 2
       
@@ -488,10 +495,7 @@ function check_env() {
   else
     source "${SNARTOMO_DIR}/${shared_libs}"
     source "${SNARTOMO_DIR}/argumentparser_dynamic.sh"
-    
-    if [[ "${do_pace}" == true ]]; then
-      source "${SNARTOMO_DIR}/gpu_resources.bash"
-    fi
+    source "${SNARTOMO_DIR}/${gpu_libs}"
   fi
 }
 
@@ -526,7 +530,7 @@ function prepare_logfiles() {
 #     ctf_list
 #     mdoc_list
 #     tomo_list
-#     ctf_status
+#     cpu_status
 #     recon_status
 #     movies_done
 #     mcor_done
@@ -551,14 +555,13 @@ function prepare_logfiles() {
   heat_log=${vars[outdir]}/${log_dir}/${heat_log}
   heat_plot=${vars[outdir]}/${log_dir}/${heat_plot}
   warn_log=${vars[outdir]}/${log_dir}/${warn_log}
-# #   debug_log=${vars[outdir]}/${log_dir}/${debug_log}
   mc2_movies=${vars[outdir]}/${temp_dir}/${mc2_movies}
   init_movies=${vars[outdir]}/${temp_dir}/${init_movies}
   gpu_status=${vars[outdir]}/${temp_dir}/${gpu_status}
   mc2_mics=${vars[outdir]}/${temp_dir}/${mc2_mics}
   ctf_mics=${vars[outdir]}/${temp_dir}/${ctf_mics}
   ctf_list=${vars[outdir]}/${temp_dir}/${ctf_list}
-  ctf_status=${vars[outdir]}/${temp_dir}/${ctf_status}
+  cpu_status=${vars[outdir]}/${temp_dir}/${cpu_status}
   mdoc_list=${vars[outdir]}/${temp_dir}/${mdoc_list}
   tomo_list=${vars[outdir]}/${temp_dir}/${tomo_list}
   recon_status=${vars[outdir]}/${temp_dir}/${recon_status}
@@ -1664,7 +1667,7 @@ function resource_liberate() {
 #       rm ${gpu_lock} 2> /dev/null
 #
 #   Positional variables:
-#     1) status_file: must be gpu_status or ctf_status
+#     1) status_file: must be gpu_status or cpu_status
 #     2) slot_number
 #     3) lock_time
 #     4) sleep_time
@@ -1674,7 +1677,10 @@ function resource_liberate() {
 #     
 #   Global variables:
 #     gpu_status
-#     ctf_status
+#     gpu_array
+#     cpu_status
+#     cpu_array
+#     slot_array
 #     recon_status
 #   
 ###############################################################################
@@ -1697,7 +1703,7 @@ function resource_liberate() {
   if [[ "${status_file}" == "${gpu_status}" ]] ; then
     gpu_array[${slot_number}]="FREE"
     declare -p gpu_array > ${status_file}
-  elif [[ "${status_file}" == "${ctf_status}" ]] ; then
+  elif [[ "${status_file}" == "${cpu_status}" ]] ; then
     cpu_array[${slot_number}]="FREE"
     declare -p cpu_array > ${status_file}
   elif [[ "${status_file}" == "${recon_status}" ]] ; then
@@ -1714,8 +1720,8 @@ function resource_liberate() {
 
   # Remove lock file
   rm ${lock_file} 2> /dev/null
-    
-  unset resource_array
+#     
+#   unset resource_array
 }
 
 function monitor_ram() {
@@ -1916,14 +1922,14 @@ function distribute_ctffind() {
 #     file_lock
 #   
 #   Global variables:
-#     max_seconds
+#     ctf_done
 #     vars
 #     ctf_mics
-#     ctf_status
+#     cpu_status
 #     ctf_list
-#     temp_dir
+#     max_seconds
 #     mcor_done
-#     ctf_done
+#     cor_ext
 #     
 ###############################################################################
 
@@ -1941,7 +1947,7 @@ function distribute_ctffind() {
   for cpu_num in $(seq "${vars[ctf_slots]}") ; do
     cpu_array[${cpu_num}]="FREE"
   done
-  declare -p cpu_array > ${ctf_status}
+  declare -p cpu_array > ${cpu_status}
   
   # Read pre-existing CTFFIND outputs as array
   readarray -t ctf_array < "${ctf_list}"
@@ -1990,7 +1996,7 @@ function distribute_ctffind() {
     # End file-exists IF-THEN
     
     # Read CPU state
-    source ${ctf_status}
+    source ${cpu_status}
     
     # Loop through CPU slots
     for cpu_num in $(seq "${vars[ctf_slots]}") ; do
@@ -2030,13 +2036,13 @@ function distribute_ctffind() {
             if [[ ! -e $ctf_mrc ]]; then
               if [[ "${do_parallel}" == true ]] ; then
                 # Lock CPU list (This function isn't running in background, only subroutines.)
-                file_lock "${ctf_status}" "4" "${FUNCNAME[0]}"
+                file_lock "${cpu_status}" "4" "${FUNCNAME[0]}"
                 local cpu_lock=${lock_file}
-                source ${ctf_status}
+                source ${cpu_status}
                 
                 # Update CPU status
                 cpu_array[${cpu_num}]="$(basename ${current_mic})"
-                declare -p cpu_array > ${ctf_status}
+                declare -p cpu_array > ${cpu_status}
                 rm ${cpu_lock} 2> /dev/null
             
                 # Run CTFFIND in background
@@ -2071,7 +2077,7 @@ function distribute_ctffind() {
 #       else
 #         # TESTING
 #         echo "t=$SECONDS, CPU slot $cpu_num occupied by '${cpu_array[${cpu_num}]}'"
-# #         bat "${ctf_status}"
+# #         bat "${cpu_status}"
       fi
       # End free-CPU IF-THEN
     done
@@ -2100,7 +2106,7 @@ function distribute_ctffind() {
           # If it doesn't exist, then re-add to queue
           else
             local mic_stem=$(basename ${ctf_mrc%_ctf.mrc})
-            local current_mic="${vars[outdir]}/${micdir}/${mic_stem}_mic.mrc"
+            local current_mic="${vars[outdir]}/${micdir}/${mic_stem}${cor_ext}"
             vprint "$(date +"$time_format"): Re-adding '$current_mic' to queue" "1+" "=${warn_log}"
             
             if [[ "${do_parallel}" == true ]]; then
@@ -2252,7 +2258,7 @@ function distribute_ctffind() {
         
     # Free CPU
     if [[ "${do_parallel}" == true ]] ; then
-      resource_liberate "${ctf_status}" "${cpu_num}" "3" "0"
+      resource_liberate "${cpu_status}" "${cpu_num}" "3" "0"
     fi
     
     # Make sure output exists
@@ -2478,20 +2484,39 @@ function compute_tomograms() {
     vprint "                       Exiting reconstruction for target file '${vars[target_file]}'..." "0+" "${main_log} =${warn_log}"
     exit
   else
-    vprint "\n$(date +"$time_format"): Finished MotionCor2/CTFFIND4 on $mics_found/$num_ctfs micrographs, computing ${num_mdocs} 3D reconstructions" "1+" "${main_log}"
+    vprint "\n$(date +"$time_format"): Finished MotionCor2/CTFFIND4 on $mics_found/$num_ctfs micrographs, computing ${num_mdocs} 3D reconstructions\n" "1+" "${main_log}"
   fi
   
-  if [[ "${vars[batch_directive]}" != "" ]]; then
-# #   if [[ ! -z "${vars[batch_directive]}" ]] ; then
-    local slot_list=( $(seq "${vars[imod_slots]}") )
+  if [[ ! -z "${vars[batch_directive]}" ]] ; then
+    # If denoising using GPU, then cap number of CPUs at number of GPUs
+    if [[ "${vars[do_topaz]}" == true ]] || [[ "${vars[do_janni]}" == true ]] ; then
+      # Get number of GPUs
+      local num_gpus=$(echo "${vars[gpus]}" | wc -w)
+      
+      if [[ "${vars[denoise_gpu]}" == true ]] ; then
+        if [[ $imod_slots -gt $num_gpus ]] ; then
+          local msg="$(date +"$time_format"): WARNING! More IMOD slots (${vars[imod_slots]}) than GPUs (${num_gpus}), limiting to ${num_gpus} IMOD processes..."
+          vprint "${msg}" "0+" "${main_log} =${warn_log}"
+        fi
+        IFS=' ' read -r -a slot_list <<< "${vars[gpus]}"
+      else
+        local slot_list=( $(seq "${vars[imod_slots]}") )
+      fi
+      # End GPU IF-THEN
+    else
+      local slot_list=( $(seq "${vars[imod_slots]}") )
+    fi
+    # End denoising IF-THEN
   else
     IFS=' ' read -r -a slot_list <<< "${vars[gpus]}"
   fi
   
+# #   echo "2510 slot_list" ; printf "'%s'\n" "${slot_list[@]}" ; exit
+  
   # Initialize slot array
   declare -A slot_array
   
-  for slot_num in $(seq "${#slot_list[@]}") ; do
+  for slot_num in "${slot_list[@]}" ; do
     slot_array[${slot_num}]="FREE"
   done
   declare -p slot_array > ${recon_status}
@@ -2505,7 +2530,7 @@ function compute_tomograms() {
   declare -A new_tomos
   declare -a tomo_array
   
-  vprint "" "1+" "${main_log}"
+# #   vprint "" "1+" "${main_log}"
   
   local start_time=$SECONDS
   while (( $(( $SECONDS - $start_time )) < $max_seconds )) ; do
@@ -2513,7 +2538,7 @@ function compute_tomograms() {
     source ${recon_status}
     
     # Loop through slots
-    for slot_num in $(seq "${#slot_list[@]}") ; do
+    for slot_num in "${slot_list[@]}" ; do
       # Check if slot is free
       if [[ "${slot_array[${slot_num}]}" == "FREE" ]]; then
         # Get MDOC filename
@@ -2639,7 +2664,6 @@ function tomogram_parallel() {
 #     2) slot number
 #   
 #   Calls functions:
-# #     init_gpus
 #     denoise_wrapper
 #     wrapper_aretomo
 #     wrapper_etomo
@@ -2648,6 +2672,10 @@ function tomogram_parallel() {
 #   Global variables:
 #     recdir
 #     vars
+#     tomo_root (OUTPUT)
+#     mcorr_list (OUTPUT)
+#     denoise_list (OUTPUT)
+#     angles_list (OUTPUT)
 #     imgdir
 #     dose_imgdir
 #     warn_log
@@ -2656,7 +2684,6 @@ function tomogram_parallel() {
 #     denoisedir
 #     ctfdir
 #     verbose
-# #     gpu_status : from init_gpus
 #     num_bad_residuals : from ruotnocon_wrapper
 #     tomogram_3d : from wrapper functions
 #     rec_log
@@ -2790,9 +2817,9 @@ function tomogram_parallel() {
   
   # Optionally denoise
   if [[ "${vars[do_janni]}" == true ]]; then
-    denoise_wrapper "janni" "${tomo_mic_dir}" "${tomo_log}"
+    denoise_wrapper "janni" "${tomo_mic_dir}" "${tomo_log}" "${slot_num}"
   elif [[ "${vars[do_topaz]}" == true ]]; then
-    denoise_wrapper "topaz" "${tomo_mic_dir}" "${tomo_log}"
+    denoise_wrapper "topaz" "${tomo_mic_dir}" "${tomo_log}" "${slot_num}"
   fi
     
   # Move micrographs and remove temp directory
@@ -2854,7 +2881,7 @@ function tomogram_parallel() {
   # In testing mode, add a delay
   if [[ "${vars[testing]}" == true ]]; then
     if [[ "${vars[slow]}" == true ]]; then
-      sleep $(( (RANDOM % 8) + 3 ))
+      sleep $(( (RANDOM % 7) + 5 ))
     fi
     
     touch "${tomogram_3d}"
@@ -2889,7 +2916,6 @@ function clean_up_mdoc() {
 #   Global variables:
 #     vars
 #     micdir
-# #     stem_movie
 #     cor_ext
 #   
 ###############################################################################

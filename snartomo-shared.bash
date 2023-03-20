@@ -1914,9 +1914,13 @@ function denoise_wrapper() {
   local outlog=$3
   gpu_local=$4  # might be updated
   
+# #   echo "1917 gpu_local '${gpu_local}'"
+  
   # Get single GPU number if there are more than one
   get_gpu
 
+# #   echo -e "1922 gpu_local '${gpu_local}'\n"
+  
   # Optionally use CPU
   if [[ "${vars[denoise_gpu]}" == false ]]; then
     gpu_local=-1
@@ -2191,8 +2195,8 @@ function imod_restack() {
         fi
         
         if [[ "$verbose" -ge 1 ]]; then
-          vprint "WARNING! Newstack output '$reordered_stack' does not exist! Status code: ${newstack_status}" "0+" "${outlog} =${warn_log}"
-          vprint "         Continuing..." "0+" "${outlog} =${warn_log}"
+          vprint "  WARNING! Newstack output '$reordered_stack' does not exist! Status code: ${newstack_status}" "0+" "${outlog} =${warn_log}"
+          vprint "    Continuing..." "0+" "${outlog} =${warn_log}"
         fi
       else
         # Update pixel size

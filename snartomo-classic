@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2023-03-16"
+  echo "Modified 2023-03-20"
   date
   echo 
 }
@@ -1086,8 +1086,8 @@ function compute_tomogram() {
       done
     fi
     
-    # Write micrograph list
-    echo ${#denoise_array[*]} > $denoise_list
+#     # Write micrograph list
+#     echo ${#denoise_array[*]} > $denoise_list
     
     if [[ "${vars[do_janni]}" == true ]]; then
       denoise_wrapper "janni" "${tomo_mic_dir}" 
@@ -1114,10 +1114,10 @@ function compute_tomogram() {
   # Increment tomogram counter
   let "tomo_counter++"
   
-  # Re-initialize arrays
-  declare -A mcorr_mic_array=()
-  declare -A denoise_array=()
-  declare -A stripped_angle_array
+#   # Re-initialize arrays
+#   declare -A mcorr_mic_array=()
+#   declare -A denoise_array=()
+#   declare -A stripped_angle_array
 }
 
 function check_time() {
