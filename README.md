@@ -16,4 +16,4 @@ See the wiki at: https://github.com/rubenlab/snartomo/wiki
 
 ## Recent news
 
-2023-03-14 -- Denoising using CPU should work again, GPU not working yet
+2023-03-20 -- Denoising using GPU tested and working using single GPU
