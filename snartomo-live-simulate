@@ -343,13 +343,7 @@ function build_mdoc() {
       local curr_tsdir="$(get_mdoc_chunk_dir $(basename $curr_mdoc) )"
       local chunk_file="${curr_tsdir}/${chunk_prefix}${pad_idx}.${chunk_ext}"
       
-      # Delay
-      sleep "${vars[delay]}"
-      
-      # Append
-      (cat $chunk_file ; echo) >> ${out_mdoc}
-      
-      # Print to screen
+      # For printing to screen
       let "img_counter++"
       local date_time=$(search_mdoc_file $chunk_file 'DateTime')
       local imgnum=$(search_mdoc_file $chunk_file 'ZValue')
@@ -393,6 +387,12 @@ function build_mdoc() {
       fi
       
       echo "  ${date_time}: cumulative #${img_counter}, tilt series #$((series_num + 1)), ZValue #${imgnum}, TiltAngle: ${tilt_angle}, movie: $movie_name"
+      
+      # Append to MDOC
+      (cat $chunk_file ; echo) >> ${out_mdoc}
+      
+      # Delay
+      sleep "${vars[delay]}"
     done
   done
 }
