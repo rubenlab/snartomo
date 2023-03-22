@@ -1,0 +1,431 @@
+#!/bin/bash
+
+# Input
+shared_libs="snartomo-shared-22mar.bash"  # Shared libraries
+
+# Parameter
+delay=1.5                  # delay between micrographs, seconds (can be overridden on command line)
+
+# Outputs
+mdoc_dir="TS"              # for final MDOC files (can be overridden on command line)
+output_movie_dir="frames"  # directory for (empty) movie files (can be overridden on command line)
+
+# Intermediates
+chunk_dir="ChunkMDOC"      # intermediate files will go here, a subdirectory of MDOC_DIR
+tsdir_suffix="ts"          # files for each tilt series will be of the form: ${chunk_dir}/?{tsdir_suffix}/${chunk_prefix}??.${chunk_ext}
+chunk_prefix="chunk"       # prefix for chunk files
+chunk_ext="txt"            # extension for chunk files
+
+function program_info() {
+  echo "Running: SNARTomoLIVE"
+  echo "Modified 2023-03-22"
+  date
+}
+
+function main() {
+  # BASH arrays can't returned, so declare them here
+  declare -A original_vars
+  declare -a var_sequence
+  declare -A vars
+  
+  check_env
+  parse_command_line "${@}"
+  check_args "0"
+  program_info
+  validate_live_inputs
+  clean_up
+  split_mdoc
+  mdoc_header
+  build_mdoc
+  
+  echo "Done!"
+}
+
+function check_env() {
+###############################################################################
+#   Functions:
+#     Checks whether environmental variable SNARTOMO_DIR is set
+#     Sources shared functions from central SNARTomo directory
+#     
+#   Global variables:
+#     shared_libs
+#     
+###############################################################################
+
+  if [[ "${SNARTOMO_DIR}" == "" ]]; then
+    echo -e "\nERROR!! Environmental variable 'SNARTOMO_DIR' undefined!"
+    echo      "  Set variable with: export SNARTOMO_DIR=<path_to_snartomo_files>"
+    echo -e   "  Exiting...\n"
+    exit
+  else
+    source "${SNARTOMO_DIR}/${shared_libs}"
+    source "${SNARTOMO_DIR}/argumentparser_dynamic.sh"
+    
+    if [[ "${do_pace}" == true ]]; then
+      source "${SNARTOMO_DIR}/gpu_resources.bash"
+    fi
+  fi
+}
+
+function parse_command_line() {
+###############################################################################
+#   Function:
+#     Parses command line
+#   
+#   Passed arguments:
+#     ${@} : command-line arguments
+#   
+#   Calls functions:
+#     parser.add_section
+#     parser.add_argument
+#     parser.dynamic_parser
+#     
+#   Global variables:
+#     original_vars : declared from calling function, non-associative array, before cleaning
+#     var_sequence : declared from calling function, associative array, maintaining the order of the variables
+#     vars : final options array, declared from calling function
+#     verbose : shortened copy of vars[verbosity]
+#     gpu_num : GPU number
+#   
+###############################################################################
+  
+  add_argument "input_mdocs" "" "Tilt-series MDOC files (more than one -> must be enclosed in quotes)" "ANY"
+  add_argument "input_movie_dir" "${input_movie_dir}" "Movies in this directory will be linked to output directory" "ANY"
+  add_argument "mdoc_dir" "${mdoc_dir}" "Output MDOC directory" "ANY"
+  add_argument "output_movie_dir" "${output_movie_dir}" "Output movie directory" "ANY"
+  add_argument "overwrite" "false" "Flag to overwrite pre-existing output directories" "BOOL"
+  add_argument "delay" "${delay}" "Delay between micrographs, seconds" "FLOAT"
+
+  dynamic_parser "${@}"
+#   print_vars
+}
+
+function validate_live_inputs() {
+###############################################################################
+#   Function:
+#     Makes sure necessary inputs exist
+#   
+#   Calls functions:
+#     
+#   Global variables:
+#     vars
+#     validated
+#     
+###############################################################################
+  
+  validated=true
+  
+# #   if [[ "${vars[input_mdocs]}" == "" ]]; then
+#   echo "117 input_mdocs '${vars[input_mdocs]}'" ; exit ### TESTING
+  
+  if [[ -z "${vars[input_mdocs]}" ]] ; then
+    echo "ERROR!! MDOC file(s) not supplied!"
+    echo "  Add flag '--input_mdocs' and restart..."
+    echo
+    validated=false
+  fi
+  
+  # Summary
+  if [[ "$validated" == false ]]; then
+    print_usage
+    echo -e "\nMissing required inputs, exiting...\n"
+    exit 1
+  else
+    echo -e "\nFound required inputs. Continuing...\n"
+  fi
+}
+
+  function print_usage() {
+    echo "USAGE: $(basename $0) --input_mdocs 'input_mdocs*.txt' <options>"
+    echo "  Quotes (single or double) required if more than one MDOC file"
+    echo
+    echo "To list options & defaults, type:"
+    echo "  $(basename $0) --help"
+  }
+
+function clean_up() {
+###############################################################################
+#   Function:
+#     Prepare files
+#   
+#   Global variables:
+#     chunk_dir
+#     output_movie_dir
+#   
+###############################################################################
+  
+  echo "Preparing output directories..."
+  
+  # Remove output directory if '--overwrite' option chosen (PACE only)
+  if [[ "${vars[overwrite]}" == true ]]; then
+    if [[ -d ${vars[mdoc_dir]} ]] ; then
+      rm -r ${vars[mdoc_dir]}
+      echo "  Removed: ${vars[mdoc_dir]}"
+    fi
+
+    if [[ -d ${vars[output_movie_dir]} ]] ; then
+      rm -r ${vars[output_movie_dir]}
+      echo "  Removed: ${vars[output_movie_dir]}"
+    fi
+  fi
+  
+  # Create directories, if necessary
+  if ! [[ -d ${vars[mdoc_dir]} ]] ; then
+    mkdir -v ${vars[mdoc_dir]} | sed 's/^/  /'
+  fi
+  
+  if ! [[ -d ${vars[output_movie_dir]} ]] ; then
+    mkdir -v ${vars[output_movie_dir]} | sed 's/^/  /'
+  fi
+}
+
+function get_mdoc_chunk_dir() {
+###############################################################################
+#   Function:
+#     Split MDOC files into chunks
+#     There will be a common header and then an entry for each image
+#   
+#   Positional variables:
+#     1) MDOC basename
+#   
+#   Global variables:
+#     vars
+#     chunk_dir
+#   
+###############################################################################
+
+  local mdoc_base=$1
+  echo "${vars[mdoc_dir]}/${chunk_dir}/${mdoc_base%.mrc.mdoc}"
+}
+
+function split_mdoc() {
+###############################################################################
+#   Function:
+#     Split MDOC files into chunks
+#     There will be a common header and then an entry for each image
+#   
+#   Calls functions:
+#     get_mdoc_chunk_dir
+#   
+#   Global variables:
+#     vars
+#     chunk_dir
+#     
+###############################################################################
+
+  mapfile -t mdoc_array < <(ls ${vars[input_mdocs]} 2> /dev/null)
+  echo "Splitting MDOCs"
+  mkdir -pv ${vars[mdoc_dir]}/${chunk_dir} | sed 's/^/  /'
+  
+  # Loop through MDOCs
+  for curr_mdoc in ${mdoc_array[@]} ; do
+    # Make sure string ends in "*.mrc/mdoc"
+    if [[ $curr_mdoc != *.mrc.mdoc ]] ; then
+      echo -e "\nERROR!! Supposed MDOC file '$curr_mdoc' doesn't end in '.mdoc.mrc'"
+      echo -e   "  Exiting...\n"
+      exit
+    fi
+    
+    echo "  Found MDOC: $curr_mdoc"
+    local mdoc_nocrlf="$(get_nocrlf_filename "$curr_mdoc")"
+  
+    # Remove CRLF (https://www.cyberciti.biz/faq/sed-remove-m-and-line-feeds-under-unix-linux-bsd-appleosx/)
+    sed 's/\r//' ${curr_mdoc} > ${mdoc_nocrlf}
+    local status_code=$?
+    
+    if [[ $status_code -ne 0 ]] ; then
+      echo -e "ERROR!! Status code: $status_code\n"
+      exit 3
+    fi
+    
+    local curr_tsdir="$(get_mdoc_chunk_dir $(basename $curr_mdoc) )"
+    mkdir -p ${curr_tsdir}
+    
+    # https://stackoverflow.com/a/60972105/3361621
+    csplit --quiet --prefix=${curr_tsdir}/${chunk_prefix} --suffix-format=%02d.${chunk_ext} --suppress-matched ${mdoc_nocrlf} /^$/ {*}
+  done
+  # End MDOC loop
+}
+
+function get_nocrlf_filename() {
+###############################################################################
+#   Function:
+#     Gets filename of CRLF-free MDOC file
+#   
+#   Positional variables:
+#     1) MDOC file (directory name will be stripped out)
+#   
+#   Global variables:
+#     vars
+#     chunk_dir
+#   
+###############################################################################
+  
+  local mdoc_base="$(basename $1)"
+  echo "${vars[mdoc_dir]}/${chunk_dir}/${mdoc_base}.txt"
+}
+
+function mdoc_header() {
+###############################################################################
+#   Function:
+#     Build the header of an output MDOC file
+#     The first 3 entries contain header information common to all micrographs
+#   
+#   Calls functions:
+#     get_mdoc_chunk_dir
+#   
+#   Global variables:
+#     mdoc_array
+#     vars
+#   
+###############################################################################
+  
+  # Loop through MDOCs
+  for curr_mdoc in ${mdoc_array[@]} ; do
+    local out_mdoc="${vars[mdoc_dir]}/$(basename $curr_mdoc)"
+    local curr_tsdir="$(get_mdoc_chunk_dir $(basename $curr_mdoc) )"
+    
+    for filenum in {00..02} ; do
+      local chunk_file="${curr_tsdir}/${chunk_prefix}${filenum}.${chunk_ext}"
+#       local chunk_file="${chunk_dir}/${series_num}${tsdir_suffix}/${chunk_prefix}${filenum}.${chunk_ext}"
+#       
+#       ### TESTING
+#       echo "290 OLD '${chunk_file}'"
+#       echo "291 NEW '${curr_tsdir}/${chunk_prefix}${filenum}.${chunk_ext}'"
+#       exit
+#       
+      (cat $chunk_file ; echo) >> ${out_mdoc}
+    done
+  done
+}
+
+function build_mdoc() {
+###############################################################################
+#   Function:
+#     Generate rest of MDOC file
+#     
+#   Assumptions:
+#     1) All of the MDOC files have the same number of entries as the first
+#     2) Images in tilt series are consecutively numbered, with no gaps
+#   
+#   Calls functions:
+#     get_nocrlf_filename
+#     search_mdoc_file
+#     get_mdoc_chunk_dir
+#   
+#   Global variables:
+#     mdoc_array
+#     vars
+#     chunk_prefix
+#     chunk_ext
+#   
+###############################################################################
+  
+  local img_counter=0
+  
+  echo "Generating movies"
+  
+  # Get last entry in MDOC
+  local mdoc_nocrlf=$(get_nocrlf_filename "${mdoc_array[0]}")
+  
+  local last_z=$(search_mdoc_file $mdoc_nocrlf 'ZValue')
+  local last_idx=$(( $last_z + 3 ))
+  
+  for curr_idx in $(seq 3 ${last_idx}) ; do
+    for series_num in ${!mdoc_array[@]} ; do
+      local curr_mdoc=${mdoc_array[series_num]}
+      
+      # Get output MDOC filename
+      local out_mdoc="${vars[mdoc_dir]}/$(basename $curr_mdoc)"
+      
+      # Get chunk filename
+      local pad_idx=$(printf "%02d" $curr_idx)
+      local curr_tsdir="$(get_mdoc_chunk_dir $(basename $curr_mdoc) )"
+      local chunk_file="${curr_tsdir}/${chunk_prefix}${pad_idx}.${chunk_ext}"
+      
+      # Delay
+      sleep "${vars[delay]}"
+      
+      # Append
+      (cat $chunk_file ; echo) >> ${out_mdoc}
+      
+      # Print to screen
+      let "img_counter++"
+      local date_time=$(search_mdoc_file $chunk_file 'DateTime')
+      local imgnum=$(search_mdoc_file $chunk_file 'ZValue')
+      local tilt_angle=$(search_mdoc_file $chunk_file 'TiltAngle')
+      local movie_name=$(search_mdoc_file $chunk_file 'SubFramePath')
+    
+      if [[ $status_code -ne 0 ]] ; then
+        echo -e "ERROR!!\n"
+        echo "status_code : $status_code"
+        echo "chunk_file : '$chunk_file'"
+        exit 4
+      fi
+      
+      local out_movie="${vars[output_movie_dir]}/$movie_name"
+      
+      # If not creating links...
+      if [[ -z "${vars[input_movie_dir]}" ]] ; then
+        # Create fake movie
+        touch "${out_movie}"
+        local status_code=$?
+        
+        if [[ $status_code -ne 0 ]] ; then
+          echo -e "ERROR!!\n"
+          echo "status_code : $status_code"
+          exit 5
+        fi
+      
+      # If creating links...
+      else
+        local in_movie="${vars[input_movie_dir]}/$movie_name"
+        
+        # Look for movie in input directory
+        if ! [[ -f "$in_movie" ]]; then
+          echo -e "\nERROR!! File '${in_movie}' does not exist!"
+          echo -e   "  Exiting...\n"
+          exit
+        fi
+        
+        local full_movie=$(realpath ${in_movie})
+        ln -s ${full_movie} ${out_movie}
+      fi
+      
+      echo "  ${date_time}: cumulative #${img_counter}, tilt series #$((series_num + 1)), ZValue #${imgnum}, TiltAngle: ${tilt_angle}, movie: $movie_name"
+    done
+  done
+}
+
+function search_mdoc_file() {
+  mdoc_file=$1
+  search_target=$2
+  
+  # Search for last line with target string
+  line=$(grep $search_target $mdoc_file | tail -n 1)
+  
+  # Extract everything after the '=' (i.e., the 3rd space-delimited string onward)
+  hit=$(echo $line | cut -d' ' -f3-)
+  
+  # Remove trailing ']' for ZValue line)
+  if [[ "${search_target}" == "ZValue" ]]; then
+    hit=$(echo $hit | sed 's/]*$//g')
+  fi
+  
+  # For movie file, get basename
+  if [[ "${search_target}" == "SubFramePath" ]]; then
+    # Substitute backslash with forward slash (https://stackoverflow.com/a/18053055/3361621)
+    hit=$(basename ${hit##*[/|\\]})
+    status_code=$?
+  fi
+  
+  echo $hit
+}
+
+# Check whether script is being sourced or executed (https://stackoverflow.com/a/2684300/3361621)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+#   echo "script ${BASH_SOURCE[0]} is being executed..."
+   main "$@"
+# else
+#   echo "script ${BASH_SOURCE[0]} is being sourced..."
+fi
