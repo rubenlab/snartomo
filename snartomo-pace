@@ -2221,11 +2221,11 @@ function distribute_ctffind() {
         fi
         
         if [[ -f "$avg_rot" ]]; then
-          if [[ "$verbose" -ge 5 ]]; then
-            echo "    Running: ctffind_plot_results.sh $avg_rot" >> ${ctf_log}
-          else
-            "${vars[ctffind_dir]}"/ctffind_plot_results.sh $avg_rot 1> /dev/null >> ${ctf_log}
-          fi
+          vprint "    Running: ctffind_plot_results.sh $avg_rot" "0+" "=${ctf_log}"
+          "${vars[ctffind_dir]}"/ctffind_plot_results.sh $avg_rot 1> /dev/null >> ${ctf_log}
+          
+          # (Temp file may cause problems if lying around)
+          \rm /tmp/tmp.txt 2> /dev/null
         else
           warn_msg="$(date +"$time_format"): WARNING! CTFFIND4 output $avg_rot does not exist, re-adding to queue..."
         fi
