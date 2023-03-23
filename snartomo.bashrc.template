@@ -4,16 +4,17 @@
 
 ##### PLEASE DEFINE THE FOLLOWING #####
 
-export SNARTOMO_ENV="snartomo"  # SNARTomo conda environment
-export DENOISE_GPU="true"       # Denoise (Topaz or JANNI) using GPUs
-export MOTIONCOR2_EXE=""        # MotionCor2 exectuable
-export CTFFIND4_BIN=""          # CTFFIND4 directory (not executable)
-export JANNI_ENV=""             # JANNI conda environment
-export JANNI_MODEL=""           # JANNI "h5" model file
-export TOPAZ_ENV=""             # TOPAZ conda environment
-export IMOD_BIN=""              # IMOD executable directory
-export ARETOMO_EXE=""           # AreTomo executable
-export CP_EER_LOCAL="false"     # Copy EER file temporarily to local drive (useful for Falcon 4i data)
+export SNARTOMO_ENV="snartomo"                 # SNARTomo conda environment
+export DENOISE_GPU="true"                      # Denoise (Topaz or JANNI) using GPUs
+export MOTIONCOR2_EXE=""                       # MotionCor2 exectuable
+export CTFFIND4_BIN=""                         # CTFFIND4 directory (not executable)
+export JANNI_ENV=""                            # JANNI conda environment
+export JANNI_MODEL=""                          # JANNI "h5" model file
+export TOPAZ_ENV=""                            # TOPAZ conda environment
+export IMOD_BIN=""                             # IMOD executable directory
+export ARETOMO_EXE=""                          # AreTomo executable
+export CP_EER_LOCAL="false"                    # Copy EER file temporarily to local drive (useful for Falcon 4i data)
+export SNARTOMO_LOCAL="/tmp/SNARTomo/${USER}"  # Local directory for temporary EERs
 
 ##### YOU SHOULDN'T NEED TO MODIFY ANYTHING BELOW THIS LINE #####
 
