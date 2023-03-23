@@ -168,6 +168,10 @@ function create_directories() {
 #     Writes command line to commands file
 #     Writes settings to settings file
 #   
+#   Calls functions:
+#     check_local_dir
+#     print_arguments
+#   
 #   Global variables:
 #     vars
 #     rawdir
@@ -182,6 +186,7 @@ function create_directories() {
 #     thumbdir
 #     dose_imgdir
 #     contour_imgdir
+#     temp_local_dir (OUTPUT)
 #     cmd_file
 #     set_file
 #
@@ -274,6 +279,10 @@ function create_directories() {
     
     mkdir "${vars[outdir]}/${log_dir}" "${vars[outdir]}/${temp_dir}" "${vars[outdir]}/${micdir}" "${vars[outdir]}/${imgdir}/${dose_imgdir}" "${vars[outdir]}/${imgdir}/${contour_imgdir}" 2> /dev/null
     
+    if [[ "${vars[do_ruotnocon]}" == true ]]; then
+      mkdir "${vars[outdir]}/${imgdir}/${contour_imgdir}" 2> /dev/null
+    fi
+    
     if [[ "${vars[testing]}" == true ]]; then
       mkdir "${vars[outdir]}/$ctfdir" 2> /dev/null
     fi
@@ -284,12 +293,27 @@ function create_directories() {
       mkdir "${vars[outdir]}/$rawdir"  
     fi
     
-    if [[ "${vars[eer_local]}" == "true" ]] ; then
-      mkdir "${vars[outdir]}/${temp_dir}" 2> /dev/null
-    fi
+#     if [[ "${vars[eer_local]}" == "true" ]] ; then
+#       mkdir "${vars[outdir]}/${temp_dir}" 2> /dev/null
+#     fi
   fi
   # End PACE IF-THEN
     
+  # If SNARTOMO_LOCAL was empty, then try a default
+  if [[ -z "${vars[temp_local]}" ]] ; then
+    vars[temp_local]="/tmp/SNARTOMO/$USER"
+  fi
+  
+  # In case we need to copy EERs locally, remember the PID ($$)
+  temp_local_dir="${vars[temp_local]}/$$"
+  if [[ "${vars[eer_local]}" == "true" ]] ; then
+    if [[ "$verbose" -ge 1 ]]; then
+      mkdir -pv "${temp_local_dir}" 2> /dev/null
+    else
+      mkdir -p "${temp_local_dir}" 2> /dev/null
+    fi
+  fi
+  
   # Write command line to output directory
   echo -e "$0 ${@}\n" >> "${vars[outdir]}/${cmd_file}"
   print_arguments > "${vars[outdir]}/${set_file}"
@@ -297,6 +321,152 @@ function create_directories() {
   if [[ "${verbose}" -ge 1 ]]; then
     echo -e "Wrote settings to ${vars[outdir]}/${vars[settings]}\n"
   fi
+}
+
+# function check_local_dir() {
+# ###############################################################################
+# #   Function:
+# #     Create local directory
+# #   
+# #   Calls functions:
+# #     vprint
+# #   
+# #   Global variables:
+# #     vars
+# #     temp_local_dir
+# #     temp_local_note
+# #     verbose
+# #   
+# ###############################################################################
+#   
+#   # This condition shouldn't happen, but better to be safe before delecting directories
+#   if [[ -z "${vars[temp_local]}" ]] ; then
+#     echo "ERROR!! Parameter '--temp_local' should be non-empty"
+#     exit
+#   fi
+#   
+#   # Delete old subdirectories unless they are recent
+#   mapfile -t dir_array < <(find ${vars[temp_local]} -mindepth 1 -type d 2> /dev/null)
+#   
+#   for curr_dir in ${dir_array[@]} ; do 
+#     local do_keep=false  # default
+#     local run_length_file="$curr_dir/$temp_local_note"
+#     
+#     # Check if run-length file exists
+#     if [[ -e "$run_length_file" ]]; then
+#       local run_length=$(cat $run_length_file)
+#       local half_elapsed=$( echo $((($(date +%s) - $(date +%s -r $curr_dir)) / 120)) )
+# #       echo "338 curr_dir '$curr_dir', run_length '$run_length', half_elapsed '$half_elapsed'"
+#       
+#       # If, say, half the age is less than the run length, then keep the directory
+#       if [[ $half_elapsed -le $run_length ]] ; then
+#         do_keep=true
+#         vprint "keeping local directory: '$curr_dir'" "1+"
+#       fi
+#     fi
+#     # End run-length IF-THEN
+#   
+#     # Default behavior is to delete the directory
+#     if [[ $do_keep == false ]] ; then
+# # #       echo "353 Deleting: $curr_dir"
+#       if [[ "$verbose" -ge 1 ]]; then
+#         rm -rv $curr_dir 2> /dev/null
+#       else
+#         rm -r $curr_dir 2> /dev/null
+#       fi
+#     fi
+#   done
+#   
+# #   if [[ "${vars[testing]}" == false ]]; then
+#   if [[ "$verbose" -ge 1 ]]; then
+#     mkdir -pv "${temp_local_dir}" 2> /dev/null
+#   else
+#     mkdir -p "${temp_local_dir}" 2> /dev/null
+#   fi
+#   
+#   # Write maximum run time to temporary file
+# #   if [[ "${vars[testing]}" == false ]]; then
+#     echo "${vars[max_minutes]}" > "${temp_local_dir}/${temp_local_note}"
+# #   fi
+# }
+
+function clean_local_dir() {
+###############################################################################
+#   Function:
+#     Clean local directory if necessary
+#   
+#   Positional arguments:
+#     1) optional log file
+#     
+#   Calls functions:
+#     vprint
+#   
+#   Global variables:
+#     temp_local_dir
+# #     temp_local_note
+#     warn_log
+#   
+###############################################################################
+  
+  local outlog=$1
+  
+#   if [[ "${vars[eer_local]}" == "true" ]] ; then
+#   fi
+#   # End local-EER IF-THEN
+  
+  # This condition shouldn't happen, but better to be safe before delecting directories
+  if [[ -z "${vars[temp_local]}" ]] ; then
+    vprint "WARNING! Parameter '--temp_local' should be non-empty" "0+" "${outlog} =${warn_log}"
+  else
+    # Delete old subdirectories unless they are recent
+    mapfile -t dir_array < <(find ${vars[temp_local]} -mindepth 1 -type d 2> /dev/null)
+    
+    for curr_dir in ${dir_array[@]} ; do 
+#       # Delete run-length file
+#       rm "$curr_dir/$temp_local_note" 2> /dev/null
+#       
+      # Make sure directory is empty
+      if [ "$(ls -A ${curr_dir})" ]; then 
+        vprint "WARNING! ${curr_dir} not empty" "0+" "${outlog} =${warn_log}"
+      
+      else
+        if [[ "$verbose" -ge 1 ]]; then
+          rmdir -v "${curr_dir}" 2> /dev/null
+        else
+          rmdir "${curr_dir}" 2> /dev/null
+        fi
+      fi
+      # End non-empty IF-THEN
+      
+#       local do_keep=false  # default
+#       local run_length_file="$curr_dir/$temp_local_note"
+#       
+#       # Check if run-length file exists
+#       if [[ -e "$run_length_file" ]]; then
+#         local run_length=$(cat $run_length_file)
+#         local half_elapsed=$( echo $((($(date +%s) - $(date +%s -r $curr_dir)) / 120)) )
+#   #       echo "338 curr_dir '$curr_dir', run_length '$run_length', half_elapsed '$half_elapsed'"
+#         
+#         # If, say, half the age is less than the run length, then keep the directory
+#         if [[ $half_elapsed -le $run_length ]] ; then
+#           do_keep=true
+#           vprint "keeping local directory: '$curr_dir'" "1+"
+#         fi
+#       fi
+#       # End run-length IF-THEN
+#     
+#       # Default behavior is to delete the directory
+#       if [[ $do_keep == false ]] ; then
+#   # #       echo "353 Deleting: $curr_dir"
+#         if [[ "$verbose" -ge 1 ]]; then
+#           rm -rv $curr_dir 2> /dev/null
+#         else
+#           rm -r $curr_dir 2> /dev/null
+#         fi
+#       fi
+    done
+  fi
+  # End empty-temp_local IF-THEN
 }
 
 function vprint() {
@@ -473,6 +643,7 @@ function validate_inputs() {
 #     init_conda (OUTPUT)
 #     vars
 #     do_pace
+#     temp_local_dir
 #     do_cp_note (PACE only)
 #     imod_descr
 #     movie_ext
@@ -503,8 +674,8 @@ function validate_inputs() {
     read_mdoc "${outlog}"
   
     # Local copying is noted in paralleized process, so need to write a file.
-    if [[ "${vars[eer_local]}" == "true" ]] ; then
-      touch "${vars[outdir]}/${temp_dir}/${do_cp_note}"
+    if [[ "${vars[eer_local]}" == "true" ]] && [[ "${do_pace}" == true ]] ; then
+      touch "${temp_local_dir}/${do_cp_note}"
     fi
   fi
   # End PACE IF-THEN
@@ -583,7 +754,6 @@ function validate_inputs() {
   fi
   
   if [[ "${vars[do_ruotnocon]}" == true ]]; then
-# #     if [[ "${vars[batch_directive]}" != "" ]]; then
     if [[ ! -z "${vars[batch_directive]}" ]]; then
       validated=false
       vprint "  ERROR!! Can only remove contours if running eTomo!" "0+" "${outlog}"
@@ -643,7 +813,7 @@ function validate_inputs() {
     
     if grep -q ${search_term} "$new_adoc" ; then
       local old_line=$(grep ${search_term} ${new_adoc})  # | sed 's/\r//')
-      sed -i "s/.*$old_line.*/$new_line/" $new_adoc
+      sed -i "s/.*$old_line.*/$new_line/" $new_adoc 2> /dev/null
       # Double quotes are required here for some reason.
       # (Wild card ".*" replaces whole line)
       
@@ -656,10 +826,10 @@ function validate_inputs() {
       if grep -q "$dual_term" "$new_adoc" ; then
         # Get line number and add 1
         local line_num=$(echo $(sed -n "/$dual_term/=" $new_adoc) + 1 | bc)
-        sed -i "${line_num} i ${new_line}" $new_adoc
+        sed -i "${line_num} i ${new_line}" $new_adoc 2> /dev/null
       else
         # Add it at line 5
-        sed -i "5 i ${new_line}" $new_adoc
+        sed -i "5 i ${new_line}" $new_adoc 2> /dev/null
       fi
       # End dual-found IF-THEN
     
@@ -671,7 +841,7 @@ function validate_inputs() {
   function read_mdoc() {
   ###############################################################################
   #   Function:
-  #     Gets information from MDOC file
+  #     Gets information from MDOC file (Classic only)
   #     Currently only gets pixel size
   #   
   #   Calls functions:
@@ -1203,26 +1373,34 @@ function validate_inputs() {
     
     local outlog=$1
     
-    target_array=$(ls ${vars[target_files]} 2> /dev/null)  # will exclude non-existent files
+    target_array=$(ls ${vars[target_files]} 2> /dev/null)
 # #     printf "'%s'\n" "${target_array[@]}"
     local num_targets=$(echo $target_array | wc -w)
     
     # Single-MDOC option
-    if [[ "${vars[mdoc_file]}" != "" ]] ; then
+    if [[ "${vars[mdoc_files]}" != "" ]] ; then
       if [[ "${vars[target_files]}" != "" ]] ; then
-        echo -e "  ERROR!! Flags '--target_files' and '--mdoc_file' cannot be used simultaneously!\n"
+        echo -e "  ERROR!! Flags '--target_files' and '--mdoc_files' cannot be used simultaneously!\n"
         exit 4
       else
+        # Read MDOC list as array
+        mapfile -t mdoc_array < <(ls ${vars[mdoc_files]} 2> /dev/null)
+        
         local fake_targets="${vars[outdir]}/${temp_dir}/single_tgts.txt"
+        rm ${fake_targets} 2> /dev/null
         vprint "  Creating target file: ${fake_targets}" "1+" "${outlog}"
         
-        # Strip extension and write to fake targets file
-        echo "tsfile = $(basename ${vars[mdoc_file]%.mdoc})" > ${fake_targets}
-        vars[target_files]="${fake_targets}"
+        for curr_mdoc in ${mdoc_array[@]} ; do
+          # Strip extension and write to fake targets file
+          echo "tsfile = $(basename ${curr_mdoc%.mdoc})" >> ${fake_targets}
+          
+          # Copy MDOC to tmp directory
+          cp ${curr_mdoc} ${vars[outdir]}/${temp_dir}/
+        done
+        # End MDOC loop
         
-        # Copy MDOC to tmp directory
-# #         echo "cp ${vars[mdoc_file]} ${vars[outdir]}/${temp_dir}/" ; exit
-        cp ${vars[mdoc_file]} ${vars[outdir]}/${temp_dir}/
+        # Remember for later
+        vars[target_files]="${fake_targets}"
       fi
     else
       if [[ "${num_targets}" -eq 0 ]]; then
@@ -1539,6 +1717,7 @@ function check_frames() {
 #     first_local
 #     fn
 #     warn_log
+#     temp_local_dir
 #     min_frames
 #     max_frames
 #     do_cp_note (PACE only)
@@ -1550,7 +1729,7 @@ function check_frames() {
   # Get number of frames
   if [[ "${vars[testing]}" == false ]]; then
     # Optionally copy EERs locally 
-    if [[ "${vars[eer_local]}" != "false" ]] ; then
+    if [[ "${vars[eer_local]}" == true ]] ; then
       copy_local "=${outlog}"
     fi
     # End local-copy IF-THEN
@@ -1572,25 +1751,28 @@ function check_frames() {
       
       # Check read time
       if (( $( echo "${hdr_time} > ${vars[eer_latency]}" | bc -l ) )) && [[ "${vars[eer_local]}" == "false" ]] ; then
-        if [[ "${do_pace}" == false ]]; then
-          vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} ${warn_log}"
-          mkdir "${vars[outdir]}/${temp_dir}" 2> /dev/null
+        vprint "WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} =${warn_log}"
+        
+        if [[ "$verbose" -ge 1 ]]; then
+          mkdir -p "${vars[temp_local]}" 2> /dev/null
+          mkdir -pv "${temp_local_dir}" 2> /dev/null
+        else
+          mkdir -p "${temp_local_dir}" 2> /dev/null
+        fi
           
+        if [[ "${do_pace}" == false ]]; then
           # Start copying locally
+# #           vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} =${warn_log}"
           vars[eer_local]="true"
           copy_local "${outlog}"
         else
-          # A parallel process may have done these steps already
-          if ! [[ -e "${mc2_tempfile}" ]]; then
-            # Parallel process may have created temp file already
-            if [[ -f "${vars[outdir]}/${temp_dir}/${do_cp_note}" ]]; then
-              vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} ${warn_log}"
-            fi
-            
-            touch "${vars[outdir]}/${temp_dir}/${do_cp_note}"
-            vars[eer_local]="true"
-            copy_local "${outlog}"
+          # Parallel process may have created temp file already
+          if ! [[ -f "${temp_local_dir}/${do_cp_note}" ]]; then
+            touch "${temp_local_dir}/${do_cp_note}"
           fi
+          
+          vars[eer_local]="true"
+          copy_local "=${outlog}"
         fi
         # End PACE IF-THEN
   #       
@@ -1628,6 +1810,7 @@ function check_frames() {
   #   
   #   Global variables:
   #     fn
+  #     temp_local_dir
   #     vars
   #     temp_dir
   #   
@@ -1635,11 +1818,13 @@ function check_frames() {
     
     local outlog=$1
     
-    local cp_time=$( TIMEFORMAT="%R" ; { time cp "$fn" "${vars[outdir]}/${temp_dir}" ; } 2>&1 )
-    vprint "    Copied '$fn'  \tto: ${vars[outdir]}/${temp_dir} (in ${cp_time} sec)" "0+" "${outlog}"
+#     local cp_time=$( TIMEFORMAT="%R" ; { time cp "$fn" "${vars[outdir]}/${temp_dir}" ; } 2>&1 )
+#     vprint "    Copied '$fn'  \tto: ${vars[outdir]}/${temp_dir} (in ${cp_time} sec)" "0+" "${outlog}"
+    local cp_time=$( TIMEFORMAT="%R" ; { time cp "$fn" "${temp_local_dir}/" ; } 2>&1 )
+    vprint "    Copied '$fn'  \tto: ${temp_local_dir} (in ${cp_time} sec)" "0+" "${outlog}"
     
     # Update EER name
-    fn="${vars[outdir]}/${temp_dir}/$(basename $fn)"
+    fn="${temp_local_dir}/$(basename $fn)"
   }
 
 function check_freegpus() {

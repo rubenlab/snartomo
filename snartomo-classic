@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2023-03-20"
+  echo "Modified 2023-03-23"
   date
   echo 
 }
@@ -143,6 +143,7 @@ imgdir=Images                                     # Image directory
 thumbdir=Thumbnails                               # Central sections of tomograms
 temp_dir=tmp                                      # Temporary files
 dir2denoise=TmpDenoised                           # Denoised micrographs will go here
+# # temp_local_note=MAX_RUNLENGTH.txt                 # Note in temporary local directory
 
 ################ END BATCH HEADER ################
 
@@ -181,6 +182,7 @@ main
         ctffind4_serial
         check_time
     summary_info
+      shared.clean_local_dir
 '
 
 function main() {
@@ -332,6 +334,7 @@ function parse_command_line() {
   add_argument "search_interval" "${search_interval}" "Interval to check for new micrographs, seconds" "INT"
   add_argument "min_frames" "${min_frames}" "Minimum number of frames (EERs only) before warning" "INT"
   add_argument "max_frames" "${max_frames}" "Maximum number of frames (EERs only) before warning" "INT"
+  add_argument "temp_local" "${SNARTOMO_LOCAL}" "Directory to copy EER files locally" "ANY"
   add_argument "eer_local" "${CP_EER_LOCAL}" "Flag to temporarily copy EER files locally" "BOOL"
   add_argument "eer_latency" "${eer_latency}" "Maximum header read time before micrograph is copied locally" "FLOAT"
   add_argument "debug" "false" "Flag for debugging" "BOOL"
@@ -1146,6 +1149,9 @@ function summary_info() {
 #   
 ###############################################################################
   
+  # Remove temp directory if copying EERs locally
+  clean_local_dir
+  
   if [[ "$verbose" -ge 1 ]]; then
     vprint "" "2="
     echo "Found $tomo_counter tilt series in total"
@@ -1163,8 +1169,6 @@ function summary_info() {
       echo ""
     fi
   fi
-  
-  # TODO: Remove temp directory if copying EERs locally
 }
 
 function DUMMY_FUNCTION() {
