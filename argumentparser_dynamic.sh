@@ -228,6 +228,8 @@ function dynamic_parser(){
             unset vars["ARGUMENTS"]
             unset var_sequence[${argument_idx}]
         fi
+        
+        usage+="\n"
     }
 
     function format_options() {
