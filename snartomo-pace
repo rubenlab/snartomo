@@ -374,7 +374,7 @@ function parse_command_line() {
 #   
 ###############################################################################
   
-  add_section "SERIAL SETTINGS" "Either an MDOC file or one or more target files are required."
+  add_section "SERIALEM SETTINGS" "Either an MDOC file or one or more target files are required."
   add_argument "target_files" "" "PACE target files (more than one -> must be enclosed in quotes)" "ANY"
   add_argument "mdoc_files" "" "Tilt-series MDOC files (more than one -> must be enclosed in quotes)" "ANY"
   
