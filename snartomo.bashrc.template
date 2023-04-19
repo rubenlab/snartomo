@@ -14,7 +14,7 @@ export TOPAZ_ENV=""                            # TOPAZ conda environment
 export IMOD_BIN=""                             # IMOD executable directory
 export ARETOMO_EXE=""                          # AreTomo executable
 export CP_EER_LOCAL="false"                    # Copy EER file temporarily to local drive (useful for Falcon 4i data)
-export SNARTOMO_LOCAL="/tmp/SNARTomo/${USER}"  # Local directory for temporary EERs
+export SNARTOMO_LOCAL="/tmp/SNARTomo-${USER}"  # Local directory for temporary EERs
 
 ##### YOU SHOULDN'T NEED TO MODIFY ANYTHING BELOW THIS LINE #####
 
