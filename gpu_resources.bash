@@ -5,10 +5,10 @@
 #   2022-04-28 (trs) -- can monitor over time, as text or in Gnuplot
 ###############################################################################
 
-if ! [ -x "$(which nvidia-smi)" ]; then
-  echo "ERROR!! nvidia-smi not found!"
-  return
-fi
+# if ! [ -x "$(which nvidia-smi)" ]; then
+#   echo "ERROR!! nvidia-smi not found!"
+#   return
+# fi
 
 function gpu_resources() {
 ###############################################################################
@@ -297,15 +297,16 @@ function ram_plot() {
 #     3) List of columns to print. Options are:
 #           total
 #           used
-#           free (DEFAULT)
+#           free
 #           shared
 #           buff/cache
-#           available
+#           available (DEFAULT)
 #     4) Log file (optional, default: output to screen)
 #     5) Plot file (optional)
 #     6) Termination file (optional) : will exit when file is detected
 #     
 #   Adapted from gpu_chart()
+#   
 ###############################################################################
  
   local DEFAULT_DELAY=2  # units: seconds
@@ -328,7 +329,7 @@ function ram_plot() {
   
   local col_list=$3
   if [[ "${col_list}" == "" ]]; then
-    local col_list="free"
+    local col_list="available"
   fi
   
   if [[ "$4" != "" ]]; then
@@ -389,19 +390,32 @@ function ram_plot() {
     fi
   fi
 
-  while (( $(echo "$SECONDS < $max_seconds" | bc) )) ; do
+  # Start time now
+  local start_time=$SECONDS
+#   local curr_time=$(( $SECONDS - $start_time ))
+#   echo "392 max_seconds $max_seconds, start_time $start_time, curr_time $curr_time"
+  while (( $(echo "$(( $SECONDS - $start_time )) < $max_seconds" | bc) )) ; do
     local timept_line=$(date +"${TIMEFMT}")
     
-    while read -r mem_line ; do
-      curr_col=$(echo "${mem_line}" | cut -d "=" -f 1)
+    readarray -t ram_array < <(ram_resources)
+# #     echo "400 ram_array"
+# #     printf '%s\n' "${ram_array[@]}"
+    
+    # curr_col is structured: curr_tag=value
+    for curr_col in "${ram_array[@]}" ; do
+      local curr_tag=$(echo $curr_col | cut -d "=" -f 1 )
+# #       echo "405 curr_col '$curr_col', curr_tag '$curr_tag'"
       
-      # Search input list for string
-      if [[ "${col_list}" =~ .*"${curr_col}".* ]]; then
-#         echo "${mem_line}" | cut -d "=" -f 2
-        value=$(echo "${mem_line}" | cut -d "=" -f 2)
+      if [[ "${col_list}" =~ .*"${curr_tag}".* ]]; then
+        value=$(echo "${curr_col}" | cut -d "=" -f 2)
+# #         echo 409 value $value
         timept_line+="\t$value"
+#       
+#       # TESTING
+#       else
+#         echo "412 curr_col '$curr_col', col_list '${col_list}'"
       fi
-    done <<< $(ram_resources)
+    done
     
     if [[ "${DO_ECHO}" == false ]] ; then
       echo -e "$timept_line" >> "${logfile}"
@@ -693,7 +707,7 @@ function temperature_plot() {
 # Check whether script is being sourced or executed (https://stackoverflow.com/a/2684300/3361621)
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 #   echo "script ${BASH_SOURCE[0]} is being executed..."
-   temperature_plot "$@"
+   ram_plot "$@"
 # else
 #   echo "script ${BASH_SOURCE[0]} is being sourced..."
 fi
