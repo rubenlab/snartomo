@@ -44,10 +44,10 @@ function check_testing() {
   
   if [[ "${vars[testing]}" == "true" ]]; then
     echo -e "TESTING...\n"
+    vars[outdir]="${vars[outdir]}/0-Testing"
     
     # Weird output if MOTIONCOR2_EXE undefined
     if [ -z "$MOTIONCOR2_EXE" ] ; then
-# #       echo "50 MOTIONCOR2_EXE undefined" ; exit
       vars[motioncor_exe]="MotionCor2"
       
       echo "WARNING! Environmental variable 'MOTIONCOR2_EXE' undefined"
@@ -75,14 +75,14 @@ function check_testing() {
     
     # Serial mode will be when testing is true and slow is false
     if [[ "${vars[testing]}" == true ]] ; then
-      vars[outdir]="${vars[outdir]}/0-Testing"
-      
+#       vars[outdir]="${vars[outdir]}/0-Testing"
+#       
       if [[ "${vars[slow]}" == false ]] ; then
         do_parallel=false
       fi
-    else
-      # Read GPU list as array
-      IFS=' ' read -r -a gpu_list <<< "${vars[gpus]}"
+#     else
+#       # Read GPU list as array
+#       IFS=' ' read -r -a gpu_list <<< "${vars[gpus]}"
     fi
     # End parallel IF-THEN
   fi
@@ -200,14 +200,16 @@ function create_directories() {
     local num_moved_movies=$(ls ${movie_template} 2> /dev/null | wc -w )
     
     if [[ "${num_moved_movies}" -eq 0 ]]; then
-      echo "WARNING! There are no already-moved movies in output directory '${vars[outdir]}/${rawdir}/'"
-      echo "  Flag '--restore_movies' was not needed"
-      echo "  Continuing..."
-      echo
+      if [[ "$verbose" -ge 1 ]]; then
+        echo "WARNING! There are no already-moved movies in output directory '${vars[outdir]}/${rawdir}/'"
+        echo "  Flag '--restore_movies' was not needed"
+        echo "  Continuing..."
+        echo
+      fi
     else
       local move_cmd="mv ${movie_template} ${vars[movie_dir]}/"
       
-      if [[ "$verbose" -ne 0 ]]; then
+      if [[ "$verbose" -ge 1 ]]; then
         echo -e "${move_cmd}\n"
       fi
       
@@ -249,10 +251,26 @@ function create_directories() {
     
     if [[ -d "${vars[outdir]}" ]]; then
       if [[ "$verbose" -ge 1 ]]; then
-        echo -e "Removing directory '${vars[outdir]}/'"
+        echo -e "Removing directory '${vars[outdir]}/'..."
       fi
-    
-      rm -r "${vars[outdir]}" 2> /dev/null
+      
+      rm -rf "${vars[outdir]}" 2> /dev/null
+      local rm_status=$?
+      
+      if [[ "${rm_status}" -ne 0 ]]; then
+          echo "ERROR!! Can't delete '${vars[outdir]}'!"
+          
+        # Check owner
+        dir_owner=$(stat -c '%U' "${vars[outdir]}")
+        
+        if [[ "${dir_owner}" != "$(whoami)" ]]; then
+          echo "  Owner of '${vars[outdir]}' is '${dir_owner}'!"
+          echo "  Use a different directory, or ask them to change the permissions!"
+          echo "  Exiting..."
+          echo
+          exit
+        fi
+      fi
     fi
     # End outdir-exists IF-THEN
   fi
@@ -265,23 +283,23 @@ function create_directories() {
   fi
   
   # Even in testing mode, writing the IMOD and angles text files (maybe don't need)
-  mkdir "${vars[outdir]}/${recdir}" "${vars[outdir]}/${imgdir}" 2> /dev/null
+  mkdir -p "${vars[outdir]}/${recdir}" "${vars[outdir]}/${imgdir}/${dose_imgdir}" 2> /dev/null
   
   # If not testing
   if [[ "${vars[testing]}" == false ]]; then
     mkdir "${vars[outdir]}/${denoisedir}" "${vars[outdir]}/${imgdir}/${thumbdir}" "${vars[outdir]}/$ctfdir" 2> /dev/null
   fi
   
+  if [[ "${vars[do_ruotnocon]}" == true ]] && [[ "${vars[testing]}" == false ]] ; then
+    mkdir "${vars[outdir]}/${imgdir}/${contour_imgdir}" 2> /dev/null
+  fi
+    
   # PACE-specific options
   if [[ "${do_pace}" == true ]]; then
     # The temp directory has some files which may befuddle later runs
     rm -r "${vars[outdir]}/${temp_dir}" 2> /dev/null
     
-    mkdir "${vars[outdir]}/${log_dir}" "${vars[outdir]}/${temp_dir}" "${vars[outdir]}/${micdir}" "${vars[outdir]}/${imgdir}/${dose_imgdir}" "${vars[outdir]}/${imgdir}/${contour_imgdir}" 2> /dev/null
-    
-    if [[ "${vars[do_ruotnocon]}" == true ]]; then
-      mkdir "${vars[outdir]}/${imgdir}/${contour_imgdir}" 2> /dev/null
-    fi
+    mkdir "${vars[outdir]}/${log_dir}" "${vars[outdir]}/${temp_dir}" "${vars[outdir]}/${micdir}" 2> /dev/null
     
     if [[ "${vars[testing]}" == true ]]; then
       mkdir "${vars[outdir]}/$ctfdir" 2> /dev/null
@@ -292,20 +310,19 @@ function create_directories() {
     if [[ "${vars[testing]}" == false ]]; then
       mkdir "${vars[outdir]}/$rawdir"  
     fi
-    
-#     if [[ "${vars[eer_local]}" == "true" ]] ; then
-#       mkdir "${vars[outdir]}/${temp_dir}" 2> /dev/null
-#     fi
   fi
   # End PACE IF-THEN
     
   # If SNARTOMO_LOCAL was empty, then try a default
   if [[ -z "${vars[temp_local]}" ]] ; then
-    vars[temp_local]="/tmp/SNARTOMO/$USER"
+    vars[temp_local]="/tmp/SNARTomo-$USER"
   fi
   
   # In case we need to copy EERs locally, remember the PID ($$)
   temp_local_dir="${vars[temp_local]}/$$"
+  
+# #   echo "308 temp_local '${vars[temp_local]}/$$', temp_local_dir '$temp_local_dir', whoami '$(whoami)'" ; exit  ### TESTING
+  
   if [[ "${vars[eer_local]}" == "true" ]] ; then
     if [[ "$verbose" -ge 1 ]]; then
       mkdir -pv "${temp_local_dir}" 2> /dev/null
@@ -323,73 +340,6 @@ function create_directories() {
   fi
 }
 
-# function check_local_dir() {
-# ###############################################################################
-# #   Function:
-# #     Create local directory
-# #   
-# #   Calls functions:
-# #     vprint
-# #   
-# #   Global variables:
-# #     vars
-# #     temp_local_dir
-# #     temp_local_note
-# #     verbose
-# #   
-# ###############################################################################
-#   
-#   # This condition shouldn't happen, but better to be safe before delecting directories
-#   if [[ -z "${vars[temp_local]}" ]] ; then
-#     echo "ERROR!! Parameter '--temp_local' should be non-empty"
-#     exit
-#   fi
-#   
-#   # Delete old subdirectories unless they are recent
-#   mapfile -t dir_array < <(find ${vars[temp_local]} -mindepth 1 -type d 2> /dev/null)
-#   
-#   for curr_dir in ${dir_array[@]} ; do 
-#     local do_keep=false  # default
-#     local run_length_file="$curr_dir/$temp_local_note"
-#     
-#     # Check if run-length file exists
-#     if [[ -e "$run_length_file" ]]; then
-#       local run_length=$(cat $run_length_file)
-#       local half_elapsed=$( echo $((($(date +%s) - $(date +%s -r $curr_dir)) / 120)) )
-# #       echo "338 curr_dir '$curr_dir', run_length '$run_length', half_elapsed '$half_elapsed'"
-#       
-#       # If, say, half the age is less than the run length, then keep the directory
-#       if [[ $half_elapsed -le $run_length ]] ; then
-#         do_keep=true
-#         vprint "keeping local directory: '$curr_dir'" "1+"
-#       fi
-#     fi
-#     # End run-length IF-THEN
-#   
-#     # Default behavior is to delete the directory
-#     if [[ $do_keep == false ]] ; then
-# # #       echo "353 Deleting: $curr_dir"
-#       if [[ "$verbose" -ge 1 ]]; then
-#         rm -rv $curr_dir 2> /dev/null
-#       else
-#         rm -r $curr_dir 2> /dev/null
-#       fi
-#     fi
-#   done
-#   
-# #   if [[ "${vars[testing]}" == false ]]; then
-#   if [[ "$verbose" -ge 1 ]]; then
-#     mkdir -pv "${temp_local_dir}" 2> /dev/null
-#   else
-#     mkdir -p "${temp_local_dir}" 2> /dev/null
-#   fi
-#   
-#   # Write maximum run time to temporary file
-# #   if [[ "${vars[testing]}" == false ]]; then
-#     echo "${vars[max_minutes]}" > "${temp_local_dir}/${temp_local_note}"
-# #   fi
-# }
-
 function clean_local_dir() {
 ###############################################################################
 #   Function:
@@ -402,17 +352,14 @@ function clean_local_dir() {
 #     vprint
 #   
 #   Global variables:
-#     temp_local_dir
-# #     temp_local_note
+#     vars
 #     warn_log
 #   
 ###############################################################################
   
   local outlog=$1
   
-#   if [[ "${vars[eer_local]}" == "true" ]] ; then
-#   fi
-#   # End local-EER IF-THEN
+  vprint "" "1+" "${outlog}"
   
   # This condition shouldn't happen, but better to be safe before delecting directories
   if [[ -z "${vars[temp_local]}" ]] ; then
@@ -422,48 +369,18 @@ function clean_local_dir() {
     mapfile -t dir_array < <(find ${vars[temp_local]} -mindepth 1 -type d 2> /dev/null)
     
     for curr_dir in ${dir_array[@]} ; do 
-#       # Delete run-length file
-#       rm "$curr_dir/$temp_local_note" 2> /dev/null
-#       
       # Make sure directory is empty
       if [ "$(ls -A ${curr_dir})" ]; then 
         vprint "WARNING! ${curr_dir} not empty" "0+" "${outlog} =${warn_log}"
       
       else
-        if [[ "$verbose" -ge 1 ]]; then
+        if [[ "$verbose" -ge 1 ]] && [[ vars[eer_local]="true" ]] ; then
           rmdir -v "${curr_dir}" 2> /dev/null
         else
           rmdir "${curr_dir}" 2> /dev/null
         fi
       fi
       # End non-empty IF-THEN
-      
-#       local do_keep=false  # default
-#       local run_length_file="$curr_dir/$temp_local_note"
-#       
-#       # Check if run-length file exists
-#       if [[ -e "$run_length_file" ]]; then
-#         local run_length=$(cat $run_length_file)
-#         local half_elapsed=$( echo $((($(date +%s) - $(date +%s -r $curr_dir)) / 120)) )
-#   #       echo "338 curr_dir '$curr_dir', run_length '$run_length', half_elapsed '$half_elapsed'"
-#         
-#         # If, say, half the age is less than the run length, then keep the directory
-#         if [[ $half_elapsed -le $run_length ]] ; then
-#           do_keep=true
-#           vprint "keeping local directory: '$curr_dir'" "1+"
-#         fi
-#       fi
-#       # End run-length IF-THEN
-#     
-#       # Default behavior is to delete the directory
-#       if [[ $do_keep == false ]] ; then
-#   # #       echo "353 Deleting: $curr_dir"
-#         if [[ "$verbose" -ge 1 ]]; then
-#           rm -rv $curr_dir 2> /dev/null
-#         else
-#           rm -r $curr_dir 2> /dev/null
-#         fi
-#       fi
     done
   fi
   # End empty-temp_local IF-THEN
@@ -643,7 +560,6 @@ function validate_inputs() {
 #     init_conda (OUTPUT)
 #     vars
 #     do_pace
-#     temp_local_dir
 #     do_cp_note (PACE only)
 #     imod_descr
 #     movie_ext
@@ -675,7 +591,7 @@ function validate_inputs() {
   
     # Local copying is noted in paralleized process, so need to write a file.
     if [[ "${vars[eer_local]}" == "true" ]] && [[ "${do_pace}" == true ]] ; then
-      touch "${temp_local_dir}/${do_cp_note}"
+      touch "${do_cp_note}"
     fi
   fi
   # End PACE IF-THEN
@@ -712,6 +628,7 @@ function validate_inputs() {
   
   ctffind_descr="CTFFIND executables directory"
   check_dir "${vars[ctffind_dir]}" "${ctffind_descr}" "${outlog}"
+  check_exe "$(which pdftoppm)" "PDF converter" "${outlog}"
   
   # Can't use JANNI and Topaz simultaenously
   if [[ "${vars[do_janni]}" == true ]] && [[ "${vars[do_topaz]}" == true ]]; then
@@ -747,14 +664,14 @@ function validate_inputs() {
   if [[ ! -z "${vars[batch_directive]}" ]]; then
     vprint "  Computing reconstruction using IMOD" "1+" "${outlog}"
     check_file "${vars[batch_directive]}" "IMOD batch directive" "${outlog}"
-    update_adoc "${outlog}"
+# #     update_adoc "${outlog}"
   else
     vprint "  Computing reconstruction using AreTomo" "1+" "${outlog}"
     check_exe "${vars[aretomo_exe]}" "AreTomo executable" "${outlog}"
   fi
   
   if [[ "${vars[do_ruotnocon]}" == true ]]; then
-    if [[ ! -z "${vars[batch_directive]}" ]]; then
+    if [[ -z "${vars[batch_directive]}" ]]; then
       validated=false
       vprint "  ERROR!! Can only remove contours if running eTomo!" "0+" "${outlog}"
     else
@@ -762,7 +679,7 @@ function validate_inputs() {
     fi
   fi
   
-  if [[ "${do_pace}" != true ]] || [[ "${vars[do_ruotnocon]}" == true ]] ; then
+  if [[ "${do_pace}" == false ]] || [[ "${vars[do_ruotnocon]}" == true ]] ; then
     check_python "${outlog}"
   fi
   
@@ -777,89 +694,48 @@ function validate_inputs() {
   fi
 }
 
- function update_adoc() {
-  ###############################################################################
-  #   Function:
-  #     Updates batch directive to include correct pixel size
-  #   
-  #   Positional variables:
-  #     log file
-  #   
-  #   Calls functions:
-  #     vprint
-  #   
-  #   Global variables:
-  #     vars
-  #   
-  ###############################################################################
-    
-    local outlog=$1
-    
-    if ! [[ -f "${vars[batch_directive]}" ]] ; then
-      return
-    fi
-    
-    # Copy batch directive to output directory
-    cp "${vars[batch_directive]}" "${vars[outdir]}"
-    
-    # Use copy from now on
-    local new_adoc="${vars[outdir]}/$(basename ${vars[batch_directive]})"
-    vars[batch_directive]="${new_adoc}"
-    
-    # Check if setupset.copyarg.pixel is present
-    local search_term="setupset.copyarg.pixel"
-    local pxsz_nm=$( printf "%.4f" $(bc <<< "scale=4; ${vars[apix]}/10") )
-    local new_line="${search_term}=${pxsz_nm}"
-    
-    if grep -q ${search_term} "$new_adoc" ; then
-      local old_line=$(grep ${search_term} ${new_adoc})  # | sed 's/\r//')
-      sed -i "s/.*$old_line.*/$new_line/" $new_adoc 2> /dev/null
-      # Double quotes are required here for some reason.
-      # (Wild card ".*" replaces whole line)
-      
-      vprint "    Updated pixel size $pxsz_nm nm (${vars[apix]} A) in ADOC file '$new_adoc'" "1+"
-      
-    else
-      local dual_term="setupset.copyarg.dual"
-      
-      # Check if copyarg.dual is in this ADOC
-      if grep -q "$dual_term" "$new_adoc" ; then
-        # Get line number and add 1
-        local line_num=$(echo $(sed -n "/$dual_term/=" $new_adoc) + 1 | bc)
-        sed -i "${line_num} i ${new_line}" $new_adoc 2> /dev/null
-      else
-        # Add it at line 5
-        sed -i "5 i ${new_line}" $new_adoc 2> /dev/null
-      fi
-      # End dual-found IF-THEN
-    
-      vprint "    Added pixel size $pxsz_nm nm (${vars[apix]} A) in ADOC file '$new_adoc'" "1+"
-    fi
-    # End pixel-found IF-THEN
-  }
-
   function read_mdoc() {
   ###############################################################################
   #   Function:
-  #     Gets information from MDOC file (Classic only)
-  #     Currently only gets pixel size
+  #     Gets information from MDOC file
+  #     SNARTomoClassic only
   #   
   #   Calls functions:
+  #     vprint
   #     check_apix_classic
   #     check_range
-  #     vprint
   #   
   #   Global variables:
   #     vars
   #     verbose (by vprint)
+  #     validated
+  #     
   ###############################################################################
     
     local outlog=$1
 
+    if [[ "${vars[mdoc_dir]}" != "" ]] ; then
+      # If mdoc_dir is specified, make sure that it's in mdoc_dir
+      if [[ "${vars[mdoc_files]}" != "" ]] ; then
+        if ! [ -e "${vars[mdoc_dir]}/${vars[mdoc_files]}" ] ; then
+          vprint "\nERROR!! MDOC file '${vars[mdoc_files]}' expected to be in '${vars[mdoc_dir]}'!" "0+" "${outlog}"
+          validated=false
+        else
+          vprint "  WARNING! Flags '--mdoc_dir' and '--mdoc_file' are redundant" "2+" "${outlog}"
+        fi
+      else
+        # Get first MDOC
+        local mdoc_files=(${vars[mdoc_dir]}/*.mdoc)
+        vars[mdoc_files]="${mdoc_files[0]}"
+      fi
+      # End MDOC-exists IF-THEN
+    fi
+    # End MDOC-directory IF-THEN
+    
     # Check if MDOC exists
-    if [[ -f "${vars[mdoc_file]}" ]]; then
-      vprint "  Found MDOC file: ${vars[mdoc_file]}" "1+" "${outlog}"
-      check_apix_classic "${vars[mdoc_file]}" "${outlog}"
+    if [[ -f "${vars[mdoc_files]}" ]]; then
+      vprint "  Found MDOC file: ${vars[mdoc_files]}" "1+" "${outlog}"
+      check_apix_classic "${vars[mdoc_files]}" "${outlog}"
       check_range "defocus values" "${vars[df_lo]}" "${vars[df_hi]}" "${outlog}"
       vprint "" "7+" "${outlog}"
       check_range "frame numbers" "${vars[min_frames]}" "${vars[max_frames]}" "${outlog}"
@@ -869,8 +745,8 @@ function validate_inputs() {
     # Floating-point comparison from https://stackoverflow.com/a/31087503/3361621
     if (( $(echo "${vars[apix]} < 0.0" |bc -l) )); then
       vprint "\nERROR!! Pixel size ${vars[apix]} is negative!" "0+" "${outlog}"
-      vprint "  Either provide pixel size (--apix) or provide MDOC file (--mdoc_file)" "0+" "${outlog}"
-      vprint "  Exiting...\n" "0+" "${outlog}"
+      vprint   "  Either provide pixel size (--apix) or provide MDOC file (--mdoc_file)" "0+" "${outlog}"
+      vprint   "  Exiting...\n" "0+" "${outlog}"
       exit 3
     else
       vprint "  Pixel size: ${vars[apix]}" "1+" "${outlog}"
@@ -907,22 +783,30 @@ function validate_inputs() {
       
       if [[ "${data_descr}" == "defocus values" ]]; then
         # Get defocus value(s)
-        local list_values=$(grep Defocus ${vars[mdoc_file]} | grep -v TargetDefocus | cut -d" " -f3)
+# #         local list_values=$(grep Defocus ${vars[mdoc_files]} | grep -v TargetDefocus | cut -d" " -f3)
+        readarray -t list_values < <(grep Defocus ${vars[mdoc_files]} | grep -v TargetDefocus | cut -d" " -f3)
       elif [[ "${data_descr}" == "frame numbers" ]]; then
-        local list_values=$(grep NumSubFrames ${vars[mdoc_file]} | cut -d" " -f3)
+# #         local list_values=$(grep NumSubFrames ${vars[mdoc_files]} | cut -d" " -f3)
+        readarray -t list_values < <(grep NumSubFrames ${vars[mdoc_files]} | grep -v TargetDefocus | cut -d" " -f3)
       else
-        echo -e "\nERROR!! Data type unknown: ${data_descr} " 
-        echo -e "  Exiting...\n"
+        vprint "\nERROR!! Data type unknown: ${data_descr} "  "0+" "${outlog}"
+        vprint "  Exiting...\n" "0+" "${outlog}"
         exit
       fi
       
       vprint "    Checking ${data_descr}..." "2+" "${outlog}"
       
+      if [[ ${#list_values[@]} -eq 0 ]] ; then
+        vprint "\nERROR!! Couldn't find '${data_descr}' in '${vars[mdoc_files]}'!"  "0+" "${outlog}"
+        vprint "  Exiting...\n" "0+" "${outlog}"
+        exit
+      fi
+      
       # Initialize counters
       local mic_counter=0
       bad_counter=0
       
-      for mic_value in $list_values ; do
+      for mic_value in "${list_values[@]}" ; do
         # Strip ^M (Adapted from https://stackoverflow.com/a/8327426/3361621)
         local mic_value=${mic_value/$'\r'/}
         
@@ -933,14 +817,14 @@ function validate_inputs() {
         elif [[ "${data_descr}" == "frame numbers" ]]; then
           local fmt_value=$(echo ${mic_value} | bc)
         else
-          echo -e "\nERROR!! Data type unknown: ${data_descr} " 
-          echo -e "  Exiting...\n"
+          vprint "\nERROR!! Data type unknown: ${data_descr}" "0+" "${outlog}"
+          vprint "  Exiting...\n" "0+" "${outlog}"
           exit
         fi
         
         let "mic_counter++"
         
-        if (( $(echo "${fmt_value} < ${limit_lo}" |bc -l) )) || (( $(echo "${fmt_value} > ${limit_hi}" |bc -l) )); then
+        if (( $(echo "${fmt_value} < ${limit_lo}" | bc -l) )) || (( $(echo "${fmt_value} > ${limit_hi}" | bc -l) )); then
             let "bad_counter++"
             vprint "      Micrograph #$mic_counter ${data_descr}: $fmt_value  (OUTSIDE OF RANGE)" "7+" "${outlog}"
         else
@@ -952,7 +836,7 @@ function validate_inputs() {
       if [[ "$bad_counter" == 0 ]]; then
         vprint "    Found $mic_counter micrographs with ${data_descr} within specified range [${limit_lo}, ${limit_hi}]" "5+" "${outlog}"
       else
-        vprint "    WARNING! Found $bad_counter out of $mic_counter ${data_descr} in ${vars[mdoc_file]} outside of range [${limit_lo}, ${limit_hi}]" "2+" "${outlog}"
+        vprint "    WARNING! Found $bad_counter out of $mic_counter ${data_descr} in ${vars[mdoc_files]} outside of range [${limit_lo}, ${limit_hi}]" "2+" "${outlog}"
       fi
     }
 
@@ -1014,11 +898,18 @@ function validate_inputs() {
       # Get first instance of pixel size
       mdoc_apix=$(grep PixelSpacing "${mdoc_file}" | cut -d" " -f3 | head -n 1)
       
+      # Sanity check
+      if [[ "${mdoc_apix}" == "" ]] ; then
+        vprint "\nERROR!! MDOC file '${mdoc_file}' doesn't contain pixel size!" "0+" "${outlog}"
+        vprint   "  Exiting...\n" "0+" "${outlog}"
+        exit 2
+      fi
+      
       # Strip ^M (Adapted from https://stackoverflow.com/a/8327426/3361621)
       mdoc_apix=${mdoc_apix/$'\r'/}
       
       # If no pixel size specified on the command line, then use MDOC's
-      if (( $(echo "${vars[apix]} < 0.0" |bc -l) )); then
+      if (( $(echo "${vars[apix]} < 0.0" | bc -l) )); then
         vars[apix]="${mdoc_apix}"
         vprint "  Pixel size: ${vars[apix]}" "2+" "${outlog}"
       
@@ -1031,7 +922,7 @@ function validate_inputs() {
           vprint "    WARNING! Pixel size specified on both command line (${vars[apix]}) and in MDOC file (${mdoc_apix}). Using former..." "2+" "${outlog}"
         else
           vprint "\nERROR!! Different pixel sizes specified on command line (${vars[apix]}) and in MDOC file (${mdoc_apix})!" "0+" "${outlog}"
-          vprint "  Exiting...\n" "0+" "${outlog}"
+          vprint   "  Exiting...\n" "0+" "${outlog}"
           exit 2
         fi
       fi
@@ -1147,7 +1038,7 @@ function validate_inputs() {
   #     fi
   #     # End denoising cases
     
-      if [[ "${exe_descr}" == "MotionCor2 executable" ]]; then
+      if [[ "${exe_descr}" == "MotionCor2 executable" ]] ; then
         # Check owner of /tmp/MotionCor2_FreeGpus.txt
         local mc2_tempfile="/tmp/MotionCor2_FreeGpus.txt"
         
@@ -1185,7 +1076,15 @@ function validate_inputs() {
   #       # (TODO: Might work with AreTomo with minimal changes)
       fi
       # End MotionCor case
+    
     else
+      if [[ "${exe_descr}" == "PDF converter" ]] ; then
+        vprint "  WARNING! ${exe_descr} not found" "1+" "${outlog}"
+        vprint "    CTFFIND 1D spectra will not be converted to images" "2+" "${outlog}"
+        vprint "    Install pdftoppm to enable this function" "2+" "${outlog}"
+        return
+      fi
+      
       if [[ "${vars[testing]}" == true ]]; then
         vprint    "  WARNING! ${exe_descr} not found. Continuing..." "1+" "${outlog}"
       else
@@ -1373,11 +1272,7 @@ function validate_inputs() {
     
     local outlog=$1
     
-    target_array=$(ls ${vars[target_files]} 2> /dev/null)
-# #     printf "'%s'\n" "${target_array[@]}"
-    local num_targets=$(echo $target_array | wc -w)
-    
-    # Single-MDOC option
+    # MDOC option
     if [[ "${vars[mdoc_files]}" != "" ]] ; then
       if [[ "${vars[target_files]}" != "" ]] ; then
         echo -e "  ERROR!! Flags '--target_files' and '--mdoc_files' cannot be used simultaneously!\n"
@@ -1403,6 +1298,10 @@ function validate_inputs() {
         vars[target_files]="${fake_targets}"
       fi
     else
+      target_array=$(ls ${vars[target_files]} 2> /dev/null)
+# #       printf "'%s'\n" "${target_array[@]}"
+      local num_targets=$(echo $target_array | wc -w)
+    
       if [[ "${num_targets}" -eq 0 ]]; then
         validated=false
         echo -e "  ERROR!! At least one target file is required!\n"
@@ -1413,7 +1312,7 @@ function validate_inputs() {
         vprint "  Found ${num_targets} targets files" "1+" "${outlog}"
       fi
     fi
-    # End single-MDOC IF-THEN
+    # End MDOC IF-THEN
   }
 
   function check_file() {
@@ -1700,6 +1599,67 @@ function check_gain_format() {
   # End no-gain IF-THEN
 }
 
+function update_adoc() {
+###############################################################################
+#   Function:
+#     Updates batch directive to include correct pixel size
+#   
+#   Positional variables:
+#     log file
+#   
+#   Calls functions:
+#     vprint
+#   
+#   Global variables:
+#     vars
+#   
+###############################################################################
+  
+  local outlog=$1
+  
+  if ! [[ -f "${vars[batch_directive]}" ]] ; then
+    return
+  fi
+  
+  # Copy batch directive to output directory
+  cp "${vars[batch_directive]}" "${vars[outdir]}"
+  
+  # Use copy from now on
+  local new_adoc="${vars[outdir]}/$(basename ${vars[batch_directive]})"
+  vars[batch_directive]="${new_adoc}"
+  
+  # Check if setupset.copyarg.pixel is present
+  local search_term="setupset.copyarg.pixel"
+  local pxsz_nm=$( printf "%.4f" $(bc <<< "scale=4; ${vars[apix]}/10") )
+  local new_line="${search_term}=${pxsz_nm}"
+  
+  if grep -q ${search_term} "$new_adoc" ; then
+    local old_line=$(grep ${search_term} ${new_adoc})  # | sed 's/\r//')
+    sed -i "s/.*$old_line.*/$new_line/" $new_adoc
+    # Double quotes are required here for some reason.
+    # (Wild card ".*" replaces whole line)
+    
+    vprint "Updated pixel size $pxsz_nm nm (${vars[apix]} A) in ADOC file '$new_adoc'\n" "1+"
+    
+  else
+    local dual_term="setupset.copyarg.dual"
+    
+    # Check if copyarg.dual is in this ADOC
+    if grep -q "$dual_term" "$new_adoc" ; then
+      # Get line number and add 1
+      local line_num=$(echo $(sed -n "/$dual_term/=" $new_adoc) + 1 | bc)
+      sed -i "${line_num} i ${new_line}" $new_adoc
+    else
+      # Add it at line 5
+      sed -i "5 i ${new_line}" $new_adoc
+    fi
+    # End dual-found IF-THEN
+  
+    vprint "Added pixel size $pxsz_nm nm (${vars[apix]} A) in ADOC file '$new_adoc'\n" "1+"
+  fi
+  # End pixel-found IF-THEN
+}
+
 function check_frames() {
 ###############################################################################
 #   Function:
@@ -1718,9 +1678,9 @@ function check_frames() {
 #     fn
 #     warn_log
 #     temp_local_dir
+#     do_cp_note (PACE only)
 #     min_frames
 #     max_frames
-#     do_cp_note (PACE only)
 #     
 ###############################################################################
   
@@ -1730,7 +1690,7 @@ function check_frames() {
   if [[ "${vars[testing]}" == false ]]; then
     # Optionally copy EERs locally 
     if [[ "${vars[eer_local]}" == true ]] ; then
-      copy_local "=${outlog}"
+      copy_local "${outlog}"
     fi
     # End local-copy IF-THEN
       
@@ -1750,42 +1710,34 @@ function check_frames() {
       vprint "    Micrograph $fn  \tnumber of frames: $num_sections (read in ${hdr_time} sec)\n" "1+" "=${outlog}"
       
       # Check read time
-      if (( $( echo "${hdr_time} > ${vars[eer_latency]}" | bc -l ) )) && [[ "${vars[eer_local]}" == "false" ]] ; then
-        vprint "WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} =${warn_log}"
-        
-        if [[ "$verbose" -ge 1 ]]; then
-          mkdir -p "${vars[temp_local]}" 2> /dev/null
-          mkdir -pv "${temp_local_dir}" 2> /dev/null
-        else
-          mkdir -p "${temp_local_dir}" 2> /dev/null
-        fi
-          
+      if (( $( echo "${hdr_time} > ${vars[eer_latency]}" | bc -l ) )) && [[ "${vars[eer_local]}" != "true" ]] ; then
         if [[ "${do_pace}" == false ]]; then
+          vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} =${warn_log}"
+          mkdir -pv "${temp_local_dir}"
+          
           # Start copying locally
-# #           vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} =${warn_log}"
           vars[eer_local]="true"
           copy_local "${outlog}"
         else
           # Parallel process may have created temp file already
-          if ! [[ -f "${temp_local_dir}/${do_cp_note}" ]]; then
-            touch "${temp_local_dir}/${do_cp_note}"
+          if ! [[ -f "${do_cp_note}" ]]; then
+            vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} =${warn_log}"
+            mkdir -pv "${temp_local_dir}" 2>&1 | tee -a "${outlog}"
+            touch "${do_cp_note}"
           fi
           
+# #             echo "1707 temp_local '${vars[temp_local]}/$$', temp_local_dir '$temp_local_dir', whoami '$(whoami)'"
           vars[eer_local]="true"
-          copy_local "=${outlog}"
+          copy_local "${outlog}"
         fi
         # End PACE IF-THEN
-  #       
-  #     else
-  #       vprint "   num_sections $num_sections, hdr_time ${hdr_time}, eer_latency ${vars[eer_latency]}, eer_local ${vars[eer_local]}\n" "0+" "${outlog}"
+#         
+#       # TESTING
+#       else
+#         vprint "   1728 fn $fn, hdr_time ${hdr_time}, eer_latency ${vars[eer_latency]}, eer_local '${vars[eer_local]}'\n" "0+" "${outlog}"
       fi
+      # End read-time IF-THEN
       
-  #     ### TESTING
-  #     echo "1593 fn: '$fn'"
-  #     echo "1593 hdr_status '$hdr_status'"
-  #     echo "1593 num_sections '$num_sections', min_frames '${vars[min_frames]}', max_frames '${vars[max_frames]}'" 
-  #     exit 
-  #     
       # Check if within range
       if [[ "$num_sections" -lt "${vars[min_frames]}" ]] || [[ "$num_sections" -gt "${vars[max_frames]}" ]] ; then
         vprint "    WARNING! Micrograph $fn: number of frames ($num_sections) outside of range (${vars[min_frames]} to ${vars[max_frames]})\n" "0+" "${outlog} =${warn_log}"
@@ -1813,18 +1765,25 @@ function check_frames() {
   #     temp_local_dir
   #     vars
   #     temp_dir
+  #     warn_log
   #   
   ###############################################################################
     
     local outlog=$1
     
-#     local cp_time=$( TIMEFORMAT="%R" ; { time cp "$fn" "${vars[outdir]}/${temp_dir}" ; } 2>&1 )
-#     vprint "    Copied '$fn'  \tto: ${vars[outdir]}/${temp_dir} (in ${cp_time} sec)" "0+" "${outlog}"
     local cp_time=$( TIMEFORMAT="%R" ; { time cp "$fn" "${temp_local_dir}/" ; } 2>&1 )
-    vprint "    Copied '$fn'  \tto: ${temp_local_dir} (in ${cp_time} sec)" "0+" "${outlog}"
     
-    # Update EER name
-    fn="${temp_local_dir}/$(basename $fn)"
+    # Sanity check
+    if [[ -e "${temp_local_dir}/$(basename $fn)" ]]; then
+# #       vprint "    Copied '$fn'  \tto: ${temp_local_dir} (in ${cp_time} sec)" "0+" "${outlog}"
+      
+      # Update EER name
+      fn="${temp_local_dir}/$(basename $fn)"
+      vprint "    Copied to '$fn' (in ${cp_time} sec)" "0+" "=${outlog}"
+    else
+      vprint "WARNING! Couldn't copy '$fn' to ${temp_local_dir}. Continuing..." "0+" "${outlog} =${warn_log}"
+      vprint "  temp_local_dir '$temp_local_dir'\n" "0+" "${outlog}"
+    fi
   }
 
 function check_freegpus() {
@@ -1870,7 +1829,7 @@ function check_freegpus() {
           # If file disappears, then exit loop
           if ! [[ -e "${mc2_tempfile}" ]] ; then
             local wait_time=$(( $SECONDS - $start_time ))
-            vprint "  Waited ${wait_time} seconds for '${mc2_tempfile}' to be released by ${tempfile_owner}" "1+" "${outlog}"
+            vprint "  Waited ${wait_time} seconds for '${mc2_tempfile}' to be released by ${last_owner}" "1+" "${outlog}"
             
             break
           
@@ -1883,14 +1842,14 @@ function check_freegpus() {
           
           # Else keep waiting until time limit reached
           else
-            continue
+            local last_owner=$tempfile_owner
           fi
         done
         # End WHILE loop
         
         # Print warning if time limit reached
-        if (( $( echo "$(( $SECONDS - $start_time )) < ${vars[mc2_wait]}" | bc -l ) )) && [[ "${tempfile_owner}" != "$(whoami)" ]] ; then
-            vprint "  WARNING! ${mc2_tempfile} owned by ${tempfile_owner} and not you" "1+" "${outlog}"
+        if (( $( echo "$(( $SECONDS - $start_time )) > ${vars[mc2_wait]}" | bc -l ) )) && [[ "${tempfile_owner}" != "$(whoami)" ]] ; then
+            vprint "  WARNING! ${mc2_tempfile} owned by '${last_owner}' and not you" "1+" "${outlog}"
             vprint "    Continuing...\n" "1+" "${outlog}"
         fi
       fi
@@ -1986,6 +1945,7 @@ function remove_local() {
 #   
 #   Positional variables:
 #     1) filename
+#     2) verbosity (boolean)
 #   
 #   Global variables:
 #     vars
@@ -1994,11 +1954,216 @@ function remove_local() {
 ###############################################################################
   
   local fn=$1
+  local do_verbose=$2
   
   # Make sure it's in the temp directory and not the original
   if [[ "${vars[eer_local]}" == "true" ]] ; then
-    \rm "${vars[outdir]}/${temp_dir}/$(basename $fn)" 2> /dev/null
+    if [[ "${do_verbose}" == "true" ]] ; then
+    \rm -v "${temp_local_dir}/$(basename $fn)"
+    else
+    \rm "${temp_local_dir}/$(basename $fn)" 2> /dev/null
+    fi
   fi
+}
+
+function ctffind_common() {
+###############################################################################
+#   Function:
+#     Wrapper for CTFFIND4: parallel & serial
+#   
+#   Positional variables:
+#     1) Stem of output files
+#     
+#   Calls functions:
+#     stem2ctfout
+#     run_ctffind4
+# #     vprint
+# #     mic_to_ctf
+# #     to_tempname
+#   
+#   Global variables:
+# #     current_mic
+#     vars
+#     ctfdir
+#     warn_msg (OUTPUT)
+# #     time_format (PACE only)
+#     do_pace
+#     cor_mic (Classic only)
+#     mic_counter (Classic only)
+#     ctf_out
+#     ctf_log (PACE only)
+#     verbose
+#     remaining_files (Classic only)
+#     movie_ext (Classic only)
+# #     file_log
+# #     do_parallel
+#     
+###############################################################################
+
+#   local cor_mic=$1
+#   local cpu_num=$2
+#   local ctf_mrc=$3
+  
+# #   local stem_movie="$(basename ${current_mic%_mic.mrc})"
+  local stem_movie=$1
+  
+#   local ctf_out="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.out"
+#     local ctf_txt="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.txt"
+  local ctf_txt=$(stem2ctfout "$stem_movie")
+  local curr_summary="${vars[outdir]}/${ctfdir}/${ctf_summary}"
+  local avg_rot="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf_avrot.txt"
+  local rot_pdf="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf_avrot.pdf"
+  local png_stem="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf_avrot"  # extension added automatically by pdftoppm
+  warn_msg=''
+  
+#   # Sanity check: Look for existing CTFFIND output
+#   if [[ ! -e $ctf_mrc ]]; then
+#     vprint "$(date +"$time_format"): Starting CTFFIND4 on '${current_mic}' on slot #${cpu_num}/${vars[ctf_slots]}" "0+" "=${file_log}"
+    
+    if [[ "${do_pace}" == false ]]; then
+      vprint "    Running CTFFIND4 on $cor_mic, micrograph #${mic_counter}, ${remaining_files} remaining" "5+"
+    fi
+      
+    if [[ "${vars[testing]}" == false ]]; then
+      
+      # Print command
+      if [[ "${do_pace}" == true ]] || [[ "$verbose" -ge 5 ]] ; then
+        run_ctffind4 "false"
+      fi
+
+      if [[ "$verbose" -ge 7 ]]; then
+        run_ctffind4 "true" 2>&1 | tee $ctf_out
+      else
+        run_ctffind4 "true" > $ctf_out 2> /dev/null
+      fi
+
+      # Append to log file (PACE only)
+      if [[ "${do_pace}" == true ]]; then
+        cat $ctf_out >> ${ctf_log}
+      fi
+      
+      # Print notable CTF information to screen
+      if [[ "$verbose" -eq 6 ]]; then
+        echo ""
+        grep "values\|good" $ctf_out | sed 's/^/    /'  # (prepends spaces to output)
+        echo ""
+      fi
+      
+      # Plot 1D profiles
+      if [[ -f "$avg_rot" ]]; then
+        if [[ "${do_pace}" == true ]] || [[ "$verbose" -ge 5 ]] ; then
+          echo "    Running: ctffind_plot_results.sh $avg_rot"
+        fi
+        
+        # Plot results
+        ${vars[ctffind_dir]}/ctffind_plot_results.sh $avg_rot 1> /dev/null
+        
+        # (Temp file may cause problems if lying around)
+        \rm /tmp/tmp.txt 2> /dev/null
+      else
+        warn_msg="WARNING! CTFFIND4 output $avg_rot does not exist"
+      fi
+
+      # Convert PDF to PNG
+      if [[ -f "$rot_pdf" ]]; then
+        # If pdftoppm in $PATH (https://stackoverflow.com/a/6569837), then convert to PNG
+        if [[ $(type -P pdftoppm) ]] ; then
+          png_cmd="pdftoppm $rot_pdf $png_stem -png -r ${vars[ctf1d_dpi]}"
+        
+          if [[ "${do_pace}" == true ]] || [[ "$verbose" -ge 5 ]] ; then
+            echo "    Running: ${png_cmd}"
+          fi
+          
+          # Convert to PNG
+          ${png_cmd} 1> /dev/null
+          
+#         else
+#           echo "Not found!"
+        fi
+      else
+        warn_msg="WARNING! CTFFIND4 output $rot_pdf does not exist"
+      fi
+
+      # Write last line of CTF text output to summary
+      if [[ -f "$ctf_txt" ]]; then
+        echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${curr_summary}
+      else
+        warn_msg="WARNING! CTFFIND4 output $ctf_txt does not exist"
+      fi
+    
+      if [[ "${do_pace}" == false ]] && [[ "$verbose" -ge 5 ]] ; then
+        remaining_files=$(ls 2>/dev/null -Ubad -- ${vars[movie_dir]}/*.${movie_ext} | wc -w)
+        echo -e "\n    Finished CTFFIND4 on $cor_mic, micrograph #${mic_counter}, ${remaining_files} remaining"
+        echo -e   "    $(date)\n"
+      fi
+
+    # If testing
+    else
+      if [[ "${do_pace}" == true ]] || [[ "$verbose" -ge 5 ]] ; then
+        echo ""
+        run_ctffind4 "false"
+      fi
+    fi
+    # End testing IF-THEN
+    
+#     vprint "$(date +"$time_format"): Finished CTFFIND4 on '${current_mic}' on slot #${cpu_num}/${vars[ctf_slots]}" "0+" "=${file_log}"
+# 
+#   # If output already exists
+#   else
+#     vprint "$(date +"$time_format"): CTFFIND4 output $ctf_mrc already exists" "0+" "=${file_log}"
+#   fi
+#   # End preexisting-file IF-THEN
+#   
+#   
+#   # In testing mode, add a delay
+#   if [[ "${vars[testing]}" == true ]]; then
+#     if [[ "${vars[slow]}" == true ]]; then
+#       sleep $(( (RANDOM % 2) + 3 ))
+#     fi
+#     
+#     touch "${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.mrc"
+#   fi
+#       
+#   # Free CPU
+#   if [[ "${do_parallel}" == true ]] ; then
+#     resource_liberate "${cpu_status}" "${cpu_num}" "3" "0"
+#   fi
+#   
+#   # Make sure output exists
+#   if [[ ! -f "$ctf_mrc" ]]; then
+#     warn_msg="$(date +"$time_format"): WARNING! CTFFIND4 output '$ctf_mrc' does not exist, re-adding to queue..."
+#   fi
+#   
+#   # Print only one warning message per micrograph
+#   if [[ "${warn_msg}" != "" ]]; then
+#     vprint "$warn_msg" "0+" "${warn_log}"
+#     
+#     # Don't exit if in serial mode
+#     if [[ "${do_parallel}" == true ]] ; then
+#       exit
+#     fi
+#   fi
+#   
+#   # Create temporary file to indicate to watcher that we're finished
+#   touch "$(to_tempname ${ctf_mrc})"
+}
+
+function stem2ctfout() {
+###############################################################################
+#   Function:
+#     Template for CTFFIND text output
+#   
+#   Positional variables:
+#     1) micrograph stem
+#   
+#   Global variables:
+#     vars
+#     ctfdir
+#   
+###############################################################################
+  
+  local stem_movie=$1
+  echo "${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.txt"
 }
 
 function run_ctffind4() {
@@ -2014,14 +2179,14 @@ function run_ctffind4() {
 #     ctf_mrc
 #     avg_rot
 #     ctf_exe
+#     
 ###############################################################################
 
   local do_run=$1
-  
+
   # Simply print command
-  if [[ "${do_run}" != "true" ]]; then
-    if [[ "$verbose" -ge 5 ]]; then
-      echo "    ${ctf_exe} \
+  if [[ "${do_run}" == false ]]; then
+    echo "    ${ctf_exe} \
 $cor_mic \
 $ctf_mrc \
 ${vars[apix]} \
@@ -2041,11 +2206,9 @@ ${vars[ast_step]} \
 no \
 no"
   
-      if [[ "${vars[testing]}" == true ]]; then
-        echo "    TESTING ctffind_plot_results.sh $avg_rot"
-      fi
+    if [[ "${vars[testing]}" == true ]]; then
+      echo "    TESTING ctffind_plot_results.sh $avg_rot"
     fi
-    # End verbose IF-THEN
   fi
   # End printing IF-THEN
   
@@ -2072,6 +2235,262 @@ no
 no
 eof
         
+  fi
+  # End testing IF-THEN
+}
+
+function dose_fit() {
+###############################################################################
+#   Function:
+#     Wrapper for dose_discriminator.py
+#   
+#   Positional variables:
+# #     1) tomogram output directory
+#     1) stem for current tomo files
+#     2) original MDOC file
+#     3) output MDOC file
+#     4) tomogram log file
+#   
+#   Calls functions:
+#     vprint
+#     dose_discriminator.py
+#   
+#   Global variables:
+#     dose_list (OUTPUT)
+#     tomo_root
+# #     new_mdoc (OUTPUT)
+#     mdoc_angle_array
+#     new_subframe_array
+#     dose_rate_array
+#     main_log
+#     warn_log
+#     vars
+#     micdir
+#     stem_movie
+#     cor_ext
+#     verbose
+# #     sorted_keys (NEEDED?)
+#   
+###############################################################################
+  
+# #   local tomo_dir=$1
+  local tomo_base=$1
+  local old_mdoc=$2
+  local new_mdoc=$3
+  local tomo_log=$4
+  
+#   local tomo_dir="${recdir}/${tomo_base}"
+  dose_list="${tomo_root}_dose.txt"
+  local dose_plot="${vars[outdir]}/${imgdir}/${dose_imgdir}/${tomo_base}_dose_fit.png"
+  local good_angles_file="${tomo_root}_goodangles.txt"
+  local dose_log="${tomo_root}_dosefit.log"
+  
+  # Clean up pre-existing files
+  rm ${dose_list} 2> /dev/null
+
+  # Loop through angles
+  for mdoc_idx in "${!mdoc_angle_array[@]}"; do 
+    # Get movie filename
+    local movie_file=$(echo ${new_subframe_array[${mdoc_idx}]##*[/\\]} )
+    
+    # Get motion-corrected micrograph name
+    local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
+    local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
+    
+    # Check that motion-corrected micrograph exists
+    if [[ -f "$mc2_mic" ]]; then
+      printf "%2d  %5.1f  %6.3f\n" "$mdoc_idx" "${mdoc_angle_array[${mdoc_idx}]}" "${dose_rate_array[${mdoc_idx}]}" >> ${dose_list}
+      
+#     ### DIAGNOSTIC
+#     else
+#       echo "2089 : $mc2_mic doesn't exist"
+    fi
+  done
+  # End angles loop
+  
+  # Fit dose to cosine function
+  if [[ ! -f "${dose_list}" ]]; then
+    vprint "\nWARNING! Dose list '${dose_list}' not found" "0+" "${main_log} =${warn_log}"
+    vprint "  Continuing...\n" "0+" "${main_log} =${warn_log}"
+  else
+    local dosefit_cmd="$(echo dose_discriminator.py \
+      ${dose_list} \
+      --min_dose ${vars[dosefit_min]} \
+      --max_residual ${vars[dosefit_resid]} \
+      --dose_plot ${dose_plot} \
+      --good_angles ${good_angles_file} \
+      --screen_verbose ${verbose} \
+      --log_file ${dose_log} \
+      --log_verbose ${vars[dosefit_verbose]} | xargs)"
+    
+    vprint "\n  $dosefit_cmd\n" "1+" "=${tomo_log}"
+    local error_code=$(${SNARTOMO_DIR}/$dosefit_cmd 2>&1)
+    
+    if [[ "$error_code" == *"Error"* ]] ; then
+      echo -e "\nERROR!!"
+      echo -e "${error_code}\n"
+      echo -e "Conda environments: initial '$init_conda', current '$CONDA_DEFAULT_ENV'"
+      echo -e "  Maybe this is the wrong environment?\n"
+      exit
+    else
+      vprint "$error_code" "1+" "=${tomo_log}"
+    fi
+    # End error IF-THEN
+      
+# #     mapfile -t sorted_keys < $good_angles_file  # NEEDED?
+  fi
+  # End dose-list IF-THEN
+}
+
+function write_angles_lists() {
+###############################################################################
+#   Function:
+#     Write angles to file
+#     
+#   Positional variables:
+#     1) motion-corrected micrograph list
+#     2) output angles list
+#     3) denoise micrograph list
+#     4) output log file
+#   
+#   Global variables:
+#     stripped_angle_array
+#     mcorr_mic_array
+#     mcorr_list
+#     vars
+#     denoise_list
+#     angles_list
+#     denoise_array
+#     denoise_list (OUTPUT)
+#     tomo_mic_dir
+#     ts_mics (OUTPUT)
+#     
+###############################################################################
+  
+  local outlog=$1
+
+  # Sort
+  sorted_keys=$(sort_array_keys "${stripped_angle_array[@]}")
+#   echo "2170 sorted_keys:"
+#   printf "  '%s'\n" "${sorted_keys[@]}"
+#   echo "2172 stripped_angle_array:"
+#   printf "  '%s'\n" "${stripped_angle_array[@]}"
+  
+  # Write new IMOD list file (overwrites), starting with number of images
+  echo ${#mcorr_mic_array[*]} > $mcorr_list
+  if [[ "${vars[do_topaz]}" == true ]] || [[ "${vars[do_janni]}" == true ]] ; then
+    echo ${#denoise_array[*]} > $denoise_list
+    local do_denoise=true  # IF-OR statement is a mouthful
+  fi
+  
+  # Delete pre-existing angles file (AreTomo will crash if appended to)
+  if [[ -f "$angles_list" ]]; then
+    \rm $angles_list
+  fi
+  
+  # Loop through sorted keys 
+  for idx in $sorted_keys ; do
+    echo    "${stripped_angle_array[${idx}]}" >> $angles_list
+    echo -e "${mcorr_mic_array[$idx]}\n/" >> $mcorr_list
+    
+    # If denoising
+    if [[ "${do_denoise}" == true ]]; then
+      echo -e "${denoise_array[$idx]}\n/" >> $denoise_list
+      
+      # Temporarily move to temporary directory
+      if [[ "${vars[testing]}" == false ]] ; then
+        mv ${mcorr_mic_array[$idx]} ${tomo_mic_dir}/
+      fi
+    fi
+  done  
+  
+  ts_mics="${#stripped_angle_array[*]}"
+  vprint "  Wrote list of ${ts_mics} angles to $angles_list" "2+" "=${outlog}"
+  vprint "  Wrote list of ${#mcorr_mic_array[*]} images to $mcorr_list" "2+" "=${outlog}"
+  
+  if [[ "${do_denoise}" == true ]]; then
+    vprint "  Wrote list of ${#denoise_array[*]} images to $denoise_list" "2+" "=${outlog}"
+  fi
+  
+  vprint "" "2+" "=${outlog}"
+
+  # Clean up
+  unset mcorr_mic_array
+  unset denoise_array
+  unset stripped_angle_array
+}
+
+  function sort_array_keys() {
+  ###############################################################################
+  #   Function:
+  #     Sort array accourding to angle
+  #   
+  #   Global variables:
+  #     stripped_angle_array
+  #     
+  ###############################################################################
+    
+    # Sort by angle (Adapted from https://stackoverflow.com/a/54560296)
+    for KEY in ${!stripped_angle_array[@]}; do
+      echo "${stripped_angle_array[$KEY]}:::$KEY"
+    done | sort -n | awk -F::: '{print $2}'
+  }
+
+function plot_tomo_ctfs() {
+###############################################################################
+#   Function:
+#     Writes CTF data for a tilt series
+#     Plots CTF data for tilt series
+#   
+#   Global variables:
+#     vars
+#     tomo_dir
+#     ctf_summary
+#     new_subframe_array
+#     imgdir
+#     ts_list
+#     ctf_plot
+#     verbose
+#     
+###############################################################################
+  
+  local tomo_ctfs="${vars[outdir]}/${tomo_dir}/${ctf_summary}"
+  
+  if [[ "${vars[testing]}" == false ]] ; then
+    # Loop through angles
+    for mdoc_idx in "${!new_subframe_array[@]}"; do 
+      # Get movie filename
+      local movie_file=$(echo ${new_subframe_array[${mdoc_idx}]##*[/\\]} )
+      
+      # Get motion-corrected micrograph name
+      local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
+# #       local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
+      local ctf_txt=$(stem2ctfout "$stem_movie")
+      
+      # Check that file exists
+      if [[ -f "$ctf_txt" ]]; then
+        # Write CTF summary
+        echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${tomo_ctfs}
+      
+#       ### DIAGNOSTIC
+#       else
+#         echo "1232 : $mc2_mic doesn't exist"
+      fi
+    done
+    # End angles loop
+    
+    local ctfbyts_cmd=$(echo ctfbyts.py \
+      ${tomo_ctfs} \
+      ${vars[outdir]}/${imgdir}/${ts_list} \
+      ${vars[outdir]}/${imgdir}/${ctf_plot} \
+      --first=${vars[ctfplot_first]} \
+      --verbosity=$verbose | xargs)
+    
+    if [[ "$verbose" -ge 2 ]]; then
+      echo -e "\n  Running: $ctfbyts_cmd"
+    fi
+    
+    $ctfbyts_cmd
   fi
   # End testing IF-THEN
 }
@@ -2214,96 +2633,6 @@ function get_gpu() {
   fi
 }
 
-function write_angles_lists() {
-###############################################################################
-#   Function:
-#     Write angles to file
-#     
-#   Positional variables:
-#     1) output log file
-#   
-#   Global variables:
-#     stripped_angle_array
-#     mcorr_mic_array
-#     vars
-#     denoise_array
-#     mcorr_list
-#     angles_list
-#     denoise_list
-#     tomo_mic_dir
-#     ts_mics : OUTPUT
-#     
-###############################################################################
-  
-  local outlog=$1
-
-  # Sort
-  sorted_keys=$(sort_array_keys "${stripped_angle_array[@]}")
-#   printf "  '%s'\n" "${sorted_keys[@]}"
-#   printf "  '%s'\n" "${stripped_angle_array[@]}"
-  
-  # Write new IMOD list file (overwrites), starting with number of images
-  echo ${#mcorr_mic_array[*]} > $mcorr_list
-  if [[ "${vars[do_topaz]}" == true ]] || [[ "${vars[do_janni]}" == true ]] ; then
-    echo ${#denoise_array[*]} > $denoise_list
-    local do_denoise=true  # IF-OR statement is a mouthful
-  fi
-  
-  # Delete pre-existing angles file (AreTomo will crash if appended to)
-  if [[ -f "$angles_list" ]]; then
-    \rm $angles_list
-  fi
-  
-  # Loop through sorted keys 
-  for idx in $sorted_keys ; do
-    echo    "${stripped_angle_array[${idx}]}" >> $angles_list
-    echo -e "${mcorr_mic_array[$idx]}\n/" >> $mcorr_list
-    
-    # If denoising
-# #     if [[ "${vars[do_topaz]}" == true ]] || [[ "${vars[do_janni]}" == true ]] ; then
-    if [[ "${do_denoise}" == true ]]; then
-      echo -e "${denoise_array[$idx]}\n/" >> $denoise_list
-      
-      # Temporarily move to temporary directory
-      if [[ "${vars[testing]}" == false ]] ; then
-        mv ${mcorr_mic_array[$idx]} ${tomo_mic_dir}/
-      fi
-    fi
-  done  
-  
-  ts_mics="${#stripped_angle_array[*]}"
-  vprint "  Wrote list of ${ts_mics} angles to $angles_list" "2+" "=${outlog}"
-  vprint "  Wrote list of ${#mcorr_mic_array[*]} images to $mcorr_list" "2+" "=${outlog}"
-  
-# #   if [[ "${vars[do_topaz]}" == true ]] || [[ "${vars[do_janni]}" == true ]] ; then
-  if [[ "${do_denoise}" == true ]]; then
-    vprint "  Wrote list of ${#denoise_array[*]} images to $denoise_list" "2+" "=${outlog}"
-  fi
-  
-  vprint "" "2+" "=${outlog}"
-
-  # Clean up
-  unset mcorr_mic_array
-  unset denoise_array
-  unset stripped_angle_array
-}
-
-  function sort_array_keys() {
-  ###############################################################################
-  #   Function:
-  #     Sort array accourding to angle
-  #   
-  #   Global variables:
-  #     stripped_angle_array
-  #     
-  ###############################################################################
-    
-    # Sort by angle (Adapted from https://stackoverflow.com/a/54560296)
-    for KEY in ${!stripped_angle_array[@]}; do
-      echo "${stripped_angle_array[$KEY]}:::$KEY"
-    done | sort -n | awk -F::: '{print $2}'
-  }
-
 function imod_restack() {
 ###############################################################################
 #   Function:
@@ -2381,7 +2710,7 @@ function imod_restack() {
         
         if [[ "$verbose" -ge 1 ]]; then
           vprint "  WARNING! Newstack output '$reordered_stack' does not exist! Status code: ${newstack_status}" "0+" "${outlog} =${warn_log}"
-          vprint "    Continuing..." "0+" "${outlog} =${warn_log}"
+          vprint "    Continuing...\n" "0+" "${outlog} =${warn_log}"
         fi
       else
         # Update pixel size
@@ -2422,7 +2751,7 @@ function wrapper_aretomo() {
 #   Positional variable:
 #     1) number of micrographs in tilt series
 #     2) GPU number
-#     3) (boolean) redo pre-existing reconstruction (default: true, old file backed up)
+# #     3) (boolean) redo pre-existing reconstruction (default: true, old file backed up)
 #     
 #   Calls functions:
 #     run_aretomo
@@ -2441,11 +2770,11 @@ function wrapper_aretomo() {
   local num_mics=$1
   local gpu_local=$2
   
-  if [[ "$3" == "" ]]; then
-    local do_overwrite=true
-  else
-    local do_overwrite=false
-  fi
+#   if [[ "$3" == "" ]]; then
+#     local do_overwrite=true
+#   else
+#     local do_overwrite=false
+#   fi
   local do_reconstruct=true
   
   # Output files
@@ -2457,13 +2786,14 @@ function wrapper_aretomo() {
   if [[ "${vars[testing]}" != true ]]; then
     # Check if output already exists
     if [[ -e $tomogram_3d ]]; then
-      if [[ "${do_overwrite}" == false ]] && [[ "${vars[no_redo3d]}" != "false" ]] ; then
+# #       if [[ "${do_overwrite}" == false ]] && [[ "${vars[no_redo3d]}" == true ]] ; then
+      if [[ "${vars[no_redo3d]}" == true ]] ; then
         do_reconstruct=false
         
         if [[ "$verbose" -ge 2 ]]; then
           echo -e "\n  AreTomo output $tomogram_3d already exists, skipping..."
-        else
-          mv $tomogram_3d ${tomogram_3d}.bak
+#         else
+#           mv $tomogram_3d ${tomogram_3d}.bak
         fi
       else
         if [[ "$verbose" -ge 2 ]]; then
@@ -2520,8 +2850,6 @@ function wrapper_aretomo() {
       fi
       # End verbosity cases
       
-  # #     echo -e "\nstatus_code: '$status_code'\n"  # TESTING will go to recon log
-      
       # Sanity check
       if [[ ! -f "$tomogram_3d" ]]; then
         if [[ "$verbose" -ge 1 ]]; then
@@ -2561,13 +2889,12 @@ function wrapper_aretomo() {
   
   # Testing
   else
-    if [[ "${do_overwrite}" == false ]] && [[ "${vars[no_redo3d]}" != "false" ]] ; then
+# #     if [[ "${do_overwrite}" == false ]] && [[ "${vars[no_redo3d]}" == true ]] ; then
+    if [[ "${vars[no_redo3d]}" == true ]] ; then
       if [[ "$verbose" -ge 2 ]]; then
         echo -e "\n  AreTomo output $tomogram_3d already exists, skipping..."
       fi
     else
-#       if [[ "$verbose" -ge 4 ]]; then
-#         echo -e "\n  TESTING: ${aretomo_cmd}"
       if [[ "$verbose" -ge 3 ]]; then
         echo      "  TESTING: tomogram reconstruction '`basename $tomogram_3d`' from $num_mics micrographs"
       fi
@@ -2776,7 +3103,7 @@ function wrapper_etomo() {
 #     1) file stem (including relative path)
 #     2) number of images in tilt series
 #     3) additional batchruntomo parameters
-#     4) (boolean) redo pre-existing reconstruction (default: true, old file backed up)
+# #     4) (boolean) redo pre-existing reconstruction (default: true, old file backed up)
 #     
 #   Calls functions:
 #     vprint
@@ -2793,13 +3120,13 @@ function wrapper_etomo() {
   local num_mics=$2
   local more_flags=$3
   
-  if [[ "$4" == "" ]]; then
-    local do_overwrite=true
-  else
-    local do_overwrite=false
-  fi
-  local do_reconstruct=true
+#   if [[ "$4" == "" ]]; then
+#     local do_overwrite=true
+#   else
+#     local do_overwrite=false
+#   fi
   
+  local do_reconstruct=true
   local etomo_out="${vars[outdir]}/${tomo_dir}/${tomo_base}_std.out"
   local etomo_cmd="batchruntomo -RootName ${tomo_base}_newstack -CurrentLocation ${vars[outdir]}/${tomo_dir} -DirectiveFile ${vars[batch_directive]} ${more_flags}"
   tomogram_3d="${vars[outdir]}/${tomo_dir}/${tomo_base}_newstack_full_rec.mrc"
@@ -2807,13 +3134,14 @@ function wrapper_etomo() {
   if [[ "${vars[testing]}" == false ]]; then
     # Check if output already exists
     if [[ -e $tomogram_3d ]]; then
-      if [[ "${do_overwrite}" == false ]] && [[ "${vars[no_redo3d]}" != "false" ]] ; then
+# #       if [[ "${do_overwrite}" == false ]] && [[ "${vars[no_redo3d]}" == true ]] ; then
+      if [[ "${vars[no_redo3d]}" == true ]] ; then
         do_reconstruct=false
         
         if [[ "$verbose" -ge 2 ]]; then
           echo -e "\n  eTomo output $tomogram_3d already exists, skipping..."
-        else
-          mv $tomogram_3d ${tomogram_3d}.bak
+#         else
+#           mv $tomogram_3d ${tomogram_3d}.bak
         fi
       else
         if [[ "$verbose" -ge 2 ]]; then
@@ -2853,7 +3181,8 @@ function wrapper_etomo() {
         # Sanity check: tomogram exists
         if [[ ! -f "$tomogram_3d" ]]; then
           vprint "\n$(date)" "1+"
-          vprint   "WARNING! eTomo output $tomogram_3d does not exist!\n" "1+"
+          vprint   "WARNING! eTomo output '$tomogram_3d' does not exist!\n" "1+"
+          vprint   "Stdout ${etomo_out}:" "1+"
           cat ${etomo_out}
           vprint "\n         Continuing...\n" "1+"
           
@@ -2873,12 +3202,10 @@ function wrapper_etomo() {
   
   # If testing
   else
-    if [[ "${do_overwrite}" == false ]] && [[ "${vars[no_redo3d]}" != "false" ]] ; then
+# #     if [[ "${do_overwrite}" == false ]] && [[ "${vars[no_redo3d]}" == true ]] ; then
+    if [[ "${vars[no_redo3d]}" == true ]] ; then
       do_reconstruct=false
-      
-# #       if [[ "$verbose" -ge 2 ]]; then
       vprint "\n  eTomo output $tomogram_3d already exists, skipping..." "2+"
-# #       fi
     else
       if [[ "$verbose" -ge 3 ]]; then
         echo -e "\n  TESTING $etomo_cmd\n"
@@ -3012,15 +3339,14 @@ function ruotnocon_wrapper() {
     # Create temporary directory
     if [[ "${test_contour}" != true ]]; then
       \rm -r ${temp_contour_dir} 2> /dev/null
-# #       if [[ ${verbose} -ge 5 ]] ; then
-      vprint "  Creating directory: ${temp_contour_dir}/" "%+"
-# #       fi
+      vprint "  Creating directory: ${temp_contour_dir}/" "5+"
       mkdir ${temp_contour_dir}
     fi
     
     # Convert FID model to WIMP-format text file
     local convertmod_cmd="convertmod ${fid_file} ${wimp_file}"
     if [[ ${verbose} -ge 4 ]] ; then
+      echo
       echo "  Converting to WIMP format: ${fid_file}"
       echo "    $convertmod_cmd"
     fi
