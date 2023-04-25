@@ -25,7 +25,7 @@ function program_info() {
 
 #################### Filenames ####################
 
-shared_libs=snartomo-shared-20apr.bash                   # Shared libraries
+shared_libs=snartomo-shared.bash                   # Shared libraries
 gpu_libs=gpu_resources.bash                        # Resource (GPUs, etc.) libraries
 frame_file=motioncor-frame.txt                     # Frames file
 outdir=SNARTomoPACE                                # Output top-level directory
@@ -213,6 +213,7 @@ main
   compute_tomograms
     tomogram_parallel
       shared.dose_fit
+      shared.write_angles_lists
       shared.denoise_wrapper
       shared.imod_restack
       shared.wrapper_aretomo
@@ -1899,29 +1900,6 @@ function movie_to_mic() {
   echo "${vars[outdir]}/${micdir}/${file_stem}${cor_ext}"
 }
 
-function mic_to_ctf() {
-###############################################################################
-#   Function:
-#     Generates CTFFIND MRC filename from motion-corrected micrograph
-#   
-#   Parameter:
-#     1. Input filename
-#     
-#   Global variables:
-#     vars
-#     ctfdir
-#     
-#   Returns:
-#     Output filename
-#     
-###############################################################################
-
-  local current_input=$1
-  
-  local file_stem="$(basename ${current_input%_mic.mrc})"
-  echo "${vars[outdir]}/${ctfdir}/${file_stem}_ctf.mrc"
-}
-
 function distribute_ctffind() {
 ###############################################################################
 #   Function:
@@ -1930,6 +1908,7 @@ function distribute_ctffind() {
 #   Calls functions:
 #     ctffind_parallel
 #     file_lock
+#     mic_to_ctf
 #     check_ctf_subprocesses
 #     check_completion
 #   
@@ -2041,6 +2020,7 @@ function distribute_ctffind() {
             vprint "$(date +"$time_format"): Found motion-corrected micrograph: '${current_mic}'" "0+" "=${file_log}"
             
             local ctf_mrc="$(mic_to_ctf ${current_mic})"
+# #             echo "2023 ctf_mrc '$ctf_mrc'" ; exit
             local temp_ctf="$(to_tempname ${ctf_mrc})"
             
             # If no pre-existing output
@@ -2057,11 +2037,11 @@ function distribute_ctffind() {
                 rm ${cpu_lock} 2> /dev/null
             
                 # Run CTFFIND in background
-                ctffind_parallel "${current_mic}" "${cpu_num}" "${ctf_mrc}" &
+                ctffind_parallel "${current_mic}" "${ctf_mrc}" "${cpu_num}" &
                 sleep "${vars[search_interval]}"
               else
                 # Run CTFFIND in foreground
-                ctffind_parallel "${current_mic}" "${cpu_num}" "${ctf_mrc}" 
+                ctffind_parallel "${current_mic}" "${ctf_mrc}" "${cpu_num}"
               fi
             else
               touch "$temp_ctf"
@@ -2102,14 +2082,6 @@ function distribute_ctffind() {
       echo -ne "Accumulated\t\t\t\t\t${num_ctfs} CTFs\r"
     fi
           
-#     # In parallel mode, check every N seconds
-#     if [[ "${do_parallel}" == true ]] ; then
-#       sleep "${vars[search_interval]}"
-# #       echo "t=$SECONDS, ${num_ctfs}"
-#     else
-#       sleep 0.01
-#     fi
-    
     # Keep CPU from shooting to 100% if stuck in loop
     sleep 0.01
   done
@@ -2180,17 +2152,16 @@ function distribute_ctffind() {
   #   
   #   Positional variables:
   #     1) Micrograph name (TODO: NOT NEEDED?)
-  #     2) CPU number
-  #     3) Output MRC
+  #     2) Output MRC
+  #     3) CPU number
   #     
   #   Calls functions:
   #     stem2ctfout
   #     ctffind_common
-#   #     mic_to_ctf
   #     to_tempname
   #   
   #   Global variables:
-  #     current_mic
+  #     cor_mic
   #     ctf_out
   #     vars
   #     time_format
@@ -2200,70 +2171,18 @@ function distribute_ctffind() {
   #     
   ###############################################################################
 
-    local cor_mic=$1
-    local cpu_num=$2
-    local ctf_mrc=$3
+    cor_mic=$1
+    local ctf_mrc=$2
+    local cpu_num=$3
     
-    local stem_movie="$(basename ${current_mic%_mic.mrc})"
+    local stem_movie="$(basename ${cor_mic%_mic.mrc})"
     ctf_out="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.out"
-# #     local ctf_txt="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.txt"
-#     local ctf_txt=$(stem2ctfout "$stem_movie")
-#     local curr_summary="${vars[outdir]}/${ctfdir}/${ctf_summary}"
-#     local avg_rot="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf_avrot.txt"
-#     local warn_msg=''
     
     # Sanity check: Look for existing CTFFIND output
     if [[ ! -e $ctf_mrc ]]; then
-      vprint "$(date +"$time_format"): Starting CTFFIND4 on '${current_mic}' on slot #${cpu_num}/${vars[ctf_slots]}" "0+" "=${file_log}"
-    
+      vprint "$(date +"$time_format"): Starting CTFFIND4 on '${cor_mic}' on slot #${cpu_num}/${vars[ctf_slots]}" "0+" "=${file_log}"
       ctffind_common "${stem_movie}" >> ${ctf_log}
-      
-#       if [[ "${vars[testing]}" == false ]]; then
-#         # Print command
-#         run_ctffind4 "false" >> ${ctf_log}
-# 
-#         if [[ "$verbose" -ge 7 ]]; then
-#           run_ctffind4 "true" 2>&1 | tee $ctf_out
-#         else
-#           run_ctffind4 "true" > $ctf_out 2> /dev/null
-#         fi
-# 
-#         # Append to log file
-#         cat $ctf_out >> ${ctf_log}
-#         
-#         # Print notable CTF information to screen
-#         if [[ "$verbose" -eq 6 ]]; then
-#           echo "" >> ${ctf_log}
-#           grep "values\|good" $ctf_out | sed 's/^/    /' >> ${ctf_log}
-#           # (prepends spaces to output)
-#           echo "" >> ${ctf_log}
-#         fi
-#         
-#         if [[ -f "$avg_rot" ]]; then
-#           vprint "    Running: ctffind_plot_results.sh $avg_rot" "0+" "=${ctf_log}"
-#           "${vars[ctffind_dir]}"/ctffind_plot_results.sh $avg_rot 1> /dev/null >> ${ctf_log}
-#           
-#           # (Temp file may cause problems if lying around)
-#           \rm /tmp/tmp.txt 2> /dev/null
-#         else
-#           warn_msg="$(date +"$time_format"): WARNING! CTFFIND4 output $avg_rot does not exist, re-adding to queue..."
-#         fi
-# 
-#         # Write last line of CTF text output to summary
-#         if [[ -f "$ctf_txt" ]]; then
-#           echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${curr_summary}
-#         else
-#           warn_msg="$(date +"$time_format"): WARNING! CTFFIND4 output $ctf_txt does not exist, re-adding to queue..."
-#         fi
-#       
-#       # If testing
-#       else
-#         echo "" >> ${ctf_log}
-#         run_ctffind4 "false" >> ${ctf_log}
-#       fi
-#       # End testing IF-THEN
-      
-      vprint "$(date +"$time_format"): Finished CTFFIND4 on '${current_mic}' on slot #${cpu_num}/${vars[ctf_slots]}" "0+" "=${file_log}"
+      vprint "$(date +"$time_format"): Finished CTFFIND4 on '${cor_mic}' on slot #${cpu_num}/${vars[ctf_slots]}" "0+" "=${file_log}"
 
     # If output already exists
     else
@@ -2717,9 +2636,13 @@ function tomogram_parallel() {
 #     recdir
 #     vars
 #     tomo_root (OUTPUT)
-#     mcorr_list (OUTPUT)
-#     denoise_list (OUTPUT)
-#     angles_list (OUTPUT)
+# #     mcorr_list (OUTPUT)
+# #     denoise_list (OUTPUT)
+# #     angles_list (OUTPUT)
+#     stripped_angle_array (OUTPUT)
+#     mcorr_mic_array (OUTPUT)
+#     denoise_array (OUTPUT)
+#     ctf_stk_array (OUTPUT)
 #     new_mdoc
 #     mdoc_angle_array (OUTPUT)
 #     new_subframe_array (OUTPUT)
@@ -2753,9 +2676,9 @@ function tomogram_parallel() {
   tomo_root="${vars[outdir]}/${tomo_dir}/${tomo_base}"
   local tomo_log="${tomo_root}_snartomo.log"
   
-  mcorr_list="${tomo_root}_mcorr.txt"
-  denoise_list="${tomo_root}_denoise.txt"
-  angles_list="${tomo_root}_newstack.rawtlt"
+#   mcorr_list="${tomo_root}_mcorr.txt"
+#   denoise_list="${tomo_root}_denoise.txt"
+#   angles_list="${tomo_root}_newstack.rawtlt"
   local tomo_ctfs="${vars[outdir]}/${tomo_dir}/${ctf_summary}"
   local new_mdoc="${vars[outdir]}/${tomo_dir}/$(basename $old_mdoc)"
   local temp_mdoc_dir="${vars[outdir]}/${tomo_dir}/tmp_mdoc"
@@ -2763,6 +2686,7 @@ function tomogram_parallel() {
   declare -a stripped_angle_array=()
   declare -a mcorr_mic_array=()
   declare -a denoise_array=()
+  declare -a ctf_stk_array=()
   
   mkdir -p "${vars[outdir]}/${tomo_dir}"
   touch ${tomo_ctfs}
@@ -2808,10 +2732,10 @@ function tomogram_parallel() {
       stripped_angle_array+=(${mdoc_angle_array[${subfm_idx}]})
       mcorr_mic_array+=($mc2_mic)
       denoise_array+=(${vars[outdir]}/${denoisedir}/${stem_movie}${cor_ext})
+      ctf_stk_array+=($(mic_to_ctf "$mc2_mic"))
       
       # Write CTF summary
       if [[ "${vars[testing]}" == false ]] ; then
-# #         local ctf_txt="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.txt"
         local ctf_txt=$(stem2ctfout "$stem_movie")
         echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${tomo_ctfs}
       fi
@@ -2858,6 +2782,7 @@ function tomogram_parallel() {
     local mic_type="micrographs"
   fi
   
+  vprint "" "1+" "=${tomo_log} =${rec_log}"
   vprint "$(date +"$time_format"): Start computing 3D reconstruction from ${mic_type} from MDOC file '${new_mdoc}' on slot #${slot_num}" "1+" "=${file_log} =${tomo_log} =${rec_log}"
   
   if [[ "${vars[batch_directive]}" == "" ]]; then

@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2023-03-23"
+  echo "Modified 2023-04-20"
   date
   echo 
 }
@@ -60,7 +60,6 @@ function howto_stop() {
 
 # Inputs
 shared_libs=snartomo-shared.bash                   # Shared libraries
-mdoc_file=None                                     # Input MDOC file (to read pixel size, etc.)
 log_file=log-snartomo.txt                          # Log file
 outdir=SNARTomo                                    # Output top-level directory
 
@@ -105,6 +104,8 @@ defL=30000.0                                      # minimal defocus value to con
 defH=70000.0                                      # maximal defocus value to consider during fitting (Angstrom)
 dStep=500.0                                       # defocus step
 dAst=100.0                                        # astigmatism restraint
+ctf1d_dpi=250                                     # Resolution (dpi) of PNG of 1D CTF profile
+ctfplot_first=-1                                  # Plots first CTF data for first N images in tilt series
 
 # JANNI
 do_janni=false                                    # run Topaz denoise
@@ -115,6 +116,15 @@ janni_batch=4                                     # number of patches predicted 
 do_topaz=false                                    # Run Topaz denoise
 topaz_patch=2048                                  # Patch size
 topaz_time=2h                                     # maximum duration, Topaz sometimes hangs, needs to be longer for CPU
+
+# DoseDiscriminator
+dosefit_min=0.1                                   # Minimum dose rate allowed, as a fraction of maximum dose rate
+dosefit_resid=0.1                                 # Maximum residual during dose-fitting, as a fraction of maximum dose rate
+dosefit_verbose=6                                 # Verbosity level for dose-fitting log file (0..8)
+
+# Ruotnocon contour removal
+do_ruotnocon=false                                # Remove bad contours
+rnc_sd=3.0                                        # Contours with residuals greater than this multiple of sigma will be removed
 
 # AreTomo parameters
 bin_factor=8                                      # binning factor
@@ -137,13 +147,17 @@ rawdir=1-Movies                                   # directory where raw movie fi
 micdir=2-MotionCor2                               # MotionCor directory
 mc2_logs=Logs                                     # directory for resource and MotionCor log files
 ctfdir=3-CTFFIND4                                 # CTFFIND directory
+ctf_summary=SUMMARY_CTF.txt                       # CTFFIND summary
+ctf_plot=ctfbytes.png                             # Plot of CTF data by tilt series
 denoisedir=4-Denoise                              # Denoised micrograph directory
 recdir=5-Tomo                                     # Reconstruction directory
 imgdir=Images                                     # Image directory
+ts_list=ts_list.txt                               # List of tilt series
 thumbdir=Thumbnails                               # Central sections of tomograms
+dose_imgdir=DoseFit                               # Dose fitting plot directory
+contour_imgdir=Contours                           # Contour removal plot directory
 temp_dir=tmp                                      # Temporary files
 dir2denoise=TmpDenoised                           # Denoised micrographs will go here
-# # temp_local_note=MAX_RUNLENGTH.txt                 # Note in temporary local directory
 
 ################ END BATCH HEADER ################
 
@@ -162,6 +176,7 @@ main
     validate_inputs
     initialize_vars
     shared.create_directories
+    shared.update_adoc
     check_gain_format
     howto_stop
       LOOP:
@@ -177,7 +192,7 @@ main
         motioncor2_serial
           shared.check_frames
           check_freegpus
-          run_motioncor
+          shared.run_motioncor
           remove_local
         ctffind4_serial
         check_time
@@ -238,6 +253,7 @@ function do_real_work() {
 
   create_directories "${@}"
   check_gain_format
+  update_adoc
   
   if [[ "${verbose}" -ge 1 ]]; then
     echo -e "Looking for files in '${vars[movie_dir]}/' for up to ${vars[max_minutes]} minutes\n"
@@ -317,7 +333,7 @@ function parse_command_line() {
   add_section "GLOBAL SETTINGS" "These settings affect multiple steps."
   add_argument "outdir" "${outdir}" "Output directory" "ANY"
   add_argument "mdoc_dir" "" "Input MDOC directory, will be copied to reconstruction directory" "ANY"
-  add_argument "mdoc_file" "${mdoc_file}" "Single input example MDOC file, to extract pixel size, etc." "ANY"  # TODO: Get first MDOC in ${mdoc_dir}
+  add_argument "mdoc_file" "" "Single input example MDOC file, to extract pixel size, etc." "ANY"
   add_argument "apix" "${apix}" "Pixel size, A/px" "FLOAT"
   add_argument "verbosity" "${verbosity}" "Verbosity level (0..8) (3 or 2 recommended for testing mode)" "INT"
   add_argument "restore_movies" "false" "Move already-processed movies from output directory to input directory" "BOOL"
@@ -365,6 +381,8 @@ function parse_command_line() {
   add_argument "df_hi" "${defH}" "Maximum defocus value to consider during fitting, Angstroms" "FLOAT"
   add_argument "df_step" "${dStep}" "Defocus search step during fitting, Angstroms" "FLOAT"
   add_argument "ast_step" "${dAst}" "Astigmatism search step during fitting, Angstroms" "FLOAT"
+  add_argument "ctf1d_dpi" "$ctf1d_dpi" "Resolution (dpi) of PNG of 1D CTF profile" "INT"
+  add_argument "ctfplot_first" "$ctfplot_first" "Plots first CTF data for first N images in tilt series" "INT"
 
   # JANNI
   add_section "JANNI SETTINGS" "Settings for JANNI denoise."
@@ -374,12 +392,23 @@ function parse_command_line() {
   add_argument "janni_overlap" "${janni_overlap}" "Overlap between patches, pixels" "INT"
   add_argument "janni_env" "${JANNI_ENV}" "JANNI conda environment" "ANY"
 
+  # DoseDiscriminator
+  add_section "DOSEDISCRIMINATOR SETTINGS" "Settings for dose-fitting."
+  add_argument "dosefit_min" "${dosefit_min}" "Minimum dose rate allowed, as a fraction of maximum dose rate" "FLOAT"
+  add_argument "dosefit_resid" "${dosefit_resid}" "Maximum residual during dose-fitting, as a fraction of maximum dose rate" "FLOAT"
+  add_argument "dosefit_verbose" "${dosefit_verbose}" "Verbosity level for dose-fitting log file (0..8)" "ANY"
+
   # TOPAZ
   add_section "TOPAZ SETTINGS" "Settings for denoising."
   add_argument "do_topaz" "${do_topaz}" "Denoise micrographs using Topaz" "BOOL"
   add_argument "topaz_patch" "${topaz_patch}" "Patch size for Topaz denoising" "INT"
   add_argument "topaz_time" "${topaz_time}" "Maximum duration, Topaz sometimes hangs" "ANY"
   add_argument "topaz_env" "${TOPAZ_ENV}" "Topaz conda environment" "ANY"
+
+  # Ruotnocon contour removal
+  add_section "RUOTNOCON SETTINGS" "Settings for contour removal in IMOD reconstruction."
+  add_argument "do_ruotnocon" "${do_ruotnocon}" "Remove contours based on residual" "BOOL"
+  add_argument "ruotnocon_sd" "${rnc_sd}" "Contours with residuals greater than this multiple of sigma will be removed" "FLOAT"
 
   # IMOD
   add_section "IMOD SETTINGS" "Settings for IMOD: restacking and optional eTomo reconstruction."
@@ -543,6 +572,7 @@ function initialize_vars() {
 #     mcorr_mic_array
 #     denoise_array
 #     stripped_angle_array
+#     ctf_stk_array
 #     tomo_counter
 #     kill_all_humans
 #     max_seconds
@@ -552,9 +582,12 @@ function initialize_vars() {
   old_state=.old_state
   new_state=.new_state
   prev_name=""
+  
   declare -A mcorr_mic_array=()
   declare -A denoise_array=()
-  declare -A stripped_angle_array
+  declare -A stripped_angle_array=()
+  declare -A ctf_stk_array=()
+  
   tomo_counter=0
   kill_all_humans=false
   
@@ -607,6 +640,7 @@ function parse_filename() {
 #     tomo_name
 #     kill_all_humans
 #     movie_ext
+#     found_msg
 #     
 ###############################################################################
   
@@ -655,9 +689,9 @@ function parse_filename() {
       let "mic_counter++"
       
       if [[ "${vars[testing]}" == false ]]; then
-        echo -e "    Found $fn     \tmicrograph #${mic_counter}, ${remaining_files} remaining"
+        found_msg="    Found $fn     \tmicrograph #${mic_counter}, ${remaining_files} remaining"
       else
-        echo -e "    Found $fn     \tmicrograph #${mic_counter} of ${remaining_files}"
+        found_msg="    Found $fn     \tmicrograph #${mic_counter} of ${remaining_files}"
       fi
     fi
   fi
@@ -732,9 +766,11 @@ function check_new_tilt_series() {
 #     prev_name
 #     tomo_name
 #     verbose
+#     found_msg
 #     vars : command-line arguments
 #     mcorr_mic_array
 #     denoise_array
+#     ctf_stk_array
 #     tilt_idx
 #     cor_mic
 #     stripped_angle_array
@@ -744,13 +780,6 @@ function check_new_tilt_series() {
   
   # Check if new tomogram
   if [[ "$prev_name" != "$tomo_name"  ]]; then
-#     if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
-#       echo "prev_name : '$prev_name'"
-#       echo "tomo_name : '$tomo_name'"
-#       echo
-#       exit  ### TESTING
-#     fi
-  
     if [[ "$prev_name" != "" ]]; then
       # Write restack images and compute tomogram
       compute_tomogram
@@ -763,6 +792,11 @@ function check_new_tilt_series() {
     fi
   fi
   # End new-tomogram IF-THEN
+  
+  # The indentation looks better if I don't print the found-micrograph message until I've checked for new tilt series
+  if [[ "$verbose" -ge 4 ]]; then
+    echo -e "${found_msg}"
+  fi
 
   # Append micrograph filename to array
   if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
@@ -770,6 +804,7 @@ function check_new_tilt_series() {
   fi
   
   mcorr_mic_array[$tilt_idx]=$cor_mic
+  ctf_stk_array[$tilt_idx]=$(mic_to_ctf "$cor_mic")
   
   # Angle array (with same index keys) will be used to sort
   stripped_angle_array[${tilt_idx}]="${angle}"
@@ -831,6 +866,7 @@ function motioncor2_serial() {
         
         local mc2_cmd=$(run_motioncor "${fn}" "$gpu_num")
         
+        # Actually run it
         if [[ "$verbose" -le 6 ]]; then
           # Suppress warning: "TIFFReadDirectory: Warning, Unknown field with tag 65001 (0xfde9) encountered."
           ${mc2_cmd} 2> /dev/null 1> $ali_out
@@ -884,6 +920,16 @@ function motioncor2_serial() {
       if [[ "$verbose" -ge 5 ]]; then
         run_motioncor "${fn}" "${gpu_num}"
       fi
+      
+      if [[ ! -e $cor_mic ]]; then
+        touch $cor_mic
+      else
+        if [[ "$verbose" -ge 4 ]] ; then
+          echo    "    WARNING: MotionCor2 output $cor_mic already exists"
+          echo -e "      Skipping...\n"
+        fi
+      fi
+      # End preexisting-file IF-THEN
     fi
     # End testing mode
   fi
@@ -896,96 +942,119 @@ function ctffind4_serial() {
 #     1) Wrapper for CTFFIND4
 #     2) Generates 1D profile
 #   
+#   Calls functions:
+#     ctffind_common
+# #     stem2ctf_txt
+#     vprint
+# #     run_ctffind4
+#   
 #   Global variables:
+#     ctf_out
+#     vars
+# #     outdir
 #     stem_movie
+# #     ctf_summary
 #     kill_all_humans
-#     ctf_mrc (OUTPUT)
-#     cor_mic
+#     ctf_mrc
+# #     cor_mic
+#     warn_msg
 #     verbose
-#     do_pace
-#     mic_counter (used in Classic mode only)
-#     remaining_files (used in Classic mode only)
-#     outdir
+# #     do_pace
+# #     mic_counter
+# #     remaining_files
 #     
 ###############################################################################
 
-  local ctf_out="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.out"
-  local ctf_txt="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.txt"
-  local ctf_summary="${vars[outdir]}/${ctfdir}/SUMMARY_CTF.txt"
+  ctf_out="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.out"
+# #   local ctf_txt="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.txt"
+  local ctf_txt=$(stem2ctfout "$stem_movie")
+# #   local curr_summary="${vars[outdir]}/${ctfdir}/${ctf_summary}"
   local avg_rot="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf_avrot.txt"
-  ctf_mrc="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.mrc"
+  local ctf_mrc="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.mrc"
   
   # Check termination flag
   if [[ "$kill_all_humans" == false ]]; then
-    if [[ "${vars[testing]}" == false ]]; then
-      
-      # Sanity check: Look for existing CTFFIND output
-      if [[ ! -e $ctf_mrc ]]; then
-        
-        vprint "    Running CTFFIND4 on $cor_mic, micrograph #${mic_counter}, ${remaining_files} remaining" "5+"
-        
-        # Print command
-        if [[ "$verbose" -ge 5 ]]; then
-          run_ctffind4 "false"
-        fi
-
-        if [[ "$verbose" -ge 7 ]]; then
-          run_ctffind4 "true" 2>&1 | tee $ctf_out
-        else
-          run_ctffind4 "true" > $ctf_out 2> /dev/null
-        fi
-
-        # Print notable CTF information to screen
-        if [[ "$verbose" -eq 6 ]]; then
-          echo ""
-          grep "values\|good" $ctf_out | sed 's/^/    /'
-          # (prepends spaces to output)
-          echo ""
-        fi
-        
-        if [[ -f "$avg_rot" ]]; then
-          if [[ "$verbose" -ge 5 ]]; then
-            echo "    Running: ctffind_plot_results.sh $avg_rot"
-          fi
-          "${vars[ctffind_dir]}"/ctffind_plot_results.sh $avg_rot 1> /dev/null
-          \rm /tmp/tmp.txt 2> /dev/null
-          # (Temp file may cause problems if lying around)
-        else
-          echo    "    WARNING! CTFFIND4 output $avg_rot does not exist!"
-          echo -e "             Continuing...\n"
-          
-          return
-        fi
-
-        # Write last line of CTF text output to summary
-        if [[ -f "$ctf_txt" ]]; then
-          echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${ctf_summary}
-        else
-          echo    "WARNING! CTFFIND4 output $ctf_txt does not exist!"
-        fi
-        
-        if [[ "$verbose" -ge 5 ]] && [[ "${do_pace}" != true ]]; then
-          remaining_files=$(ls 2>/dev/null -Ubad -- ${vars[movie_dir]}/*.${movie_ext} | wc -w)
-          echo -e "\n    Finished CTFFIND4 on $cor_mic, micrograph #${mic_counter}, ${remaining_files} remaining"
-          echo -e   "    `date`\n"
-        fi
-
-      else
-        if [[ "$verbose" -ge 4 ]] ; then
-          echo    "    WARNING: CTFFIND4 output $ctf_mrc already exists"
-          echo -e "      Skipping...\n"
-        fi
-      fi
-      # End preexisting-file IF-THEN
+# #     echo "967 do_pace : '$do_pace', verbose '$verbose', kill_all_humans '$kill_all_humans'" ; exit ### TESTING
     
+    # Sanity check: Look for existing CTFFIND output
+    if [[ ! -e $ctf_mrc ]]; then
+# #       echo "971 do_pace : '$do_pace', verbose '$verbose', kill_all_humans '$kill_all_humans', ctf_mrc '$ctf_mrc'" ; exit ### TESTING
+      
+      ctffind_common "${stem_movie}"
+      
+      # Print only one warning message per micrograph
+      if [[ "${warn_msg}" != "" ]]; then
+        echo    "    ${warn_msg}"
+        echo -e "             Continuing...\n"
+      else
+        vprint "" "5+"
+      fi
+      
+#       if [[ "${vars[testing]}" == false ]]; then
+#         vprint "    Running CTFFIND4 on $cor_mic, micrograph #${mic_counter}, ${remaining_files} remaining" "5+"
+#         
+#         # Print command
+#         if [[ "$verbose" -ge 5 ]]; then
+#           run_ctffind4 "false"
+#         fi
+# 
+#         if [[ "$verbose" -ge 7 ]]; then
+#           run_ctffind4 "true" 2>&1 | tee $ctf_out
+#         else
+#           run_ctffind4 "true" > $ctf_out 2> /dev/null
+#         fi
+# 
+#         # Print notable CTF information to screen
+#         if [[ "$verbose" -eq 6 ]]; then
+#           echo ""
+#           grep "values\|good" $ctf_out | sed 's/^/    /'  # (prepends spaces to output)
+#           echo ""
+#         fi
+#         
+#         if [[ -f "$avg_rot" ]]; then
+#           if [[ "$verbose" -ge 5 ]]; then
+#             echo "    Running: ctffind_plot_results.sh $avg_rot"
+#           fi
+#           "${vars[ctffind_dir]}"/ctffind_plot_results.sh $avg_rot 1> /dev/null
+#           
+#           # (Temp file may cause problems if lying around)
+#           \rm /tmp/tmp.txt 2> /dev/null
+#         else
+#           echo    "    WARNING! CTFFIND4 output $avg_rot does not exist!"
+#           echo -e "             Continuing...\n"
+#           
+#           return
+#         fi
+# 
+#         # Write last line of CTF text output to summary
+#         if [[ -f "$ctf_txt" ]]; then
+#           echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${curr_summary}
+#         else
+#           echo    "WARNING! CTFFIND4 output $ctf_txt does not exist!"
+#         fi
+#         
+#         if [[ "$verbose" -ge 5 ]] && [[ "${do_pace}" == false ]]; then
+#           remaining_files=$(ls 2>/dev/null -Ubad -- ${vars[movie_dir]}/*.${movie_ext} | wc -w)
+#           echo -e "\n    Finished CTFFIND4 on $cor_mic, micrograph #${mic_counter}, ${remaining_files} remaining"
+#           echo -e   "    $(date)\n"
+#         fi
+# 
+#       # If testing
+#       else
+#         if [[ "$verbose" -ge 5 ]]; then
+#           echo ""
+#           run_ctffind4 "false"
+# #           echo ""
+#         fi
+#       fi
+#       # End testing IF-THEN
     else
-      if [[ "$verbose" -ge 5 ]]; then
-        echo ""
-        run_ctffind4 "false"
-        echo ""
+      if [[ "$verbose" -ge 4 ]] ; then
+        echo    "    WARNING: CTFFIND4 output $ctf_mrc already exists"
+        echo -e "      Skipping...\n"
       fi
     fi
-    # End testing IF-THEN
+    # End preexisting-file IF-THEN
   fi
   # End continue IF-THEN
 }
@@ -1000,9 +1069,10 @@ function compute_tomogram() {
 #     Default behavior is to OVERWRITE pre-existing outputs.
 #   
 #   Calls functions:
+#     write_angles_lists
+#     write_tomo_ctfs
 #     janni_denoise
 #     topaz_denoise
-#     write_angles_lists
 #     imod_restack
 #     wrapper_aretomo
 #     wrapper_etomo
@@ -1014,24 +1084,14 @@ function compute_tomogram() {
 #     tomo_dir
 #     recdir
 #     prev_name
+#     tomo_root (OUTPUT)
+# #     mcorr_list
+# #     angles_list
+# #     denoise_list
 #     tomo_dns_dir
-#     tomo_root
-#     angles_list
-#     denoise_list
 #     micdir
-#     stripped_angle_array
 #     
 ###############################################################################
-  
-  # Check length of array (https://unix.stackexchange.com/a/193042)
-  local num_mics=${#mcorr_mic_array[@]}
-  if [[ "$num_mics" -eq 1 ]]; then
-    if [[ "$verbose" -ge 2 ]]; then
-      echo "  WARNING! Found only 1 micrograph of form '$prev_name*' (`basename $fn`)"
-      echo "    Skipping tomogram reconstruction..."
-    fi
-    return
-  fi
   
   # Create subdirectory for each tomogram (even in testing mode)
   tomo_dir="${recdir}/${prev_name}"
@@ -1043,8 +1103,26 @@ function compute_tomogram() {
     mkdir -p "${vars[outdir]}/${tomo_dir}"
   fi
   
+  # Output files
+  local tomo_ctfs="${ctf_summary}"
+  tomo_root="${vars[outdir]}/${tomo_dir}/${prev_name}"
+#   mcorr_list="${tomo_root}_mcorr.txt"
+#   angles_list="${tomo_root}_newstack.rawtlt"
+#   denoise_list="${tomo_root}_denoise.txt"
+  local cor_ext="_mic.mrc"
+  
+  # Check length of array (https://unix.stackexchange.com/a/193042)
+  local num_mics=${#mcorr_mic_array[@]}
+  if [[ "$num_mics" -eq 1 ]]; then
+    if [[ "$verbose" -ge 2 ]]; then
+      echo "  WARNING! Found only 1 micrograph of form '$prev_name*' ($(basename $fn))"
+      echo "    Skipping tomogram reconstruction..."
+    fi
+    return
+  fi
+  
   if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
-    # Create micrograph directory
+    # Create denoising directory
     local tomo_mic_dir="${vars[outdir]}/${tomo_dir}/${temp_dir}"
     tomo_dns_dir="${vars[outdir]}/${tomo_dir}/${temp_dir}/${dir2denoise}"
     mkdir ${tomo_mic_dir} ${tomo_dns_dir} 2> /dev/null
@@ -1054,13 +1132,22 @@ function compute_tomogram() {
   if [[ "${vars[mdoc_dir]}" != "" ]] ; then
     local last_mic="$(basename ${mcorr_mic_array[-1]%_mic.mrc})"
     local found_mdoc=$(grep -l $last_mic ${vars[mdoc_dir]}/*.mdoc)
+    local new_mdoc="${vars[outdir]}/${tomo_dir}/$(basename $found_mdoc)"
     
     if [[ $found_mdoc != "" ]] ; then
       if [[ "$verbose" -ge 2 ]]; then
-        echo -e "\n  Copied $(cp -v --preserve=timestamps ${found_mdoc} ${vars[outdir]}/${tomo_dir}/)"
+        echo -e "\n  Copied $(cp -v --preserve=timestamps ${found_mdoc} ${new_mdoc})"
       else
-        cp --preserve=timestamps ${found_mdoc} ${vars[outdir]}/${tomo_dir}/
+        cp --preserve=timestamps ${found_mdoc} ${new_mdoc}
       fi
+  
+      # Parse MDOC (awk notation from Tat)
+      mapfile -t mdoc_angle_array < <( grep "TiltAngle" "${new_mdoc}" | awk '{print $3}' | sed 's/\r//' )
+      mapfile -t new_subframe_array < <( grep "SubFramePath" "${new_mdoc}" | awk '{print $3}' | sed 's/\r//' )
+      mapfile -t dose_rate_array < <( grep "DoseRate" "${new_mdoc}" | awk '{print $3}' | sed 's/\r//' )
+      
+      # Fit dose to cosine function
+      dose_fit "${prev_name}" "${found_mdoc}" "${new_mdoc}"
     else
       if [[ "$verbose" -ge 2 ]]; then
         echo "  WARNING! Didn't find entry '$found_mdoc' in MDOC directory '${vars[mdoc_dir]}'"
@@ -1069,15 +1156,9 @@ function compute_tomogram() {
     # End found-MDOC IF-THEN
   fi
   
-  # Output files
-  tomo_root="${vars[outdir]}/${tomo_dir}/${prev_name}"
-  local mcorr_list="${tomo_root}_mcorr.txt"
-  angles_list="${tomo_root}_newstack.rawtlt"
-  denoise_list="${tomo_root}_denoise.txt"
+  # Plot CTF data
+  plot_tomo_ctfs
   
-#   # Write new IMOD list file (overwrites), starting with number of images
-#   echo ${#mcorr_mic_array[*]} > $mcorr_list
-
   write_angles_lists
   
   # Optionally denoise
@@ -1088,9 +1169,6 @@ function compute_tomogram() {
         mv ${mcorr_mic_array[$idx]} ${tomo_mic_dir}/
       done
     fi
-    
-#     # Write micrograph list
-#     echo ${#denoise_array[*]} > $denoise_list
     
     if [[ "${vars[do_janni]}" == true ]]; then
       denoise_wrapper "janni" "${tomo_mic_dir}" 
@@ -1108,21 +1186,86 @@ function compute_tomogram() {
   imod_restack
   
 # #   if [[ "${vars[batch_directive]}" == "" ]]; then
-  if [[ ! -z "${vars[batch_directive]}" ]] ; then
+  if [[ "${vars[batch_directive]}" == "" ]]; then
     wrapper_aretomo "${num_mics}" "${vars[gpus]}"
   else
-    wrapper_etomo "${prev_name}" "${num_mics}"
+# #     wrapper_etomo "${prev_name}" "${num_mics}"
+    # If removing bad contours
+    if [[ "${vars[do_ruotnocon]}" == true ]]; then
+      local fid_file="${vars[outdir]}/${tomo_dir}/${prev_name}_newstack.fid"
+      
+      wrapper_etomo "${prev_name}" "${num_mics}" "-end 6"
+      ruotnocon_wrapper "${tomo_dir}" "${prev_name}"
+      
+      wrapper_etomo "${prev_name}" "${num_mics}" "-start 6"
+    else
+      wrapper_etomo "${prev_name}" "${num_mics}" ""
+    fi
   fi
 
   # Increment tomogram counter
   let "tomo_counter++"
-  
-#   # Re-initialize arrays
-#   declare -A mcorr_mic_array=()
-#   declare -A denoise_array=()
-#   declare -A stripped_angle_array
 }
 
+# function plot_tomo_ctfs() {
+# ###############################################################################
+# #   Function:
+# #     Writes CTF data for a tilt series
+# #     Plots CTF data for tilt series
+# #   
+# #   Global variables:
+# #     vars
+# #     tomo_dir
+# #     ctf_summary
+# #     new_subframe_array
+# #     imgdir
+# #     ts_list
+# #     ctf_plot
+# #     verbose
+# #     
+# ###############################################################################
+#   
+#   local tomo_ctfs="${vars[outdir]}/${tomo_dir}/${ctf_summary}"
+#   
+#   if [[ "${vars[testing]}" == false ]] ; then
+#     # Loop through angles
+#     for mdoc_idx in "${!new_subframe_array[@]}"; do 
+#       # Get movie filename
+#       local movie_file=$(echo ${new_subframe_array[${mdoc_idx}]##*[/\\]} )
+#       
+#       # Get motion-corrected micrograph name
+#       local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
+# # #       local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
+#       local ctf_txt=$(stem2ctfout "$stem_movie")
+#       
+#       # Check that file exists
+#       if [[ -f "$ctf_txt" ]]; then
+#         # Write CTF summary
+#         echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${tomo_ctfs}
+#       
+# #       ### DIAGNOSTIC
+# #       else
+# #         echo "1232 : $mc2_mic doesn't exist"
+#       fi
+#     done
+#     # End angles loop
+#     
+#     local ctfbyts_cmd=$(echo ctfbyts.py \
+#       ${tomo_ctfs} \
+#       ${vars[outdir]}/${imgdir}/${ts_list} \
+#       ${vars[outdir]}/${imgdir}/${ctf_plot} \
+#       --first=${vars[ctfplot_first]} \
+#       --verbosity=$(($verbose-1)) | xargs)
+#     
+#     if [[ "$verbose" -ge 2 ]]; then
+#       echo -e "\n  Running: $ctfbyts_cmd"
+#     fi
+#     
+#     $ctfbyts_cmd
+#   fi
+#   # End testing IF-THEN
+# }
+# 
 function check_time() {
 ###############################################################################
 #   Function:
@@ -1153,11 +1296,11 @@ function summary_info() {
   clean_local_dir
   
   if [[ "$verbose" -ge 1 ]]; then
-    vprint "" "2="
+    echo
     echo "Found $tomo_counter tilt series in total"
     echo "DONE!"
     date
-    echo ""
+    echo
   fi
       
   # Check if there are remaining files (excluding the dummy file)
@@ -1176,9 +1319,12 @@ function DUMMY_FUNCTION() {
 #   Function:
 #     FUNCTION
 #   
+#   Positional variables:
+#   
 #   Calls functions:
 #   
 #   Global variables:
+#   
 ###############################################################################
   
   return

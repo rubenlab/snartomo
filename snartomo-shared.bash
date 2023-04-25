@@ -655,12 +655,6 @@ function validate_inputs() {
     fi
   fi
   
-#   # IMOD
-#   if [[ "${vars[batch_directive]}" != "${batch_directive}" ]] && [[ "${vars[do_etomo]}" != true ]]; then
-#     vprint "  WARNING! Batch directive specified, but '--do_etomo' flag not specified. Using eTomo..." "1+" "${outlog}"
-#     vars[do_etomo]=true
-#   fi
-  
   if [[ ! -z "${vars[batch_directive]}" ]]; then
     vprint "  Computing reconstruction using IMOD" "1+" "${outlog}"
     check_file "${vars[batch_directive]}" "IMOD batch directive" "${outlog}"
@@ -1966,6 +1960,29 @@ function remove_local() {
   fi
 }
 
+function mic_to_ctf() {
+###############################################################################
+#   Function:
+#     Generates CTFFIND MRC filename from motion-corrected micrograph
+#   
+#   Parameter:
+#     1) Input filename
+#     
+#   Global variables:
+#     vars
+#     ctfdir
+#     
+#   Returns:
+#     Output filename
+#     
+###############################################################################
+
+  local current_input=$1
+  
+  local file_stem="$(basename ${current_input%_mic.mrc})"
+  echo "${vars[outdir]}/${ctfdir}/${file_stem}_ctf.mrc"
+}
+
 function ctffind_common() {
 ###############################################################################
 #   Function:
@@ -1977,38 +1994,25 @@ function ctffind_common() {
 #   Calls functions:
 #     stem2ctfout
 #     run_ctffind4
-# #     vprint
-# #     mic_to_ctf
-# #     to_tempname
+#     vprint
 #   
 #   Global variables:
-# #     current_mic
 #     vars
 #     ctfdir
 #     warn_msg (OUTPUT)
-# #     time_format (PACE only)
 #     do_pace
-#     cor_mic (Classic only)
+#     cor_mic
 #     mic_counter (Classic only)
 #     ctf_out
 #     ctf_log (PACE only)
 #     verbose
 #     remaining_files (Classic only)
 #     movie_ext (Classic only)
-# #     file_log
-# #     do_parallel
 #     
 ###############################################################################
 
-#   local cor_mic=$1
-#   local cpu_num=$2
-#   local ctf_mrc=$3
-  
-# #   local stem_movie="$(basename ${current_mic%_mic.mrc})"
   local stem_movie=$1
   
-#   local ctf_out="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.out"
-#     local ctf_txt="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.txt"
   local ctf_txt=$(stem2ctfout "$stem_movie")
   local curr_summary="${vars[outdir]}/${ctfdir}/${ctf_summary}"
   local avg_rot="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf_avrot.txt"
@@ -2016,136 +2020,90 @@ function ctffind_common() {
   local png_stem="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf_avrot"  # extension added automatically by pdftoppm
   warn_msg=''
   
-#   # Sanity check: Look for existing CTFFIND output
-#   if [[ ! -e $ctf_mrc ]]; then
-#     vprint "$(date +"$time_format"): Starting CTFFIND4 on '${current_mic}' on slot #${cpu_num}/${vars[ctf_slots]}" "0+" "=${file_log}"
+  if [[ "${do_pace}" == false ]]; then
+    vprint "    Running CTFFIND4 on $cor_mic, micrograph #${mic_counter}, ${remaining_files} remaining" "5+"
+  fi
     
-    if [[ "${do_pace}" == false ]]; then
-      vprint "    Running CTFFIND4 on $cor_mic, micrograph #${mic_counter}, ${remaining_files} remaining" "5+"
+  if [[ "${vars[testing]}" == false ]]; then
+    # Print command
+    if [[ "${do_pace}" == true ]] || [[ "$verbose" -ge 5 ]] ; then
+      run_ctffind4 "false"
     fi
-      
-    if [[ "${vars[testing]}" == false ]]; then
-      
-      # Print command
+
+    if [[ "$verbose" -ge 7 ]]; then
+      run_ctffind4 "true" 2>&1 | tee $ctf_out
+    else
+      run_ctffind4 "true" > $ctf_out 2> /dev/null
+    fi
+
+    # Append to log file (PACE only)
+    if [[ "${do_pace}" == true ]]; then
+      cat $ctf_out >> ${ctf_log}
+    fi
+    
+    # Print notable CTF information to screen
+    if [[ "$verbose" -eq 6 ]]; then
+      echo ""
+      grep "values\|good" $ctf_out | sed 's/^/    /'  # (prepends spaces to output)
+      echo ""
+    fi
+    
+    # Plot 1D profiles
+    if [[ -f "$avg_rot" ]]; then
       if [[ "${do_pace}" == true ]] || [[ "$verbose" -ge 5 ]] ; then
-        run_ctffind4 "false"
-      fi
-
-      if [[ "$verbose" -ge 7 ]]; then
-        run_ctffind4 "true" 2>&1 | tee $ctf_out
-      else
-        run_ctffind4 "true" > $ctf_out 2> /dev/null
-      fi
-
-      # Append to log file (PACE only)
-      if [[ "${do_pace}" == true ]]; then
-        cat $ctf_out >> ${ctf_log}
+        echo "    Running: ctffind_plot_results.sh $avg_rot"
       fi
       
-      # Print notable CTF information to screen
-      if [[ "$verbose" -eq 6 ]]; then
-        echo ""
-        grep "values\|good" $ctf_out | sed 's/^/    /'  # (prepends spaces to output)
-        echo ""
-      fi
+      # Plot results
+      ${vars[ctffind_dir]}/ctffind_plot_results.sh $avg_rot 1> /dev/null
       
-      # Plot 1D profiles
-      if [[ -f "$avg_rot" ]]; then
+      # (Temp file may cause problems if lying around)
+      \rm /tmp/tmp.txt 2> /dev/null
+    else
+      warn_msg="WARNING! CTFFIND4 output $avg_rot does not exist"
+    fi
+
+    # Convert PDF to PNG
+    if [[ -f "$rot_pdf" ]]; then
+      # If pdftoppm in $PATH (https://stackoverflow.com/a/6569837), then convert to PNG
+      if [[ $(type -P pdftoppm) ]] ; then
+        local png_cmd="pdftoppm $rot_pdf $png_stem -png -r ${vars[ctf1d_dpi]}"
+      
         if [[ "${do_pace}" == true ]] || [[ "$verbose" -ge 5 ]] ; then
-          echo "    Running: ctffind_plot_results.sh $avg_rot"
+          echo "    Running: ${png_cmd}"
         fi
         
-        # Plot results
-        ${vars[ctffind_dir]}/ctffind_plot_results.sh $avg_rot 1> /dev/null
+        # Convert to PNG
+        ${png_cmd} 1> /dev/null
         
-        # (Temp file may cause problems if lying around)
-        \rm /tmp/tmp.txt 2> /dev/null
-      else
-        warn_msg="WARNING! CTFFIND4 output $avg_rot does not exist"
-      fi
-
-      # Convert PDF to PNG
-      if [[ -f "$rot_pdf" ]]; then
-        # If pdftoppm in $PATH (https://stackoverflow.com/a/6569837), then convert to PNG
-        if [[ $(type -P pdftoppm) ]] ; then
-          png_cmd="pdftoppm $rot_pdf $png_stem -png -r ${vars[ctf1d_dpi]}"
-        
-          if [[ "${do_pace}" == true ]] || [[ "$verbose" -ge 5 ]] ; then
-            echo "    Running: ${png_cmd}"
-          fi
-          
-          # Convert to PNG
-          ${png_cmd} 1> /dev/null
-          
 #         else
 #           echo "Not found!"
-        fi
-      else
-        warn_msg="WARNING! CTFFIND4 output $rot_pdf does not exist"
       fi
-
-      # Write last line of CTF text output to summary
-      if [[ -f "$ctf_txt" ]]; then
-        echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${curr_summary}
-      else
-        warn_msg="WARNING! CTFFIND4 output $ctf_txt does not exist"
-      fi
-    
-      if [[ "${do_pace}" == false ]] && [[ "$verbose" -ge 5 ]] ; then
-        remaining_files=$(ls 2>/dev/null -Ubad -- ${vars[movie_dir]}/*.${movie_ext} | wc -w)
-        echo -e "\n    Finished CTFFIND4 on $cor_mic, micrograph #${mic_counter}, ${remaining_files} remaining"
-        echo -e   "    $(date)\n"
-      fi
-
-    # If testing
     else
-      if [[ "${do_pace}" == true ]] || [[ "$verbose" -ge 5 ]] ; then
-        echo ""
-        run_ctffind4 "false"
-      fi
+      warn_msg="WARNING! CTFFIND4 output $rot_pdf does not exist"
     fi
-    # End testing IF-THEN
-    
-#     vprint "$(date +"$time_format"): Finished CTFFIND4 on '${current_mic}' on slot #${cpu_num}/${vars[ctf_slots]}" "0+" "=${file_log}"
-# 
-#   # If output already exists
-#   else
-#     vprint "$(date +"$time_format"): CTFFIND4 output $ctf_mrc already exists" "0+" "=${file_log}"
-#   fi
-#   # End preexisting-file IF-THEN
-#   
-#   
-#   # In testing mode, add a delay
-#   if [[ "${vars[testing]}" == true ]]; then
-#     if [[ "${vars[slow]}" == true ]]; then
-#       sleep $(( (RANDOM % 2) + 3 ))
-#     fi
-#     
-#     touch "${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.mrc"
-#   fi
-#       
-#   # Free CPU
-#   if [[ "${do_parallel}" == true ]] ; then
-#     resource_liberate "${cpu_status}" "${cpu_num}" "3" "0"
-#   fi
-#   
-#   # Make sure output exists
-#   if [[ ! -f "$ctf_mrc" ]]; then
-#     warn_msg="$(date +"$time_format"): WARNING! CTFFIND4 output '$ctf_mrc' does not exist, re-adding to queue..."
-#   fi
-#   
-#   # Print only one warning message per micrograph
-#   if [[ "${warn_msg}" != "" ]]; then
-#     vprint "$warn_msg" "0+" "${warn_log}"
-#     
-#     # Don't exit if in serial mode
-#     if [[ "${do_parallel}" == true ]] ; then
-#       exit
-#     fi
-#   fi
-#   
-#   # Create temporary file to indicate to watcher that we're finished
-#   touch "$(to_tempname ${ctf_mrc})"
+
+    # Write last line of CTF text output to summary
+    if [[ -f "$ctf_txt" ]]; then
+      echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${curr_summary}
+    else
+      warn_msg="WARNING! CTFFIND4 output $ctf_txt does not exist"
+    fi
+  
+    if [[ "${do_pace}" == false ]] && [[ "$verbose" -ge 5 ]] ; then
+      remaining_files=$(ls 2>/dev/null -Ubad -- ${vars[movie_dir]}/*.${movie_ext} | wc -w)
+      echo -e "\n    Finished CTFFIND4 on $cor_mic, micrograph #${mic_counter}, ${remaining_files} remaining"
+      echo -e   "    $(date)\n"
+    fi
+
+  # If testing
+  else
+    if [[ "${do_pace}" == true ]] || [[ "$verbose" -ge 5 ]] ; then
+      echo ""
+      run_ctffind4 "false"
+    fi
+  fi
+  # End testing IF-THEN
 }
 
 function stem2ctfout() {
@@ -2356,12 +2314,14 @@ function write_angles_lists() {
 #   Global variables:
 #     stripped_angle_array
 #     mcorr_mic_array
-#     mcorr_list
-#     vars
-#     denoise_list
-#     angles_list
 #     denoise_array
+#     ctf_stk_array
+#     vars
+#     tomo_root
+#     mcorr_list (OUTPUT)
 #     denoise_list (OUTPUT)
+#     angles_list (OUTPUT)
+#     ctf_list (OUTPUT)
 #     tomo_mic_dir
 #     ts_mics (OUTPUT)
 #     
@@ -2376,8 +2336,14 @@ function write_angles_lists() {
 #   echo "2172 stripped_angle_array:"
 #   printf "  '%s'\n" "${stripped_angle_array[@]}"
   
+  mcorr_list="${tomo_root}_mcorr.txt"
+  angles_list="${tomo_root}_newstack.rawtlt"
+  denoise_list="${tomo_root}_denoise.txt"
+  ctf_list="${tomo_root}_ctfs.txt"
+  
   # Write new IMOD list file (overwrites), starting with number of images
   echo ${#mcorr_mic_array[*]} > $mcorr_list
+  echo ${#ctf_stk_array[*]} > $ctf_list
   if [[ "${vars[do_topaz]}" == true ]] || [[ "${vars[do_janni]}" == true ]] ; then
     echo ${#denoise_array[*]} > $denoise_list
     local do_denoise=true  # IF-OR statement is a mouthful
@@ -2392,6 +2358,7 @@ function write_angles_lists() {
   for idx in $sorted_keys ; do
     echo    "${stripped_angle_array[${idx}]}" >> $angles_list
     echo -e "${mcorr_mic_array[$idx]}\n/" >> $mcorr_list
+    echo -e "${ctf_stk_array[$idx]}\n/" >> $ctf_list
     
     # If denoising
     if [[ "${do_denoise}" == true ]]; then
@@ -2647,7 +2614,8 @@ function imod_restack() {
 #     vars
 #     mcorr_list
 #     denoise_list
-#     reordered_stack : output
+#     ctf_list
+#     reordered_stack (OUTPUT)
 #     verbose
 #     main_log
 #     warn_log
@@ -2667,23 +2635,28 @@ function imod_restack() {
   fi
   
   # AreTomo and IMOD expect different extensions for stacks
-# #   if [[ "${vars[batch_directive]}" != "" ]]; then
   if [[ ! -z "${vars[batch_directive]}" ]] ; then
     reordered_stack="${tomo_root}_newstack.mrc"
   else
     reordered_stack="${tomo_root}_newstack.st"
   fi
+  
+  local ctf_stack="${tomo_root}_ctfstack.mrcs"
 
-  # Delete pre-existing file (IMOD will back it up otherwise)
+  # Delete pre-existing files (IMOD will back them up otherwise)
   if [[ -f "$reordered_stack" ]]; then
     \rm $reordered_stack
+  fi
+  if [[ -f "$ctf_stack" ]]; then
+    \rm $ctf_stack
   fi
   
   local restack_cmd="newstack -filei $imod_list -ou $reordered_stack"
   local apix_cmd="alterheader -PixelSize ${vars[apix]},${vars[apix]},${vars[apix]} $reordered_stack"
+  local ctf_cmd="newstack -filei $ctf_list -ou $ctf_stack"
   
   if [[ "${vars[testing]}" == false ]]; then
-    # Check if output already exists
+    # Check if output already exists (TODO: not necessary, checked above)
     if [[ ! -e $reordered_stack ]]; then
       vprint "  Running: ${restack_cmd}\n" "3+" "=${outlog}"
       
@@ -2726,7 +2699,7 @@ function imod_restack() {
         fi
       fi
       # End sanity-check IF-THEN
-    
+      
     # If pre-existing output (shouldn't exist, since we deleted any pre-existing stack above)
     else
       vprint "  IMOD restack output $reordered_stack already exists" "0+" "=${outlog}"
@@ -2734,10 +2707,22 @@ function imod_restack() {
     fi
     # End pre-existing IF-THEN
   
+    # Stack CTF power spectra (TODO: sanity check)
+    vprint "  Running: ${ctf_cmd}\n" "3+" "=${outlog}"
+    
+    if [[ "$verbose" -ge 7 ]]; then
+      ${vars[imod_dir]}/${ctf_cmd} 2>&1 | tee $newstack_log
+    elif [[ "$verbose" -eq 6 ]]; then
+      ${vars[imod_dir]}/${ctf_cmd} | tee $newstack_log | stdbuf -o0 grep "RO image" | sed 's/^/   /'
+    else
+      ${vars[imod_dir]}/${ctf_cmd} > $newstack_log
+    fi
+      
   # Testing
   else
     vprint "  TESTING: ${restack_cmd}" "3+" "=${outlog}"
     vprint "  TESTING: ${apix_cmd}" "3+" "=${outlog}"
+    vprint "  TESTING: ${ctf_cmd}" "3+" "=${outlog}"
   fi
   # End testing IF-THEN
 }
