@@ -18,7 +18,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-04-20"
+  echo "Modified 2023-05-08"
   date
   echo 
 }
@@ -119,6 +119,7 @@ are_time=30m                                      # Maximum duration, AreTomo so
 
 cmd_file=commands.txt                             # Output commands file (in ${outdir})
 set_file=settings.txt                             # Output settings file (in ${outdir})
+status_file=status.txt                            # Current status
 log_dir=Logs                                      # Log file directory
 rawdir=1-Movies                                   # Directory where raw movie files will go
 micdir=2-MotionCor2                               # MotionCor directory
@@ -336,7 +337,7 @@ function main() {
   elapsed_min=$((${SECONDS}/60))
   elapsed_sec=$((${SECONDS}%60))
   printf -v date_string "$(date +"$time_format"): Exiting after ${elapsed_min}m%02ds" "${elapsed_sec}"
-  vprint "\n${date_string}\n" "1+" "${main_log} =${file_log}"
+  vprint "\n${date_string}\n" "1+" "${main_log} =${file_log} =${status_file}"
 }
 
 function check_env() {
@@ -556,6 +557,7 @@ function prepare_logfiles() {
   
   main_log=${vars[outdir]}/${log_dir}/${main_log}
   set_file=${vars[outdir]}/${log_dir}/${set_file}
+  status_file=${vars[outdir]}/${status_file}
   file_log=${vars[outdir]}/${log_dir}/${file_log}
   mc2_out=${vars[outdir]}/${log_dir}/${mc2_out}
   ctf_log=${vars[outdir]}/${log_dir}/${ctf_log}
@@ -588,9 +590,9 @@ function prepare_logfiles() {
   time_format='%Y-%m-%d %T'
 
   if [[ ! -f "${file_log}" ]]; then
-    vprint "$(date +"$time_format"): Starting SNARTomoPACE" "0+" "=${file_log}"
+    vprint "$(date +"$time_format"): Starting SNARTomoPACE" "0+" "=${file_log} =${status_file}"
   else
-    vprint "\n$(date +"$time_format"): Continuing SNARTomoPACE" "0+" "=${file_log}"
+    vprint "\n$(date +"$time_format"): Continuing SNARTomoPACE" "0+" "=${file_log} =${status_file}"
   fi
 }
 
@@ -765,6 +767,8 @@ function movies_init() {
 #     
 ###############################################################################
 
+  update_status "$(date +"$time_format"): Searching for pre-existing EERs"
+  
   declare -a init_movie_array
   
   # Set range for last tilt angle ( $((expression)) works only for integers)
@@ -866,7 +870,7 @@ function movies_init() {
       
   # While loop will finish either when last image has been collected or when time limit reached
   local angle_rounded=$(printf "%.2f" "${movie_angle}")
-  vprint "$(date +"$time_format"): Found initial ${movie_counter} EERs from targets file '${vars[target_file]}', last angle ${angle_rounded}" "1+" "${main_log}"
+  vprint "$(date +"$time_format"): Found initial ${movie_counter} EERs from targets file '${vars[target_file]}', last angle ${angle_rounded}" "1+" "${main_log} =${status_file}"
 }
 
 function get_new_entries() {
@@ -976,6 +980,8 @@ function detect_new_movies() {
 #     
 ###############################################################################
 
+  local last_update="$(date +"$time_format")"
+  
   # Make sure EERs-complete file doesn't exist (It should have been cleaned in main, but...)
   rm $movies_done 2> /dev/null
   
@@ -1049,6 +1055,8 @@ function detect_new_movies() {
             
             # Remove lock file
             rm ${movie_lock} 2> /dev/null
+            
+            local last_update="$(date +"$time_format")"
           else
             # Update list on disk
             printf '%s\n' "${new_movie_array[@]}" > ${mc2_movies}
@@ -1069,7 +1077,7 @@ function detect_new_movies() {
         fi
         # End new-EERs IF-THEN
         
-  #       vprint "t=$SECONDS, mdoc_file ${mdoc_file}, movie_angle ${movie_angle}"
+#         vprint "t=$SECONDS, mdoc_file ${mdoc_file}, movie_angle ${movie_angle}"
       done
       # End tilt-series loop
       
@@ -1077,20 +1085,24 @@ function detect_new_movies() {
       if [ $(echo "(${movie_angle} > $min_tilt) && (${movie_angle} < $max_tilt)" | bc -l ) -eq 1 ]; then
         vprint "$(date +"$time_format"): Found last movie in last tilt series (#${series_num}): angle: ${movie_angle}" "1+" "${main_log}"
         break
-  # 
-  #       # TESTING
+  
   #       else
   #         echo "Continuing: series_num: ${series_num}, movie_angle: '${movie_angle}'"
       fi
 
       sleep "${vars[search_interval]}"
+#       if [[ "${do_parallel}" == true ]] ; then
+#         echo "$(date +"$time_format"), ${SECONDS} seconds: Detecting EERs, mdoc_file '${mdoc_file}', movie_angle '${movie_angle}'" > ${status_file}
+#         update_status "Running MotionCor2, most recent micrograph '$(basename $mic_key)'" "$last_update"
+      update_status "$last_update: Detecting EERs, most recent movie '${current_movie}'"
+#       fi
     done
     # End WHILE loop
   fi
   # End live IF-THEN
   
   # While loop will finish either when last image has been collected or when time limit reached
-  vprint "$(date +"$time_format"): Found ${movie_counter} movies in total from targets file '${vars[target_file]}'" "1+" "${main_log}"
+  vprint "$(date +"$time_format"): Found ${movie_counter} movies in total from targets file '${vars[target_file]}'" "1+" "${main_log} =${status_file}"
   if [[ "${do_parallel}" == false ]] ; then
     vprint "" "1+" "${main_log}"
   fi
@@ -1103,6 +1115,27 @@ function detect_new_movies() {
   # Remove duplicates
   awk '!seen[$0]++' ${init_movies} > ${init_movies}-tmp
   mv ${init_movies}-tmp ${init_movies}
+}
+
+function update_status() {
+###############################################################################
+#   Function:
+#     Record last event 
+#   
+#   Positional variables:
+#     1) string to print, not include time stamp, and time since last update
+#   
+#   Global variables:
+#     do_parallel
+#     status_file
+#   
+###############################################################################
+  
+  local string2print=$1
+  
+  if [[ "${do_parallel}" == true ]] ; then
+    echo "${string2print}" > ${status_file}
+  fi
 }
 
 function distribute_motioncor() {
@@ -1136,10 +1169,6 @@ function distribute_motioncor() {
   rm $mcor_done 2> /dev/null
   
   # Read GPU list as array
-#   init_gpus
-#   declare -p gpu_array
-#   echo "1121" ; exit  ### TESTING
-
   declare -A gpu_array
   IFS=' ' read -r -a gpu_list <<< "${vars[gpus]}"
 
@@ -1161,7 +1190,8 @@ function distribute_motioncor() {
   declare -A new_mics
   
   local start_time=$SECONDS
-# #     while (( $(echo "$SECONDS < $max_seconds" | bc) )) ; do
+  local last_update="$(date +"$time_format")"
+  
   while (( $(( $SECONDS - $start_time )) < $max_seconds )) ; do
     # Read GPU state
     source ${gpu_status}
@@ -1319,6 +1349,7 @@ function distribute_motioncor() {
           
         if [[ "${do_parallel}" == true ]]; then
           rm ${mic_lock} 2> /dev/null
+          local last_update="$(date +"$time_format")"
         fi
       fi
     done
@@ -1326,10 +1357,8 @@ function distribute_motioncor() {
     
     # If we're running in parallel and if we just generated a new motion-corrected micrograph, then wait
     if [[ "${do_parallel}" == true ]] && [[ "${computed_anew}" == true ]] ; then
-#       echo "SLEEP -- do parallel: ${do_parallel}, computed anew: ${computed_anew} (CTRL-c to exit)"
       sleep "${vars[search_interval]}"
-# #     else
-# #       sleep 0.5
+      update_status "$last_update: Running MotionCor2, most recent micrograph '$(basename $mic_key)'"
 #     else
 #       echo "NOT SLEEPING -- do parallel: ${do_parallel}, computed anew: ${computed_anew}"
     fi
@@ -1342,7 +1371,7 @@ function distribute_motioncor() {
         local num_mics="${#mic_array[@]}"  # shouldn't need to recount
         
         if [[ "$(echo $num_mics + $missing_movies | bc -l )" -eq "${movies_found}" ]]; then
-          vprint "$(date +"$time_format"): Movie detection complete, found ${movies_found} movies, waiting for MotionCor2..." "1+" "${main_log}"
+          vprint "$(date +"$time_format"): Movie detection complete, found ${movies_found} movies, waiting for MotionCor2..." "1+" "${main_log} =${status_file}"
           printf "'%s'\n" "${mic_array[@]}" > "${ctf_mics}.test"
           break
         fi
@@ -1460,7 +1489,10 @@ function distribute_motioncor() {
 
       # Delay in slow mode
       if [[ "${vars[slow]}" == true ]]; then
-        sleep $(( (RANDOM % 4) + 2 ))
+#         local sleep_time=$(( (RANDOM % 5) + 3 ))
+#         echo "1464 sleep_time '$sleep_time'"
+#         sleep $sleep_time
+        sleep $(( (RANDOM % 6) + 3 ))
   #     else
   #       sleep 0.1
       fi
@@ -1873,7 +1905,7 @@ function read_init() {
   fi
   
   vprint "\n" "1+"
-  vprint "$(date +"$time_format"): Found ${old_counter} pre-existing ${output_type} out of ${num_input_files} ${input_format} files" "1+" "${main_log}"
+  vprint "$(date +"$time_format"): Found ${old_counter} pre-existing ${output_type} out of ${num_input_files} ${input_format} files" "1+" "${main_log} =${status_file}"
 }
 
 function movie_to_mic() {
@@ -2194,6 +2226,9 @@ function distribute_ctffind() {
     # In testing mode, add a delay
     if [[ "${vars[testing]}" == true ]]; then
       if [[ "${vars[slow]}" == true ]]; then
+#         local sleep_time=$(( (RANDOM % 1) + 1 ))
+#         echo "2197 sleep_time '$sleep_time'"
+#         sleep $sleep_time
         sleep $(( (RANDOM % 2) + 3 ))
       fi
       
@@ -2208,13 +2243,15 @@ function distribute_ctffind() {
     # Make sure output exists
     if [[ ! -f "$ctf_mrc" ]]; then
       warn_msg="WARNING! CTFFIND4 output '$ctf_mrc' does not exist, re-adding to queue..."
+    else
+      update_status "$(date +"$time_format"): Running CTFFIND4, most recent micrograph '$(basename $cor_mic)'"
     fi
     
     # Print only one warning message per micrograph
     if [[ "${warn_msg}" != "" ]]; then
       vprint "$(date +"$time_format"): $warn_msg" "0+" "${warn_log}"
       
-      # Don't exit if in serial mode
+      # Exit subprocess if in parallel mode
       if [[ "${do_parallel}" == true ]] ; then
         exit
       fi
@@ -2355,7 +2392,7 @@ function check_completion() {
   fi
   
   if [[ "${num_accounted_for}" -eq "${num_expected}" ]]; then
-    vprint "\n$(date +"$time_format"): Completed ${program_name} on ${num_actual}/${num_expected} files" "1+" "${main_log}"
+    vprint "\n$(date +"$time_format"): Completed ${program_name} on ${num_actual}/${num_expected} files" "1+" "${main_log} =${status_file}"
     
     if [[ "${num_missing}" -ge 1 ]] ; then
       vprint "$(date +"$time_format"):   WARNING! ${num_missing} outputs unaccounted for. Continuing...\n" "1+" "${main_log} =${warn_log}"
@@ -2443,7 +2480,7 @@ function compute_tomograms() {
     vprint "                       Exiting reconstruction for target file '${vars[target_file]}'..." "0+" "${main_log} =${warn_log}"
     exit
   else
-    vprint "\n$(date +"$time_format"): Finished MotionCor2+CTFFIND4 on $mics_found/$num_ctfs micrographs, computing ${num_mdocs} 3D reconstructions\n" "1+" "${main_log}"
+    vprint "\n$(date +"$time_format"): Finished MotionCor2+CTFFIND4 on $mics_found/$num_ctfs micrographs, computing ${num_mdocs} 3D reconstructions\n" "1+" "${main_log} =${status_file}"
   fi
   
   if [[ ! -z "${vars[batch_directive]}" ]] ; then
@@ -2572,6 +2609,8 @@ function compute_tomograms() {
           
           # Append to list
           echo "${mdoc_key}" >> "${tomo_list}"
+          update_status "$(date +"$time_format"): Reconstructing tomograms, most recent reconstruction '$(basename $tomogram_3d)'"
+          
         else
           vprint   "WARNING! eTomo output '$tomogram_3d' does not exist!" "1+" "${main_log} =${warn_log}"
           cat ${etomo_out} | grep -Ev 'quit|Beginning|ABORT|failures|^$' | sed 's/^/         /' | tee -a ${main_log} ${warn_log}
@@ -2601,7 +2640,7 @@ function compute_tomograms() {
     fi
     
     if [[ $num_tomos -eq $num_mdocs ]] ; then
-      vprint "\n$(date +"$time_format"): Finished computing ${num_tomos} 3D reconstructions.\n" "1+" "${main_log}"
+      vprint "\n$(date +"$time_format"): Finished computing ${num_tomos} 3D reconstructions.\n" "1+" "${main_log} =${status_file}"
       break
     fi
   done
@@ -2610,7 +2649,7 @@ function compute_tomograms() {
   echo "${#tomo_array[@]}" > "${rec_done}"
   
   if (( $num_tomos < $num_mdocs )) ; then
-    vprint "\n$(date +"$time_format"): WARNING! Computed ${num_tomos}/$num_mdocs 3D reconstructions within time limit.\n" "1+" "${main_log} =${warn_log}"
+    vprint "\n$(date +"$time_format"): WARNING! Computed ${num_tomos}/$num_mdocs 3D reconstructions within time limit.\n" "1+" "${main_log} =${warn_log} =${status_file}"
   fi
 }
 
@@ -2636,9 +2675,6 @@ function tomogram_parallel() {
 #     recdir
 #     vars
 #     tomo_root (OUTPUT)
-# #     mcorr_list (OUTPUT)
-# #     denoise_list (OUTPUT)
-# #     angles_list (OUTPUT)
 #     stripped_angle_array (OUTPUT)
 #     mcorr_mic_array (OUTPUT)
 #     denoise_array (OUTPUT)
@@ -2667,8 +2703,6 @@ function tomogram_parallel() {
   local tomo_counter="${mdoc_idx}"  # For unknown reasons, I can't simply say "tomo_counter=$3")
   local tot_mdocs=$4
   
-# #   echo "2739 tomo_counter : '${tomo_counter}'"
-  
   # MDOC might have dots other than extension
   local tomo_base="$(basename ${old_mdoc%.mrc.mdoc})"
   
@@ -2676,9 +2710,6 @@ function tomogram_parallel() {
   tomo_root="${vars[outdir]}/${tomo_dir}/${tomo_base}"
   local tomo_log="${tomo_root}_snartomo.log"
   
-#   mcorr_list="${tomo_root}_mcorr.txt"
-#   denoise_list="${tomo_root}_denoise.txt"
-#   angles_list="${tomo_root}_newstack.rawtlt"
   local tomo_ctfs="${vars[outdir]}/${tomo_dir}/${ctf_summary}"
   local new_mdoc="${vars[outdir]}/${tomo_dir}/$(basename $old_mdoc)"
   local temp_mdoc_dir="${vars[outdir]}/${tomo_dir}/tmp_mdoc"
