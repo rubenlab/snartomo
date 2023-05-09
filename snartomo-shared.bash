@@ -2216,6 +2216,7 @@ function dose_fit() {
 #   Global variables:
 #     dose_list (OUTPUT)
 #     tomo_root
+#     good_angles_file (OUTPUT)
 # #     new_mdoc (OUTPUT)
 #     mdoc_angle_array
 #     new_subframe_array
@@ -2240,7 +2241,7 @@ function dose_fit() {
 #   local tomo_dir="${recdir}/${tomo_base}"
   dose_list="${tomo_root}_dose.txt"
   local dose_plot="${vars[outdir]}/${imgdir}/${dose_imgdir}/${tomo_base}_dose_fit.png"
-  local good_angles_file="${tomo_root}_goodangles.txt"
+  good_angles_file="${tomo_root}_goodangles.txt"
   local dose_log="${tomo_root}_dosefit.log"
   
   # Clean up pre-existing files
@@ -2294,8 +2295,10 @@ function dose_fit() {
       vprint "$error_code" "1+" "=${tomo_log}"
     fi
     # End error IF-THEN
-      
-# #     mapfile -t sorted_keys < $good_angles_file  # NEEDED?
+#       
+#     echo "2299 good_angles_file '${good_angles_file}'"
+#     mapfile -t sorted_keys < $good_angles_file  # NEEDED?
+#     exit
   fi
   # End dose-list IF-THEN
 }
@@ -2312,6 +2315,7 @@ function write_angles_lists() {
 #     4) output log file
 #   
 #   Global variables:
+#     good_angles_file
 #     stripped_angle_array
 #     mcorr_mic_array
 #     denoise_array
@@ -2329,12 +2333,15 @@ function write_angles_lists() {
   
   local outlog=$1
 
-  # Sort
-  sorted_keys=$(sort_array_keys "${stripped_angle_array[@]}")
-#   echo "2170 sorted_keys:"
+#   # Sort
+#   sorted_keys=$(sort_array_keys "${stripped_angle_array[@]}")
+  mapfile -t sorted_keys < $good_angles_file
+  
+#   echo "2334 sorted_keys ${#sorted_keys[*]}:"
 #   printf "  '%s'\n" "${sorted_keys[@]}"
-#   echo "2172 stripped_angle_array:"
+#   echo "2336 stripped_angle_array ${#stripped_angle_array[*]}:"
 #   printf "  '%s'\n" "${stripped_angle_array[@]}"
+#   exit
   
   mcorr_list="${tomo_root}_mcorr.txt"
   angles_list="${tomo_root}_newstack.rawtlt"
@@ -2342,10 +2349,10 @@ function write_angles_lists() {
   ctf_list="${tomo_root}_ctfs.txt"
   
   # Write new IMOD list file (overwrites), starting with number of images
-  echo ${#mcorr_mic_array[*]} > $mcorr_list
-  echo ${#ctf_stk_array[*]} > $ctf_list
+  echo ${#sorted_keys[*]} > $mcorr_list
+  echo ${#sorted_keys[*]} > $ctf_list
   if [[ "${vars[do_topaz]}" == true ]] || [[ "${vars[do_janni]}" == true ]] ; then
-    echo ${#denoise_array[*]} > $denoise_list
+    echo ${#sorted_keys[*]} > $denoise_list
     local do_denoise=true  # IF-OR statement is a mouthful
   fi
   
@@ -2355,7 +2362,8 @@ function write_angles_lists() {
   fi
   
   # Loop through sorted keys 
-  for idx in $sorted_keys ; do
+  for idx in "${sorted_keys[@]}" ; do
+# #     echo "2361 idx '${idx}' '${stripped_angle_array[${idx}]}'"
     echo    "${stripped_angle_array[${idx}]}" >> $angles_list
     echo -e "${mcorr_mic_array[$idx]}\n/" >> $mcorr_list
     echo -e "${ctf_stk_array[$idx]}\n/" >> $ctf_list
@@ -2431,7 +2439,6 @@ function plot_tomo_ctfs() {
       
       # Get motion-corrected micrograph name
       local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
-# #       local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
       local ctf_txt=$(stem2ctfout "$stem_movie")
       
       # Check that file exists
@@ -2441,11 +2448,22 @@ function plot_tomo_ctfs() {
       
 #       ### DIAGNOSTIC
 #       else
-#         echo "1232 : $mc2_mic doesn't exist"
+#         echo "1232 : $ctf_txt doesn't exist"
       fi
     done
     # End angles loop
     
+    # Look for duplicates ("<" suppreses filename)
+    local len_before=$(wc -l < $tomo_ctfs)
+    awk '!seen[$0]++' $tomo_ctfs > ${tomo_ctfs}.tmp  # Might be able to do this without intermediate file
+    local len_after=$(wc -l < ${tomo_ctfs}.tmp)
+    mv ${tomo_ctfs}.tmp ${tomo_ctfs}
+    
+    if [[ ${len_before} -ne ${len_after} ]] && [[ "$verbose" -ge 2 ]] ; then
+      echo -e "\n  Removed $(( ${len_before} - ${len_after} )) duplicates from ${tomo_ctfs}"
+    fi
+    
+    # Plot CTF summary
     local ctfbyts_cmd=$(echo ctfbyts.py \
       ${tomo_ctfs} \
       ${vars[outdir]}/${imgdir}/${ts_list} \
