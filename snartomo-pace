@@ -18,7 +18,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-05-08"
+  echo "Modified 2023-05-10"
   date
   echo 
 }
@@ -1713,10 +1713,10 @@ function resource_liberate() {
 #       rm ${gpu_lock} 2> /dev/null
 #
 #   Positional variables:
-#     1) status_file: must be gpu_status or cpu_status
-#     2) slot_number
-#     3) lock_time
-#     4) sleep_time
+#     1) resource status file: must be gpu_status, cpu_status, or recon_status
+#     2) slot number
+#     3) lock time
+#     4) sleep time
 #   
 #   Calls function:
 #     file_lock
@@ -1731,32 +1731,32 @@ function resource_liberate() {
 #   
 ###############################################################################
   
-  local status_file=$1
+  local res_status=$1
   local slot_number=$2
   local lock_time=$3
   local sleep_time=$4
   
   # Lock file for a given time, and pass calling function's name (for debug mode)
-  file_lock "${status_file}" "${lock_time}" "${FUNCNAME[0]}"
+  file_lock "${res_status}" "${lock_time}" "${FUNCNAME[0]}"
   
   # "lock_file" is a global variable in file_lock
   local lock_file=${lock_file}
   
   # Read array from status file
-  source ${status_file}
+  source ${res_status}
   
   # Set GPU/CPU array
-  if [[ "${status_file}" == "${gpu_status}" ]] ; then
+  if [[ "${res_status}" == "${gpu_status}" ]] ; then
     gpu_array[${slot_number}]="FREE"
-    declare -p gpu_array > ${status_file}
-  elif [[ "${status_file}" == "${cpu_status}" ]] ; then
+    declare -p gpu_array > ${res_status}
+  elif [[ "${res_status}" == "${cpu_status}" ]] ; then
     cpu_array[${slot_number}]="FREE"
-    declare -p cpu_array > ${status_file}
-  elif [[ "${status_file}" == "${recon_status}" ]] ; then
+    declare -p cpu_array > ${res_status}
+  elif [[ "${res_status}" == "${recon_status}" ]] ; then
     slot_array[${slot_number}]="FREE"
-    declare -p slot_array > ${status_file}
+    declare -p slot_array > ${res_status}
   else
-    echo "ERROR!! Don't know status file '${status_file}'!"
+    echo "ERROR!! Don't know status file '${res_status}'!"
     exit
   fi
   # End GPU-vs-CPU IF-THEN
@@ -1766,8 +1766,6 @@ function resource_liberate() {
 
   # Remove lock file
   rm ${lock_file} 2> /dev/null
-#     
-#   unset resource_array
 }
 
 function monitor_ram() {
@@ -2642,6 +2640,7 @@ function compute_tomograms() {
     if [[ $num_tomos -eq $num_mdocs ]] ; then
       vprint "\n$(date +"$time_format"): Finished computing ${num_tomos} 3D reconstructions.\n" "1+" "${main_log} =${status_file}"
       break
+    
     fi
   done
   # End WHILE loop
@@ -2697,21 +2696,23 @@ function tomogram_parallel() {
 #   
 ###############################################################################
   
-  local old_mdoc=$1
+  local orig_mdoc=$1
   local slot_num=$2
   local mdoc_idx=$3
   local tomo_counter="${mdoc_idx}"  # For unknown reasons, I can't simply say "tomo_counter=$3")
   local tot_mdocs=$4
   
   # MDOC might have dots other than extension
-  local tomo_base="$(basename ${old_mdoc%.mrc.mdoc})"
+  local tomo_base="$(basename ${orig_mdoc%.mrc.mdoc})"
   
   local tomo_dir="${recdir}/${tomo_base}"
   tomo_root="${vars[outdir]}/${tomo_dir}/${tomo_base}"
   local tomo_log="${tomo_root}_snartomo.log"
-  
   local tomo_ctfs="${vars[outdir]}/${tomo_dir}/${ctf_summary}"
-  local new_mdoc="${vars[outdir]}/${tomo_dir}/$(basename $old_mdoc)"
+  
+  local mdoc_base=$(basename $orig_mdoc)
+  local mdoc_copy="${vars[outdir]}/${tomo_dir}/${mdoc_base%.mrc.mdoc}_orig.mrc.mdoc"
+  local new_mdoc="${vars[outdir]}/${tomo_dir}/${mdoc_base}"
   local temp_mdoc_dir="${vars[outdir]}/${tomo_dir}/tmp_mdoc"
   
   declare -a stripped_angle_array=()
@@ -2722,13 +2723,20 @@ function tomogram_parallel() {
   mkdir -p "${vars[outdir]}/${tomo_dir}"
   touch ${tomo_ctfs}
   
-  # Write MDOC file with existing micrographs
-  clean_up_mdoc "$old_mdoc" "$new_mdoc" "$temp_mdoc_dir"
-  
   # Parse MDOC (awk notation from Tat)
-  mapfile -t mdoc_angle_array < <( grep "TiltAngle" "${new_mdoc}" | awk '{print $3}' | sed 's/\r//' )
-  mapfile -t new_subframe_array < <( grep "SubFramePath" "${new_mdoc}" | awk '{print $3}' | sed 's/\r//' )
-  mapfile -t dose_rate_array < <( grep "DoseRate" "${new_mdoc}" | awk '{print $3}' | sed 's/\r//' )
+  mapfile -t mdoc_angle_array < <( grep "TiltAngle" "${orig_mdoc}" | awk '{print $3}' | sed 's/\r//' )
+  mapfile -t new_subframe_array < <( grep "SubFramePath" "${orig_mdoc}" | awk '{print $3}' | sed 's/\r//' )
+  mapfile -t dose_rate_array < <( grep "DoseRate" "${orig_mdoc}" | awk '{print $3}' | sed 's/\r//' )
+  
+  \cp ${orig_mdoc} ${mdoc_copy}
+  
+  # Fit dose to cosine function
+  dose_fit "${tomo_base}" "${mdoc_copy}" "${tomo_log}"
+  
+  # Write MDOC file with existing micrographs
+  clean_up_mdoc "${mdoc_copy}" "${new_mdoc}" "$temp_mdoc_dir"
+  
+# #   echo "2719 mdoc_base '${mdoc_base}', 'new_mdoc '${new_mdoc}'" ; exit ### TESTING
   
   # Sanity check that arrays have same length
   if [[ "${#mdoc_angle_array[*]}" -ne "${#new_subframe_array[*]}" ]] || [[ "${#mdoc_angle_array[*]}" -ne "${#dose_rate_array[*]}" ]] ; then
@@ -2778,9 +2786,9 @@ function tomogram_parallel() {
   done
   # End angles loop
   
-  # Fit dose to cosine function
-  dose_fit "${tomo_base}" "${old_mdoc}" "${new_mdoc}" "${tomo_log}"
-  
+#   # Fit dose to cosine function
+#   dose_fit "${tomo_base}" "${old_mdoc}" "${new_mdoc}" "${tomo_log}"
+#   
   # Plot CTF data
   plot_tomo_ctfs >> "${tomo_log}"
   
@@ -2817,14 +2825,12 @@ function tomogram_parallel() {
   vprint "$(date +"$time_format"): Start computing 3D reconstruction from ${mic_type} from MDOC file '${new_mdoc}' on slot #${slot_num}" "1+" "=${file_log} =${tomo_log} =${rec_log}"
   
   if [[ "${vars[batch_directive]}" == "" ]]; then
-# #     wrapper_aretomo "${ts_mics}" "${slot_num}" "false" >> "${tomo_log}"
     wrapper_aretomo "${ts_mics}" "${slot_num}" >> "${tomo_log}"
   else
     # If removing bad contours
     if [[ "${vars[do_ruotnocon]}" == true ]]; then
       local fid_file="${vars[outdir]}/${tomo_dir}/${tomo_base}_newstack.fid"
       
-# #       wrapper_etomo "${tomo_base}" "${ts_mics}" "-end 6" "false" >> "${tomo_log}"
       wrapper_etomo "${tomo_base}" "${ts_mics}" "-end 6" >> "${tomo_log}"
       ruotnocon_wrapper "${tomo_dir}" "${tomo_base}" >> "${tomo_log}"
       
@@ -2832,10 +2838,8 @@ function tomogram_parallel() {
         vprint "$(date +"$time_format"): Removed ${num_bad_residuals} contours based on residuals" "1+" "=${tomo_log}"
       fi
       
-# #       wrapper_etomo "${tomo_base}" "${ts_mics}" "-start 6" "false" >> "${tomo_log}"
       wrapper_etomo "${tomo_base}" "${ts_mics}" "-start 6" >> "${tomo_log}"
     else
-# #       wrapper_etomo "${tomo_base}" "${ts_mics}" "" "false" >> "${tomo_log}"
       wrapper_etomo "${tomo_base}" "${ts_mics}" "" >> "${tomo_log}"
     fi
   fi
@@ -2846,8 +2850,6 @@ function tomogram_parallel() {
     # So that calling function doesn't stall
     touch "${tomogram_3d}"
   fi
-  
-# #   echo -e "2882 tomo_counter : '${tomo_counter}'\n"
   
   # Sanity check
   if [[ -f "$tomogram_3d" ]]; then
@@ -2875,99 +2877,117 @@ function tomogram_parallel() {
   touch "$(to_tempname ${new_mdoc})"
 }
 
-function clean_up_mdoc() {
-###############################################################################
-#   Function:
-#     Removes entries from MDOC for non-existent movies
-#   
-#   Positional variables:
-#     1) original MDOC file (can contain missing files)
-#     2) output cleaned MDOC file
-#     3) temporary MDOC-fragment directory
-#   
-#   Calls functions:
-#     vprint
-#   
-#   Global variables:
-#     vars
-#     micdir
-#     cor_ext
-#   
-###############################################################################
-  
-  local old_mdoc=$1
-  local new_mdoc=$2
-  local temp_mdoc_dir=$3
-  
-  # Clean up pre-existing files
-  rm -r $temp_mdoc_dir 2> /dev/null
-  mkdir $temp_mdoc_dir
-  
-  # Parse MDOC (awk notation from Tat)
-  mapfile -t old_subframe_array < <( grep "SubFramePath" "${old_mdoc}" | awk '{print $3}' | sed 's/\r//' )
-  
-  # Remove CRLF (https://www.cyberciti.biz/faq/sed-remove-m-and-line-feeds-under-unix-linux-bsd-appleosx/)
-  local mdoc_nocrlf="$temp_mdoc_dir/$(basename $new_mdoc).txt"
-  sed 's/\r//' $old_mdoc > ${mdoc_nocrlf}
-  local status_code=$?
-  
-  if [[ $status_code -ne 0 ]] ; then
-    echo -e "ERROR!! Status code: '$status_code'\n"
-    exit 3
-  fi
-  
-  # Split MDOC (https://stackoverflow.com/a/60972105/3361621)
-  local chunk_prefix="${temp_mdoc_dir}/chunk"
-  csplit --quiet --prefix=$chunk_prefix --suffix-format=%02d.txt --suppress-matched ${mdoc_nocrlf} /^$/ {*}
-  declare -a good_mdoc_array
-  
-  # Loop through movies
-  for mdoc_idx in "${!old_subframe_array[@]}"; do 
-    # Get movie filename
-    local movie_file=$(echo ${old_subframe_array[${mdoc_idx}]##*[/\\]} )
+  function clean_up_mdoc() {
+  ###############################################################################
+  #   Function:
+  #     Removes entries from MDOC for non-existent movies
+  #   
+  #   Positional variables:
+  #     1) original MDOC file (can contain missing files)
+  #     2) output cleaned MDOC file (can be same as input MDOC)
+  #     3) temporary MDOC-fragment directory
+  #   
+  #   Calls functions:
+  #     vprint
+  #   
+  #   Global variables:
+  #     good_angles_file
+  #     vars
+  #     micdir
+  #     cor_ext
+  #   
+  ###############################################################################
     
-    # Get motion-corrected micrograph name
+    local old_mdoc=$1
+    local new_mdoc=$2
+    local temp_mdoc_dir=$3
+    
+    # Clean up pre-existing files
+    rm -r $temp_mdoc_dir 2> /dev/null
+    mkdir $temp_mdoc_dir
+    
+    # Parse MDOC (awk notation from Tat)
+    mapfile -t old_subframe_array < <( grep "SubFramePath" "${old_mdoc}" | awk '{print $3}' | sed 's/\r//' )
+    
+    # Remove CRLF (https://www.cyberciti.biz/faq/sed-remove-m-and-line-feeds-under-unix-linux-bsd-appleosx/)
+    local mdoc_nocrlf="$temp_mdoc_dir/$(basename $old_mdoc).txt"
+    sed 's/\r//' $old_mdoc > ${mdoc_nocrlf}
+    local status_code=$?
+    
+    if [[ $status_code -ne 0 ]] ; then
+      echo -e "ERROR!! Status code: '$status_code'\n"
+      exit 3
+    fi
+    
+    # Split MDOC (Adapted from https://stackoverflow.com/a/60972105/3361621)
+    local chunk_prefix="${temp_mdoc_dir}/chunk"
+    csplit --quiet --prefix=$chunk_prefix --suffix-format=%02d.txt --suppress-matched ${mdoc_nocrlf} /^$/ {*}
+    declare -a good_mdoc_array
+    
+    # Read angles from dose-fitting
+    readarray -t good_angle_array < $good_angles_file
+    
+    # Sort (https://stackoverflow.com/a/11789688)
+    IFS=$'\n' sorted_good_angles=($(sort -n <<<"${good_angle_array[*]}"))
+    unset IFS
+    
+# #     printf "'%s'\n" "${sorted_good_angles[@]}" ; exit ### TESTING
+    
+    # Find boundaries of MDOC file
+    local movie_file=$(echo ${old_subframe_array[0]##*[/\\]} )
     local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
-    local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
+    local first_movie_file="$(grep -l $stem_movie ${chunk_prefix}*)"  # assuming single hit
+    local first_movie_chunk="$(basename $first_movie_file | sed 's/[^0-9]*//g')"
+    local last_header_chunk=$(( $first_movie_chunk - 1 ))
     
-    # Get chunk number of first micrograph (may vary)
-    if [[ "${mdoc_idx}" -eq 0 ]] ; then
-      local first_movie_file="$(grep -l $stem_movie ${chunk_prefix}*)"  # assuming single hit
-      local first_movie_chunk="$(basename $first_movie_file | sed 's/[^0-9]*//g')"
-      local last_header_chunk=$(( $first_movie_chunk - 1 ))
-    fi
+    # Loop through movies
+    for mdoc_idx in "${sorted_good_angles[@]}"; do 
+      # Get movie filename
+      local movie_file=$(echo ${old_subframe_array[${mdoc_idx}]##*[/\\]} )
+      
+      # Get motion-corrected micrograph name
+      local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
+      local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
+      
+      # Check that motion-corrected micrograph exists
+      if [[ -f "$mc2_mic" ]]; then
+        good_mdoc_array+=($mdoc_idx)
+      fi
+    done
+    # End angles loop
     
-# #     echo "2984 first_movie_chunk '$first_movie_chunk', last_header_chunk '$last_header_chunk'"
+    # Build new MDOC
+    rm $new_mdoc 2> /dev/null
+    touch $new_mdoc
     
-    # Check that motion-corrected micrograph exists
-    if [[ -f "$mc2_mic" ]]; then
-      good_mdoc_array+=($mdoc_idx)
-       
-# #       ### DIAGNOSTIC
-# #       else
-# #         echo "2976 : mdoc_idx='$mdoc_idx', old_subframe_array[${mdoc_idx}]='${old_subframe_array[${mdoc_idx}]}', $(basename $mc2_mic) doesn't exist"
-    fi
-  done
-  # End angles loop
-  
-  # Build new MDOC
-  rm $new_mdoc 2> /dev/null
-  touch $new_mdoc
-  
-  # MDOC header may contain variable number of CR-delimited blocks before first micrograph
-  for filenum in $(seq 0 $last_header_chunk) ; do
-# #     echo "3003 filenum '$filenum'"
-    cat "${chunk_prefix}$(printf '%02d' $filenum).txt" >> $new_mdoc
-    echo >> $new_mdoc
-  done
-  
-  for mdoc_idx in "${!good_mdoc_array[@]}"; do 
-    local old_idx="${good_mdoc_array[mdoc_idx]}"
-# #     echo "3010 old_idx '$old_idx'"
-    cat "${chunk_prefix}$(printf '%02d' $(( $old_idx + $last_header_chunk + 1 )) ).txt" >> $new_mdoc
-    echo >> $new_mdoc
-  done
-}
+    # MDOC header may contain variable number of CR-delimited blocks before first micrograph
+    for filenum in $(seq 0 $last_header_chunk) ; do
+      cat "${chunk_prefix}$(printf '%02d' $filenum).txt" >> $new_mdoc
+      echo >> $new_mdoc
+    done
+    
+    local good_counter=0
+    
+    # Append micorgraph-related chunks
+    for mdoc_idx in "${!good_mdoc_array[@]}"; do 
+      local old_idx="${good_mdoc_array[mdoc_idx]}"
+      local curr_chunk="${chunk_prefix}$(printf '%02d' $(( $old_idx + $last_header_chunk + 1 )) ).txt"
+      
+      # Remove regex characters (https://stackoverflow.com/a/28563120)
+      local zvalue_line="$(\grep '\[ZValue' ${curr_chunk} | sed -e 's/[]$.*[\^]/\\&/g' )"
+      local zvalue_orig="$(echo $zvalue_line | sed 's/[^0-9]*//g')"
+      
+      # Replace ZValue
+      local new_line=$(echo ${zvalue_line/$zvalue_orig/$good_counter})
+# #       echo "2984 zvalue_line '${zvalue_line}', new_line '${new_line}'"  ### TESTING
+      sed -i "s/${zvalue_line}/${new_line}/" $curr_chunk
+      let "good_counter++"
+      
+      # Append
+      cat $curr_chunk >> $new_mdoc
+      echo >> $new_mdoc
+    done
+  }
 
 function DUMMY_FUNCTION() {
 ###############################################################################

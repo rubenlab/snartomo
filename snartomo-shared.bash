@@ -2203,7 +2203,6 @@ function dose_fit() {
 #     Wrapper for dose_discriminator.py
 #   
 #   Positional variables:
-# #     1) tomogram output directory
 #     1) stem for current tomo files
 #     2) original MDOC file
 #     3) output MDOC file
@@ -2217,7 +2216,6 @@ function dose_fit() {
 #     dose_list (OUTPUT)
 #     tomo_root
 #     good_angles_file (OUTPUT)
-# #     new_mdoc (OUTPUT)
 #     mdoc_angle_array
 #     new_subframe_array
 #     dose_rate_array
@@ -2228,17 +2226,13 @@ function dose_fit() {
 #     stem_movie
 #     cor_ext
 #     verbose
-# #     sorted_keys (NEEDED?)
 #   
 ###############################################################################
   
-# #   local tomo_dir=$1
   local tomo_base=$1
   local old_mdoc=$2
-  local new_mdoc=$3
-  local tomo_log=$4
+  local tomo_log=$3
   
-#   local tomo_dir="${recdir}/${tomo_base}"
   dose_list="${tomo_root}_dose.txt"
   local dose_plot="${vars[outdir]}/${imgdir}/${dose_imgdir}/${tomo_base}_dose_fit.png"
   good_angles_file="${tomo_root}_goodangles.txt"
@@ -2251,6 +2245,7 @@ function dose_fit() {
   for mdoc_idx in "${!mdoc_angle_array[@]}"; do 
     # Get movie filename
     local movie_file=$(echo ${new_subframe_array[${mdoc_idx}]##*[/\\]} )
+# #     echo "2248 movie_file '${movie_file}'"
     
     # Get motion-corrected micrograph name
     local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
@@ -2259,10 +2254,6 @@ function dose_fit() {
     # Check that motion-corrected micrograph exists
     if [[ -f "$mc2_mic" ]]; then
       printf "%2d  %5.1f  %6.3f\n" "$mdoc_idx" "${mdoc_angle_array[${mdoc_idx}]}" "${dose_rate_array[${mdoc_idx}]}" >> ${dose_list}
-      
-#     ### DIAGNOSTIC
-#     else
-#       echo "2089 : $mc2_mic doesn't exist"
     fi
   done
   # End angles loop
@@ -2272,6 +2263,7 @@ function dose_fit() {
     vprint "\nWARNING! Dose list '${dose_list}' not found" "0+" "${main_log} =${warn_log}"
     vprint "  Continuing...\n" "0+" "${main_log} =${warn_log}"
   else
+# #     local verbose=6  ### TESTING
     local dosefit_cmd="$(echo dose_discriminator.py \
       ${dose_list} \
       --min_dose ${vars[dosefit_min]} \
@@ -2282,6 +2274,7 @@ function dose_fit() {
       --log_file ${dose_log} \
       --log_verbose ${vars[dosefit_verbose]} | xargs)"
     
+# #     echo "2277 $dosefit_cmd"  ### TESTING
     vprint "\n  $dosefit_cmd\n" "1+" "=${tomo_log}"
     local error_code=$(${SNARTOMO_DIR}/$dosefit_cmd 2>&1)
     
@@ -2295,10 +2288,6 @@ function dose_fit() {
       vprint "$error_code" "1+" "=${tomo_log}"
     fi
     # End error IF-THEN
-#       
-#     echo "2299 good_angles_file '${good_angles_file}'"
-#     mapfile -t sorted_keys < $good_angles_file  # NEEDED?
-#     exit
   fi
   # End dose-list IF-THEN
 }
@@ -3531,16 +3520,12 @@ function ruotnocon_wrapper() {
       for curr_resid in "${bad_residuals[@]}" ; do
         local contour2rm=$(( $curr_resid - 1))
 
-# #         if [[ ${verbose} -ge 3 ]] ; then
         vprint "    Removed contour #${curr_resid}" "3+"
-# #         fi
       
       
         # Remove index from array
         unset 'chunk_array[$contour2rm]'
-# #         if [[ ${verbose} -ge 7 ]] ; then
         vprint "  chunk_array: '${#chunk_array[@]}' '${chunk_array[@]}'" "7+"
-# #         fi
       done
       
       # Initialize new array
@@ -3562,10 +3547,6 @@ function ruotnocon_wrapper() {
         
         # String may have fixed width (https://unix.stackexchange.com/a/354493)
         local new_line="  Object #: ${fmt_spc:0:$(($num_digits - ${#counter}))}${counter:0:$num_digits}"
-        
-    #     sed -i "s/.*$old_line.*/${new_line}/" "${chunk_file}"
-        # Double quotes are required here for some reason.
-        # (Wild card ".*" replaces whole line)
         
         cat ${chunk_file} >> ${new_wimp}
       done
