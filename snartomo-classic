@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2023-04-20"
+  echo "Modified 2023-05-11"
   date
   echo 
 }
@@ -264,7 +264,7 @@ function do_real_work() {
 
   while (( $(echo "$SECONDS < $max_seconds" | bc) )) ; do
     new_files=($(get_new_files "${vars[movie_dir]}" ".${movie_ext}"))
-# #     printf "'%s'\n" "${new_files[@]}" ; exit  ### DIAGNOSTIC
+# #     printf "'%s'\n" "${new_files[@]}" ; exit  ### TESTING
 
     for fn in "${new_files[@]}" ; do
       # Does the file end with .eer?
@@ -965,11 +965,11 @@ function ctffind4_serial() {
 #     
 ###############################################################################
 
-  ctf_out="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.out"
-# #   local ctf_txt="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.txt"
-  local ctf_txt=$(stem2ctfout "$stem_movie")
-# #   local curr_summary="${vars[outdir]}/${ctfdir}/${ctf_summary}"
-  local avg_rot="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf_avrot.txt"
+#   ctf_out="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.out"
+#   local ctf_txt="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.txt"
+#   local ctf_txt=$(stem2ctfout "$stem_movie")
+#   local curr_summary="${vars[outdir]}/${ctfdir}/${ctf_summary}"
+#   local avg_rot="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf_avrot.txt"
   local ctf_mrc="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.mrc"
   
   # Check termination flag
@@ -1082,12 +1082,10 @@ function compute_tomogram() {
 #     mcorr_mic_array
 #     denoise_array
 #     tomo_dir
+#     good_angles_file
 #     recdir
 #     prev_name
 #     tomo_root (OUTPUT)
-# #     mcorr_list
-# #     angles_list
-# #     denoise_list
 #     tomo_dns_dir
 #     micdir
 #     
@@ -1104,11 +1102,8 @@ function compute_tomogram() {
   fi
   
   # Output files
-  local tomo_ctfs="${ctf_summary}"
+# #   local tomo_ctfs="${ctf_summary}"
   tomo_root="${vars[outdir]}/${tomo_dir}/${prev_name}"
-#   mcorr_list="${tomo_root}_mcorr.txt"
-#   angles_list="${tomo_root}_newstack.rawtlt"
-#   denoise_list="${tomo_root}_denoise.txt"
   local cor_ext="_mic.mrc"
   
   # Check length of array (https://unix.stackexchange.com/a/193042)
@@ -1131,35 +1126,50 @@ function compute_tomogram() {
   # Find MDOC file
   if [[ "${vars[mdoc_dir]}" != "" ]] ; then
     local last_mic="$(basename ${mcorr_mic_array[-1]%_mic.mrc})"
-    local found_mdoc=$(grep -l $last_mic ${vars[mdoc_dir]}/*.mdoc)
-    local new_mdoc="${vars[outdir]}/${tomo_dir}/$(basename $found_mdoc)"
+    local found_mdoc=$(grep -l $last_mic ${vars[mdoc_dir]}/*.mdoc 2> /dev/null)
     
     if [[ $found_mdoc != "" ]] ; then
+      local mdoc_base=$(basename $found_mdoc)
+      local mdoc_copy="${vars[outdir]}/${tomo_dir}/${mdoc_base%.mrc.mdoc}_orig.mrc.mdoc"
+      local new_mdoc="${vars[outdir]}/${tomo_dir}/${mdoc_base}"
+      local temp_mdoc_dir="${vars[outdir]}/${tomo_dir}/tmp_mdoc"
+      
       if [[ "$verbose" -ge 2 ]]; then
-        echo -e "\n  Copied $(cp -v --preserve=timestamps ${found_mdoc} ${new_mdoc})"
+        echo -e "\n  Copied $(cp -v --preserve=timestamps ${found_mdoc} ${mdoc_copy})"
       else
-        cp --preserve=timestamps ${found_mdoc} ${new_mdoc}
+        cp --preserve=timestamps ${found_mdoc} ${mdoc_copy}
       fi
   
       # Parse MDOC (awk notation from Tat)
-      mapfile -t mdoc_angle_array < <( grep "TiltAngle" "${new_mdoc}" | awk '{print $3}' | sed 's/\r//' )
-      mapfile -t new_subframe_array < <( grep "SubFramePath" "${new_mdoc}" | awk '{print $3}' | sed 's/\r//' )
-      mapfile -t dose_rate_array < <( grep "DoseRate" "${new_mdoc}" | awk '{print $3}' | sed 's/\r//' )
+      mapfile -t mdoc_angle_array < <( grep "TiltAngle" "${mdoc_copy}" | awk '{print $3}' | sed 's/\r//' )
+      mapfile -t new_subframe_array < <( grep "SubFramePath" "${mdoc_copy}" | awk '{print $3}' | sed 's/\r//' )
+      mapfile -t dose_rate_array < <( grep "DoseRate" "${mdoc_copy}" | awk '{print $3}' | sed 's/\r//' )
       
       # Fit dose to cosine function
-      dose_fit "${prev_name}" "${found_mdoc}" "${new_mdoc}"
+      dose_fit "${prev_name}" "${mdoc_copy}"
+      
+      # Write MDOC file with remaining micrographs
+      clean_up_mdoc "${mdoc_copy}" "${new_mdoc}" "$temp_mdoc_dir"
+    
+    # Not using MDOC
     else
       if [[ "$verbose" -ge 2 ]]; then
-        echo "  WARNING! Didn't find entry '$found_mdoc' in MDOC directory '${vars[mdoc_dir]}'"
+        echo "  WARNING! Didn't find entry MDOC in directory '${vars[mdoc_dir]}'"
       fi
+      
+      good_angles_file="${tomo_root}_goodangles.txt"
     fi
     # End found-MDOC IF-THEN
   fi
   
-  # Plot CTF data
-  plot_tomo_ctfs
+#   echo "1160 mcorr_mic_array" ; printf "'%s'\n" "${mcorr_mic_array[@]}" ; exit  ### TESTING
+#   echo "1166 stripped_angle_array" ; printf "'%s'\n" "${stripped_angle_array[@]}" ; exit  ### TESTING
   
-  write_angles_lists
+  write_angles_lists "${found_mdoc}"
+  
+  # Plot CTF data
+  plot_tomo_ctfs "${found_mdoc}"
+  
   
   # Optionally denoise
   if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]] ; then
@@ -1207,65 +1217,6 @@ function compute_tomogram() {
   let "tomo_counter++"
 }
 
-# function plot_tomo_ctfs() {
-# ###############################################################################
-# #   Function:
-# #     Writes CTF data for a tilt series
-# #     Plots CTF data for tilt series
-# #   
-# #   Global variables:
-# #     vars
-# #     tomo_dir
-# #     ctf_summary
-# #     new_subframe_array
-# #     imgdir
-# #     ts_list
-# #     ctf_plot
-# #     verbose
-# #     
-# ###############################################################################
-#   
-#   local tomo_ctfs="${vars[outdir]}/${tomo_dir}/${ctf_summary}"
-#   
-#   if [[ "${vars[testing]}" == false ]] ; then
-#     # Loop through angles
-#     for mdoc_idx in "${!new_subframe_array[@]}"; do 
-#       # Get movie filename
-#       local movie_file=$(echo ${new_subframe_array[${mdoc_idx}]##*[/\\]} )
-#       
-#       # Get motion-corrected micrograph name
-#       local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
-# # #       local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
-#       local ctf_txt=$(stem2ctfout "$stem_movie")
-#       
-#       # Check that file exists
-#       if [[ -f "$ctf_txt" ]]; then
-#         # Write CTF summary
-#         echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${tomo_ctfs}
-#       
-# #       ### DIAGNOSTIC
-# #       else
-# #         echo "1232 : $mc2_mic doesn't exist"
-#       fi
-#     done
-#     # End angles loop
-#     
-#     local ctfbyts_cmd=$(echo ctfbyts.py \
-#       ${tomo_ctfs} \
-#       ${vars[outdir]}/${imgdir}/${ts_list} \
-#       ${vars[outdir]}/${imgdir}/${ctf_plot} \
-#       --first=${vars[ctfplot_first]} \
-#       --verbosity=$(($verbose-1)) | xargs)
-#     
-#     if [[ "$verbose" -ge 2 ]]; then
-#       echo -e "\n  Running: $ctfbyts_cmd"
-#     fi
-#     
-#     $ctfbyts_cmd
-#   fi
-#   # End testing IF-THEN
-# }
-# 
 function check_time() {
 ###############################################################################
 #   Function:

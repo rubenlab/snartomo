@@ -18,7 +18,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-05-10"
+  echo "Modified 2023-05-11"
   date
   echo 
 }
@@ -2733,7 +2733,7 @@ function tomogram_parallel() {
   # Fit dose to cosine function
   dose_fit "${tomo_base}" "${mdoc_copy}" "${tomo_log}"
   
-  # Write MDOC file with existing micrographs
+  # Write MDOC file with remaining micrographs
   clean_up_mdoc "${mdoc_copy}" "${new_mdoc}" "$temp_mdoc_dir"
   
 # #   echo "2719 mdoc_base '${mdoc_base}', 'new_mdoc '${new_mdoc}'" ; exit ### TESTING
@@ -2790,9 +2790,9 @@ function tomogram_parallel() {
 #   dose_fit "${tomo_base}" "${old_mdoc}" "${new_mdoc}" "${tomo_log}"
 #   
   # Plot CTF data
-  plot_tomo_ctfs >> "${tomo_log}"
+  plot_tomo_ctfs "${new_mdoc} ">> "${tomo_log}"
   
-  write_angles_lists "${tomo_log}"
+  write_angles_lists "${new_mdoc}" "${tomo_log}"
   
   # Optionally denoise
   if [[ "${vars[do_janni]}" == true ]]; then
@@ -2876,118 +2876,6 @@ function tomogram_parallel() {
   
   touch "$(to_tempname ${new_mdoc})"
 }
-
-  function clean_up_mdoc() {
-  ###############################################################################
-  #   Function:
-  #     Removes entries from MDOC for non-existent movies
-  #   
-  #   Positional variables:
-  #     1) original MDOC file (can contain missing files)
-  #     2) output cleaned MDOC file (can be same as input MDOC)
-  #     3) temporary MDOC-fragment directory
-  #   
-  #   Calls functions:
-  #     vprint
-  #   
-  #   Global variables:
-  #     good_angles_file
-  #     vars
-  #     micdir
-  #     cor_ext
-  #   
-  ###############################################################################
-    
-    local old_mdoc=$1
-    local new_mdoc=$2
-    local temp_mdoc_dir=$3
-    
-    # Clean up pre-existing files
-    rm -r $temp_mdoc_dir 2> /dev/null
-    mkdir $temp_mdoc_dir
-    
-    # Parse MDOC (awk notation from Tat)
-    mapfile -t old_subframe_array < <( grep "SubFramePath" "${old_mdoc}" | awk '{print $3}' | sed 's/\r//' )
-    
-    # Remove CRLF (https://www.cyberciti.biz/faq/sed-remove-m-and-line-feeds-under-unix-linux-bsd-appleosx/)
-    local mdoc_nocrlf="$temp_mdoc_dir/$(basename $old_mdoc).txt"
-    sed 's/\r//' $old_mdoc > ${mdoc_nocrlf}
-    local status_code=$?
-    
-    if [[ $status_code -ne 0 ]] ; then
-      echo -e "ERROR!! Status code: '$status_code'\n"
-      exit 3
-    fi
-    
-    # Split MDOC (Adapted from https://stackoverflow.com/a/60972105/3361621)
-    local chunk_prefix="${temp_mdoc_dir}/chunk"
-    csplit --quiet --prefix=$chunk_prefix --suffix-format=%02d.txt --suppress-matched ${mdoc_nocrlf} /^$/ {*}
-    declare -a good_mdoc_array
-    
-    # Read angles from dose-fitting
-    readarray -t good_angle_array < $good_angles_file
-    
-    # Sort (https://stackoverflow.com/a/11789688)
-    IFS=$'\n' sorted_good_angles=($(sort -n <<<"${good_angle_array[*]}"))
-    unset IFS
-    
-# #     printf "'%s'\n" "${sorted_good_angles[@]}" ; exit ### TESTING
-    
-    # Find boundaries of MDOC file
-    local movie_file=$(echo ${old_subframe_array[0]##*[/\\]} )
-    local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
-    local first_movie_file="$(grep -l $stem_movie ${chunk_prefix}*)"  # assuming single hit
-    local first_movie_chunk="$(basename $first_movie_file | sed 's/[^0-9]*//g')"
-    local last_header_chunk=$(( $first_movie_chunk - 1 ))
-    
-    # Loop through movies
-    for mdoc_idx in "${sorted_good_angles[@]}"; do 
-      # Get movie filename
-      local movie_file=$(echo ${old_subframe_array[${mdoc_idx}]##*[/\\]} )
-      
-      # Get motion-corrected micrograph name
-      local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
-      local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
-      
-      # Check that motion-corrected micrograph exists
-      if [[ -f "$mc2_mic" ]]; then
-        good_mdoc_array+=($mdoc_idx)
-      fi
-    done
-    # End angles loop
-    
-    # Build new MDOC
-    rm $new_mdoc 2> /dev/null
-    touch $new_mdoc
-    
-    # MDOC header may contain variable number of CR-delimited blocks before first micrograph
-    for filenum in $(seq 0 $last_header_chunk) ; do
-      cat "${chunk_prefix}$(printf '%02d' $filenum).txt" >> $new_mdoc
-      echo >> $new_mdoc
-    done
-    
-    local good_counter=0
-    
-    # Append micorgraph-related chunks
-    for mdoc_idx in "${!good_mdoc_array[@]}"; do 
-      local old_idx="${good_mdoc_array[mdoc_idx]}"
-      local curr_chunk="${chunk_prefix}$(printf '%02d' $(( $old_idx + $last_header_chunk + 1 )) ).txt"
-      
-      # Remove regex characters (https://stackoverflow.com/a/28563120)
-      local zvalue_line="$(\grep '\[ZValue' ${curr_chunk} | sed -e 's/[]$.*[\^]/\\&/g' )"
-      local zvalue_orig="$(echo $zvalue_line | sed 's/[^0-9]*//g')"
-      
-      # Replace ZValue
-      local new_line=$(echo ${zvalue_line/$zvalue_orig/$good_counter})
-# #       echo "2984 zvalue_line '${zvalue_line}', new_line '${new_line}'"  ### TESTING
-      sed -i "s/${zvalue_line}/${new_line}/" $curr_chunk
-      let "good_counter++"
-      
-      # Append
-      cat $curr_chunk >> $new_mdoc
-      echo >> $new_mdoc
-    done
-  }
 
 function DUMMY_FUNCTION() {
 ###############################################################################

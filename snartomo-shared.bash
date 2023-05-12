@@ -1999,6 +1999,7 @@ function ctffind_common() {
 #   Global variables:
 #     vars
 #     ctfdir
+#     ctf_summary
 #     warn_msg (OUTPUT)
 #     do_pace
 #     cor_mic
@@ -2298,10 +2299,8 @@ function write_angles_lists() {
 #     Write angles to file
 #     
 #   Positional variables:
-#     1) motion-corrected micrograph list
-#     2) output angles list
-#     3) denoise micrograph list
-#     4) output log file
+#     1) MDOC file (may be empty)
+#     2) output log file
 #   
 #   Global variables:
 #     good_angles_file
@@ -2320,12 +2319,16 @@ function write_angles_lists() {
 #     
 ###############################################################################
   
-  local outlog=$1
+  local outlog=$2
 
-#   # Sort
-#   sorted_keys=$(sort_array_keys "${stripped_angle_array[@]}")
-  mapfile -t sorted_keys < $good_angles_file
+  if [[ $found_mdoc == "" ]] ; then
+    # Sort
+    sort_array_keys "${stripped_angle_array[@]}"
+# #     sorted_keys=$(sort_array_keys "${stripped_angle_array[@]}")
+  fi
   
+  mapfile -t sorted_keys < $good_angles_file
+
 #   echo "2334 sorted_keys ${#sorted_keys[*]}:"
 #   printf "  '%s'\n" "${sorted_keys[@]}"
 #   echo "2336 stripped_angle_array ${#stripped_angle_array[*]}:"
@@ -2352,7 +2355,7 @@ function write_angles_lists() {
   
   # Loop through sorted keys 
   for idx in "${sorted_keys[@]}" ; do
-# #     echo "2361 idx '${idx}' '${stripped_angle_array[${idx}]}'"
+# #     echo "2357 idx '${idx}' '${stripped_angle_array[${idx}]}'"
     echo    "${stripped_angle_array[${idx}]}" >> $angles_list
     echo -e "${mcorr_mic_array[$idx]}\n/" >> $mcorr_list
     echo -e "${ctf_stk_array[$idx]}\n/" >> $ctf_list
@@ -2390,14 +2393,19 @@ function write_angles_lists() {
   #     Sort array accourding to angle
   #   
   #   Global variables:
+  #     good_angles_file
   #     stripped_angle_array
   #     
   ###############################################################################
     
+    \rm $good_angles_file
+    
     # Sort by angle (Adapted from https://stackoverflow.com/a/54560296)
     for KEY in ${!stripped_angle_array[@]}; do
       echo "${stripped_angle_array[$KEY]}:::$KEY"
-    done | sort -n | awk -F::: '{print $2}'
+    done | sort -n | awk -F::: '{print $2}' >> $good_angles_file
+#     
+#     echo "2407 $good_angles_file" ; nl $good_angles_file ; exit ### TESTING
   }
 
 function plot_tomo_ctfs() {
@@ -2406,11 +2414,16 @@ function plot_tomo_ctfs() {
 #     Writes CTF data for a tilt series
 #     Plots CTF data for tilt series
 #   
+#   Positional variable:
+#     1) MDOC file (may be empty in Classic mode)
+#     
 #   Global variables:
 #     vars
 #     tomo_dir
 #     ctf_summary
+#     found_mdoc
 #     new_subframe_array
+#     mcorr_mic_array
 #     imgdir
 #     ts_list
 #     ctf_plot
@@ -2418,33 +2431,56 @@ function plot_tomo_ctfs() {
 #     
 ###############################################################################
   
+  local found_mdoc=$1
+  
   local tomo_ctfs="${vars[outdir]}/${tomo_dir}/${ctf_summary}"
   
   if [[ "${vars[testing]}" == false ]] ; then
-    # Loop through angles
-    for mdoc_idx in "${!new_subframe_array[@]}"; do 
-      # Get movie filename
-      local movie_file=$(echo ${new_subframe_array[${mdoc_idx}]##*[/\\]} )
-      
-      # Get motion-corrected micrograph name
-      local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
-      local ctf_txt=$(stem2ctfout "$stem_movie")
-      
-      # Check that file exists
-      if [[ -f "$ctf_txt" ]]; then
-        # Write CTF summary
-        echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${tomo_ctfs}
-      
-#       ### DIAGNOSTIC
-#       else
-#         echo "1232 : $ctf_txt doesn't exist"
-      fi
-    done
-    # End angles loop
+    if [[ $found_mdoc != "" ]] ; then
+      # Loop through angles
+      for mdoc_idx in "${!new_subframe_array[@]}"; do 
+        # Get movie filename
+        local movie_file=$(echo ${new_subframe_array[${mdoc_idx}]##*[/\\]} )
+        
+        # Get motion-corrected micrograph name
+        local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
+        local ctf_txt=$(stem2ctfout "$stem_movie")
+        
+        # Check that file exists
+        if [[ -f "$ctf_txt" ]]; then
+          # Write CTF summary
+          echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${tomo_ctfs}
+        fi
+      done
+      # End angles loop
     
-    # Look for duplicates ("<" suppreses filename)
-    local len_before=$(wc -l < $tomo_ctfs)
-    awk '!seen[$0]++' $tomo_ctfs > ${tomo_ctfs}.tmp  # Might be able to do this without intermediate file
+    # If MDOC not used...
+    else
+# #       echo "2452 mcorr_mic_array" ; printf "'%s'\n" "${mcorr_mic_array[@]}" ; exit  ### TESTING
+        
+      # Loop through micrographs
+      for fn in ${mcorr_mic_array[@]} ; do
+        local stem_mic=$(basename $fn | rev | cut -d. -f2- | rev)
+        local stem_movie=${stem_mic%_mic}
+        local ctf_txt=$(stem2ctfout "$stem_movie")
+# #         echo "2458 stem_movie '$stem_movie', ctf_txt '$ctf_txt'" ; exit  ### TESTING
+        
+        # Check that file exists
+        if [[ -f "$ctf_txt" ]]; then
+          # Write CTF summary
+          echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${tomo_ctfs}
+        fi
+      done
+      # End micrograph-loop
+    fi
+    # End MDOC IF-THEN
+    
+    # "<" suppreses filename (TODO: Sanity check for length 0)
+    local len_before=$(wc -l < $tomo_ctfs)  
+# #     echo "2450 len_before '$len_before'" ; exit  ### TESTING
+    
+    # Look for duplicates (Might be able to do this without intermediate file)
+    awk '!seen[$0]++' $tomo_ctfs > ${tomo_ctfs}.tmp 
     local len_after=$(wc -l < ${tomo_ctfs}.tmp)
     mv ${tomo_ctfs}.tmp ${tomo_ctfs}
     
@@ -2605,6 +2641,118 @@ function get_gpu() {
       gpu_local="-1"
     fi
   fi
+}
+
+function clean_up_mdoc() {
+###############################################################################
+#   Function:
+#     Removes entries from MDOC for non-existent movies
+#   
+#   Positional variables:
+#     1) original MDOC file (can contain missing files)
+#     2) output cleaned MDOC file (can be same as input MDOC)
+#     3) temporary MDOC-fragment directory
+#   
+#   Calls functions:
+#     vprint
+#   
+#   Global variables:
+#     good_angles_file
+#     vars
+#     micdir
+#     cor_ext
+#   
+###############################################################################
+  
+  local old_mdoc=$1
+  local new_mdoc=$2
+  local temp_mdoc_dir=$3
+  
+  # Clean up pre-existing files
+  rm -r $temp_mdoc_dir 2> /dev/null
+  mkdir $temp_mdoc_dir
+  
+  # Parse MDOC (awk notation from Tat)
+  mapfile -t old_subframe_array < <( grep "SubFramePath" "${old_mdoc}" | awk '{print $3}' | sed 's/\r//' )
+  
+  # Remove CRLF (https://www.cyberciti.biz/faq/sed-remove-m-and-line-feeds-under-unix-linux-bsd-appleosx/)
+  local mdoc_nocrlf="$temp_mdoc_dir/$(basename $old_mdoc).txt"
+  sed 's/\r//' $old_mdoc > ${mdoc_nocrlf}
+  local status_code=$?
+  
+  if [[ $status_code -ne 0 ]] ; then
+    echo -e "ERROR!! Status code: '$status_code'\n"
+    exit 3
+  fi
+  
+  # Split MDOC (Adapted from https://stackoverflow.com/a/60972105/3361621)
+  local chunk_prefix="${temp_mdoc_dir}/chunk"
+  csplit --quiet --prefix=$chunk_prefix --suffix-format=%02d.txt --suppress-matched ${mdoc_nocrlf} /^$/ {*}
+  declare -a good_mdoc_array
+  
+  # Read angles from dose-fitting
+  readarray -t good_angle_array < $good_angles_file
+  
+  # Sort (https://stackoverflow.com/a/11789688)
+  IFS=$'\n' sorted_good_angles=($(sort -n <<<"${good_angle_array[*]}"))
+  unset IFS
+  
+# #     printf "'%s'\n" "${sorted_good_angles[@]}" ; exit ### TESTING
+  
+  # Find boundaries of MDOC file
+  local movie_file=$(echo ${old_subframe_array[0]##*[/\\]} )
+  local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
+  local first_movie_file="$(grep -l $stem_movie ${chunk_prefix}*)"  # assuming single hit
+  local first_movie_chunk="$(basename $first_movie_file | sed 's/[^0-9]*//g')"
+  local last_header_chunk=$(( $first_movie_chunk - 1 ))
+  
+  # Loop through movies
+  for mdoc_idx in "${sorted_good_angles[@]}"; do 
+    # Get movie filename
+    local movie_file=$(echo ${old_subframe_array[${mdoc_idx}]##*[/\\]} )
+    
+    # Get motion-corrected micrograph name
+    local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
+    local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
+    
+    # Check that motion-corrected micrograph exists
+    if [[ -f "$mc2_mic" ]]; then
+      good_mdoc_array+=($mdoc_idx)
+    fi
+  done
+  # End angles loop
+  
+  # Build new MDOC
+  rm $new_mdoc 2> /dev/null
+  touch $new_mdoc
+  
+  # MDOC header may contain variable number of CR-delimited blocks before first micrograph
+  for filenum in $(seq 0 $last_header_chunk) ; do
+    cat "${chunk_prefix}$(printf '%02d' $filenum).txt" >> $new_mdoc
+    echo >> $new_mdoc
+  done
+  
+  local good_counter=0
+  
+  # Append micorgraph-related chunks
+  for mdoc_idx in "${!good_mdoc_array[@]}"; do 
+    local old_idx="${good_mdoc_array[mdoc_idx]}"
+    local curr_chunk="${chunk_prefix}$(printf '%02d' $(( $old_idx + $last_header_chunk + 1 )) ).txt"
+    
+    # Remove regex characters (https://stackoverflow.com/a/28563120)
+    local zvalue_line="$(\grep '\[ZValue' ${curr_chunk} | sed -e 's/[]$.*[\^]/\\&/g' )"
+    local zvalue_orig="$(echo $zvalue_line | sed 's/[^0-9]*//g')"
+    
+    # Replace ZValue
+    local new_line=$(echo ${zvalue_line/$zvalue_orig/$good_counter})
+# #       echo "2984 zvalue_line '${zvalue_line}', new_line '${new_line}'"  ### TESTING
+    sed -i "s/${zvalue_line}/${new_line}/" $curr_chunk
+    let "good_counter++"
+    
+    # Append
+    cat $curr_chunk >> $new_mdoc
+    echo >> $new_mdoc
+  done
 }
 
 function imod_restack() {
@@ -3095,7 +3243,6 @@ function wrapper_etomo() {
 #     1) file stem (including relative path)
 #     2) number of images in tilt series
 #     3) additional batchruntomo parameters
-# #     4) (boolean) redo pre-existing reconstruction (default: true, old file backed up)
 #     
 #   Calls functions:
 #     vprint
@@ -3112,12 +3259,6 @@ function wrapper_etomo() {
   local num_mics=$2
   local more_flags=$3
   
-#   if [[ "$4" == "" ]]; then
-#     local do_overwrite=true
-#   else
-#     local do_overwrite=false
-#   fi
-  
   local do_reconstruct=true
   local etomo_out="${vars[outdir]}/${tomo_dir}/${tomo_base}_std.out"
   local etomo_cmd="batchruntomo -RootName ${tomo_base}_newstack -CurrentLocation ${vars[outdir]}/${tomo_dir} -DirectiveFile ${vars[batch_directive]} ${more_flags}"
@@ -3126,14 +3267,11 @@ function wrapper_etomo() {
   if [[ "${vars[testing]}" == false ]]; then
     # Check if output already exists
     if [[ -e $tomogram_3d ]]; then
-# #       if [[ "${do_overwrite}" == false ]] && [[ "${vars[no_redo3d]}" == true ]] ; then
       if [[ "${vars[no_redo3d]}" == true ]] ; then
         do_reconstruct=false
         
         if [[ "$verbose" -ge 2 ]]; then
           echo -e "\n  eTomo output $tomogram_3d already exists, skipping..."
-#         else
-#           mv $tomogram_3d ${tomogram_3d}.bak
         fi
       else
         if [[ "$verbose" -ge 2 ]]; then
@@ -3166,8 +3304,6 @@ function wrapper_etomo() {
       fi
       # End verbosity cases
       
-#       vprint "" "2+"
-#       
       # If final alignment
       if [[ "${vars[do_ruotnocon]}" == false ]] || [[ "${more_flags}" == "-start 6" ]] ; then
         # Sanity check: tomogram exists
@@ -3194,13 +3330,12 @@ function wrapper_etomo() {
   
   # If testing
   else
-# #     if [[ "${do_overwrite}" == false ]] && [[ "${vars[no_redo3d]}" == true ]] ; then
     if [[ "${vars[no_redo3d]}" == true ]] ; then
       do_reconstruct=false
       vprint "\n  eTomo output $tomogram_3d already exists, skipping..." "2+"
     else
       if [[ "$verbose" -ge 3 ]]; then
-        echo -e "\n  TESTING $etomo_cmd\n"
+        echo -e "  TESTING $etomo_cmd\n"
       elif [[ "$verbose" -eq 2 ]]; then
         echo      "  ${etomo_cmd}"
       fi
