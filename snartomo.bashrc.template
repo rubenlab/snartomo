@@ -16,6 +16,61 @@ export ARETOMO_EXE=""                          # AreTomo executable
 export CP_EER_LOCAL="false"                    # Copy EER file temporarily to local drive (useful for Falcon 4i data)
 export SNARTOMO_LOCAL="/tmp/SNARTomo-${USER}"  # Local directory for temporary EERs
 
+# Global parameters
+export SNARTOMO_VOLTAGE=300.0                                     # Acceleration voltage (kV) -- F20: 200, Krios: 300
+export SNARTOMO_INTERVAL=2                                        # Monitors files & resources every N seconds
+export SNARTOMO_MINFRAMES=400                                     # Minimum number of frames (EERs only) before warning
+export SNARTOMO_MAXFRAMES=1200                                    # Maximum number of frames (EERs only) before warning
+export SNARTOMO_EER_WAIT=8                                        # (seconds) EER files are copied locally if header takes longer than this time
+export SNARTOMO_RUOTNOCON_SD=3.0                                  # Contours with eTomo residuals greater than this multiple of sigma will be removed
+# 
+# SNARTomoPACE only
+export SNARTOMO_TILT_TOLERANCE=0.2                                # Angle difference of last tilt +/- this value will signal end of series
+export SNARTOMO_RAM_WARN=20                                       # Free system memory (GB) before warning printed
+export SNARTOMO_RAM_KILL=10                                       # Free system memory (GB) before exiting
+export SNARTOMO_IMOD_SLOTS=2                                      # Maximum number of IMOD processes to run concurrently
+
+# MotionCor2
+export SNARTOMO_MC2_WAIT=120.0                                    # (seconds) How long to wait for /tmp/MotionCor2_FreeGpus.txt to be removed
+export SNARTOMO_MC2_PATCH="0 0"                                   # number of patches in x y, delimited by spaces
+
+# CTFFIND
+export SNARTOMO_CTF_SLOTS=2                                       # Maximum number of CTFFIND4 processes to run concurrently (PACE only)
+export SNARTOMO_CTF_CS=2.7                                        # Spherical aberration (mm) -- F20: 2.0, Krios: 2.7
+export SNARTOMO_AC=0.07                                           # Amplitude contrast: 0.07-0.1 for cryo data, 0.14-0.2 for neg.stain data
+export SNARTOMO_CTF_BOXSIZE=512                                   # Box size
+export SNARTOMO_CTF_RESLO=30.0                                    # (Angstroms) Low resolution limit for CTF fitting
+export SNARTOMO_CTF_RESHI=9.0                                     # (Angstroms) High resolution limit for CTF fitting
+export SNARTOMO_CTF_DFLO=30000.0                                  # (Angstroms) Minimal defocus value to consider during fitting
+export SNARTOMO_CTF_DFHI=70000.0                                  # (Angstroms) Maximal defocus value to consider during fitting
+export SNARTOMO_DF_STEP=500.0                                     # Defocus step
+export SNARTOMO_CTF_DAST=1000                                     # Astigmatism restraint
+
+# JANNI
+export SNARTOMO_JANNI_BATCH=4                                     # Number of patches predicted in parallel
+export SNARTOMO_JANNI_OVERLAP=24                                  # (pixels) Overlap between patches
+
+# TOPAZ
+export SNARTOMO_TOPAZ_PATCH=2048                                  # Patch size
+export SNARTOMO_TOPAZ_TIME=2h                                     # Maximum duration, Topaz sometimes hangs, needs to be longer for CPU
+
+# DoseDiscriminator
+export SNARTOMO_DOSEFIT_MIN=0.1                                   # Minimum dose rate allowed, as a fraction of maximum dose rate
+export SNARTOMO_DOSEFIT_RESID=0.1                                 # Maximum residual during dose-fitting, as a fraction of maximum dose rate
+
+# AreTomo parameters
+export SNARTOMO_BINNING=8                                         # Binning factor
+export SNARTOMO_VOL_ZDIM=1600                                     # z-dimension for volume
+export SNARTOMO_REC_ZDIM=1000                                     # z-dimension for 3D reconstruction
+export SNARTOMO_TILT_AXIS=86.0                                    # (degrees) Estimate for tilt-axis direction
+export SNARTOMO_DARKTOL=0.7                                       # Tolerance for dark images
+export SNARTOMO_TILTCOR=1                                         # (boolean) Tilt-correct (1: yes, 0: no)
+export SNARTOMO_BP_METHOD=1                                       # Reconstruction method (1: weighted backprojection, 0: SART)
+export SNARTOMO_FLIPVOL=1                                         # (boolean) Flip coordinates axes (1: yes, 0: no)
+export SNARTOMO_TRANSFILE=1                                       # (boolean) Generate IMOD XF files
+export SNARTOMO_ARETOMO_PATCH="0 0"                               # Number of patches in x & y (slows down alignment)
+export SNARTOMO_ARETOMO_TIME=30m                                  # Maximum duration, AreTomo sometimes hangs
+
 ##### YOU SHOULDN'T NEED TO MODIFY ANYTHING BELOW THIS LINE #####
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

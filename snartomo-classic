@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2023-05-11"
+  echo "Modified 2023-05-16"
   date
   echo 
 }
@@ -59,7 +59,7 @@ function howto_stop() {
 #################### Filenames ####################
 
 # Inputs
-shared_libs=snartomo-shared.bash                   # Shared libraries
+shared_libs=snartomo-shared-15may.bash                   # Shared libraries
 log_file=log-snartomo.txt                          # Log file
 outdir=SNARTomo                                    # Output top-level directory
 
@@ -68,7 +68,6 @@ outdir=SNARTomo                                    # Output top-level directory
 # General parameters
 max_minutes=600                                   # Maximum run time, minutes
 apix=-1.00                                        # A/px
-voltage=300.0                                     # F20: 200, Krios: 300
 gpus="0"                                          # list of GPUs to use, delimited by spaces
 verbosity=4                                       # verbosity level
 #                                                 #   0: prints nothing
@@ -80,64 +79,16 @@ verbosity=4                                       # verbosity level
 #                                                 #   6: prints summary of IMOD & AreTomo info
 #                                                 #   7: prints full MotionCor/CTFFIND/IMOD/AreTomo info
 #                                                 #   8: extra debug info
-
-# Advanced
-min_frames=400                                    # minimum number of frames (EERs only) before warning
-max_frames=1200                                   # maximum number of frames (EERs only) before warning
-eer_latency=7                                     # (seconds) EER files are copied locally if header takes longer than this time
-search_interval=4                                 # Looks for new micrographs every N seconds
+dosefit_verbose=6                                 # Verbosity level for dose-fitting log file (0..8)
 
 # MotionCor2
 frame_file=motioncor-frame.txt                    # Frames file
-mcor_patches="0 0"                                # number of patches in x y, delimited by spaces
 reffrm=1                                          # (boolean) reference frame (0: first, 1: middle)
 SplitSum=0                                        # (boolean) split frames into even & odd half-sets (1: yes)
-mc2_wait=120.0                                    # (seconds) maximum wait for competing user's MotionCor2_FreeGpus.txt file to be deleted
 
 # CTFFIND
-cs=2.7                                            # F20: 2.0, Krios: 2.7
-ac=0.07                                           # 300.0 amplitude contrast: 0.07-0.1 for cryo data, 0.14-0.2 for neg.stain data
-boxSz=512                                         # box size
-resL=30.0                                         # low resolution limit for CTF fitting (Angstrom)
-resH=9.0                                          # high resolution limit for CTF fitting (Angstrom)
-defL=30000.0                                      # minimal defocus value to consider during fitting (Angstrom)
-defH=70000.0                                      # maximal defocus value to consider during fitting (Angstrom)
-dStep=500.0                                       # defocus step
-dAst=100.0                                        # astigmatism restraint
 ctf1d_dpi=250                                     # Resolution (dpi) of PNG of 1D CTF profile
 ctfplot_first=-1                                  # Plots first CTF data for first N images in tilt series
-
-# JANNI
-do_janni=false                                    # run Topaz denoise
-janni_overlap=24                                  # overlap between patches, pixels
-janni_batch=4                                     # number of patches predicted in parallel
-
-# TOPAZ
-do_topaz=false                                    # Run Topaz denoise
-topaz_patch=2048                                  # Patch size
-topaz_time=2h                                     # maximum duration, Topaz sometimes hangs, needs to be longer for CPU
-
-# DoseDiscriminator
-dosefit_min=0.1                                   # Minimum dose rate allowed, as a fraction of maximum dose rate
-dosefit_resid=0.1                                 # Maximum residual during dose-fitting, as a fraction of maximum dose rate
-dosefit_verbose=6                                 # Verbosity level for dose-fitting log file (0..8)
-
-# Ruotnocon contour removal
-do_ruotnocon=false                                # Remove bad contours
-rnc_sd=3.0                                        # Contours with residuals greater than this multiple of sigma will be removed
-
-# AreTomo parameters
-bin_factor=8                                      # binning factor
-vol_zdim=1600                                     # z-dimension for volume
-rec_zdim=1000                                     # z-dimension for 3D reconstruction
-tilt_axis=86.0                                    # estimate for tilt-axis direction
-dark_tol=0.7                                      # tolerance for dark images
-tilt_cor=1                                        # (boolean) tilt-correct (1: yes, 0: no)
-bp_method=1                                       # reconstruction method (1: weighted backprojection, 0: SART)
-flip_vol=1                                        # (boolean) flip coordinates axes (1: yes, 0: no)
-transfile=1                                       # (boolean) generate IMOD XF files
-are_patches="0 0"                                 # number of patches in x & y (slows down alignment)
-are_time=30m                                      # maximum duration, AreTomo sometimes hangs
 
 #################### Outputs #################### 
 
@@ -341,18 +292,18 @@ function parse_command_line() {
   add_argument "overwrite" "false" "Flag to overwrite pre-existing output directory" "BOOL"
   add_argument "log" "${log_file}" "Output log file (not used in testing mode)" "ANY"
   add_argument "max_minutes" "${max_minutes}" "Maximum run time, minutes" "INT"
-  add_argument "kv" "${voltage}" "Voltage, kV" "FLOAT"
+  add_argument "kv" "${SNARTOMO_VOLTAGE}" "Voltage, kV" "FLOAT"
   add_argument "gpus" "${gpus}" "GPU to use (only single GPU supported in Classic mode)" "ANY"
   add_argument "no_redo3d" "false" "Flag to NOT overwrite pre-existing 3D reconstructions" "BOOL"
   add_argument "denoise_gpu" "${DENOISE_GPU}" "Flag to denoise using GPUs" "BOOL"
 
   add_section "ADVANCED SETTINGS" "These settings will rarely need to be changed."
-  add_argument "search_interval" "${search_interval}" "Interval to check for new micrographs, seconds" "INT"
-  add_argument "min_frames" "${min_frames}" "Minimum number of frames (EERs only) before warning" "INT"
-  add_argument "max_frames" "${max_frames}" "Maximum number of frames (EERs only) before warning" "INT"
+  add_argument "search_interval" "${SNARTOMO_INTERVAL}" "Interval to check for new micrographs, seconds" "INT"
+  add_argument "min_frames" "${SNARTOMO_MINFRAMES}" "Minimum number of frames (EERs only) before warning" "INT"
+  add_argument "max_frames" "${SNARTOMO_MAXFRAMES}" "Maximum number of frames (EERs only) before warning" "INT"
   add_argument "temp_local" "${SNARTOMO_LOCAL}" "Directory to copy EER files locally" "ANY"
   add_argument "eer_local" "${CP_EER_LOCAL}" "Flag to temporarily copy EER files locally" "BOOL"
-  add_argument "eer_latency" "${eer_latency}" "Maximum header read time before micrograph is copied locally" "FLOAT"
+  add_argument "eer_latency" "${SNARTOMO_EER_WAIT}" "Maximum header read time before micrograph is copied locally" "FLOAT"
   add_argument "debug" "false" "Flag for debugging" "BOOL"
   
   # MotionCor2
@@ -362,53 +313,53 @@ function parse_command_line() {
   add_argument "no_gain" "false" "Flag when no gain file is to be used" "BOOL"
   add_argument "motioncor_exe" "${MOTIONCOR2_EXE}" "MotionCor2 executable" "ANY"
   add_argument "do_dosewt" "false" "Flag to perform dose-weighting" "BOOL"
-  add_argument "mcor_patches" "${mcor_patches}" "Number of patches in x y, delimited by spaces" "ANY"
+  add_argument "mcor_patches" "${SNARTOMO_MC2_PATCH}" "Number of patches in x y, delimited by spaces" "ANY"
   add_argument "do_outstack" "false" "Flag to write aligned stacks" "BOOL"
   add_argument "do_splitsum" "false" "Flag to split frames into even & odd half-sets" "BOOL"
   add_argument "split_sum" "${SplitSum}" "(DEPRECATED) Split frames into even & odd half-sets (0: no, 1: yes)" "INT"
   add_argument "reffrm" "${reffrm}" "Reference frame (0: first, 1: middle)" "INT"
-  add_argument "mc2_wait" "${mc2_wait}" "Maximum wait (seconds) for competing user's MotionCor2_FreeGpus.txt file to be deleted" "FLOAT"
+  add_argument "mc2_wait" "${SNARTOMO_MC2_WAIT}" "Maximum wait (seconds) for competing user's MotionCor2_FreeGpus.txt file to be deleted" "FLOAT"
 
   # CTFFIND
   add_section "CTFFIND4 SETTINGS" "Settings for CTF estimation."
   add_argument "ctffind_dir" "${CTFFIND4_BIN}" "CTFFIND executable directory" "ANY"
-  add_argument "cs" "${cs}" "Spherical aberration constant (F20: 2.0, Krios: 2.7)" "FLOAT"
-  add_argument "ac" "${ac}" "Amplitude contrast (0.07-0.1 for cryo data, 0.14-0.2 for neg.stain data)" "FLOAT"
-  add_argument "box" "${boxSz}" "Tile size for power-spectrum calculation" "INT"
-  add_argument "res_lo" "${resL}" "Low-resolution limit for CTF fitting, Angstroms" "FLOAT"
-  add_argument "res_hi" "${resH}" "High-resolution limit for CTF fitting, Angstroms" "FLOAT"
-  add_argument "df_lo" "${defL}" "Minimum defocus value to consider during fitting, Angstroms" "FLOAT"
-  add_argument "df_hi" "${defH}" "Maximum defocus value to consider during fitting, Angstroms" "FLOAT"
-  add_argument "df_step" "${dStep}" "Defocus search step during fitting, Angstroms" "FLOAT"
-  add_argument "ast_step" "${dAst}" "Astigmatism search step during fitting, Angstroms" "FLOAT"
+  add_argument "cs" "${SNARTOMO_CTF_CS}" "Spherical aberration constant (F20: 2.0, Krios: 2.7)" "FLOAT"
+  add_argument "ac" "${SNARTOMO_AC}" "Amplitude contrast (0.07-0.1 for cryo data, 0.14-0.2 for neg.stain data)" "FLOAT"
+  add_argument "box" "${SNARTOMO_CTF_BOXSIZE}" "Tile size for power-spectrum calculation" "INT"
+  add_argument "res_lo" "${SNARTOMO_CTF_RESLO}" "Low-resolution limit for CTF fitting, Angstroms" "FLOAT"
+  add_argument "res_hi" "${SNARTOMO_CTF_RESHI}" "High-resolution limit for CTF fitting, Angstroms" "FLOAT"
+  add_argument "df_lo" "${SNARTOMO_CTF_DFLO}" "Minimum defocus value to consider during fitting, Angstroms" "FLOAT"
+  add_argument "df_hi" "${SNARTOMO_CTF_DFHI}" "Maximum defocus value to consider during fitting, Angstroms" "FLOAT"
+  add_argument "df_step" "${SNARTOMO_DF_STEP}" "Defocus search step during fitting, Angstroms" "FLOAT"
+  add_argument "ast_step" "${SNARTOMO_CTF_DAST}" "Astigmatism search step during fitting, Angstroms" "FLOAT"
   add_argument "ctf1d_dpi" "$ctf1d_dpi" "Resolution (dpi) of PNG of 1D CTF profile" "INT"
   add_argument "ctfplot_first" "$ctfplot_first" "Plots first CTF data for first N images in tilt series" "INT"
 
   # JANNI
   add_section "JANNI SETTINGS" "Settings for JANNI denoise."
-  add_argument "do_janni" "${do_janni}" "Denoise micrographs using JANNI" "BOOL"
+  add_argument "do_janni" "false" "Denoise micrographs using JANNI" "BOOL"
   add_argument "janni_model" "${JANNI_MODEL}" "JANNI 'h5' model file" "ANY"
-  add_argument "janni_batch" "${janni_batch}" "Number of patches predicted in parallel" "INT"
-  add_argument "janni_overlap" "${janni_overlap}" "Overlap between patches, pixels" "INT"
+  add_argument "janni_batch" "${SNARTOMO_JANNI_BATCH}" "Number of patches predicted in parallel" "INT"
+  add_argument "janni_overlap" "${SNARTOMO_JANNI_OVERLAP}" "Overlap between patches, pixels" "INT"
   add_argument "janni_env" "${JANNI_ENV}" "JANNI conda environment" "ANY"
 
   # DoseDiscriminator
   add_section "DOSEDISCRIMINATOR SETTINGS" "Settings for dose-fitting."
-  add_argument "dosefit_min" "${dosefit_min}" "Minimum dose rate allowed, as a fraction of maximum dose rate" "FLOAT"
-  add_argument "dosefit_resid" "${dosefit_resid}" "Maximum residual during dose-fitting, as a fraction of maximum dose rate" "FLOAT"
+  add_argument "dosefit_min" "${SNARTOMO_DOSEFIT_MIN}" "Minimum dose rate allowed, as a fraction of maximum dose rate" "FLOAT"
+  add_argument "dosefit_resid" "${SNARTOMO_DOSEFIT_RESID}" "Maximum residual during dose-fitting, as a fraction of maximum dose rate" "FLOAT"
   add_argument "dosefit_verbose" "${dosefit_verbose}" "Verbosity level for dose-fitting log file (0..8)" "ANY"
 
   # TOPAZ
   add_section "TOPAZ SETTINGS" "Settings for denoising."
-  add_argument "do_topaz" "${do_topaz}" "Denoise micrographs using Topaz" "BOOL"
-  add_argument "topaz_patch" "${topaz_patch}" "Patch size for Topaz denoising" "INT"
-  add_argument "topaz_time" "${topaz_time}" "Maximum duration, Topaz sometimes hangs" "ANY"
+  add_argument "do_topaz" "false" "Denoise micrographs using Topaz" "BOOL"
+  add_argument "topaz_patch" "${SNARTOMO_TOPAZ_PATCH}" "Patch size for Topaz denoising" "INT"
+  add_argument "topaz_time" "${SNARTOMO_TOPAZ_TIME}" "Maximum duration, Topaz sometimes hangs" "ANY"
   add_argument "topaz_env" "${TOPAZ_ENV}" "Topaz conda environment" "ANY"
 
   # Ruotnocon contour removal
   add_section "RUOTNOCON SETTINGS" "Settings for contour removal in IMOD reconstruction."
-  add_argument "do_ruotnocon" "${do_ruotnocon}" "Remove contours based on residual" "BOOL"
-  add_argument "ruotnocon_sd" "${rnc_sd}" "Contours with residuals greater than this multiple of sigma will be removed" "FLOAT"
+  add_argument "do_ruotnocon" "false" "Remove contours based on residual" "BOOL"
+  add_argument "ruotnocon_sd" "${SNARTOMO_RUOTNOCON_SD}" "Contours with residuals greater than this multiple of sigma will be removed" "FLOAT"
 
   # IMOD
   add_section "IMOD SETTINGS" "Settings for IMOD: restacking and optional eTomo reconstruction."
@@ -418,17 +369,17 @@ function parse_command_line() {
   # AreTomo parameters
   add_section "ARETOMO SETTINGS" "Reconstruction will be computed either with AreTomo (default) or IMOD."
   add_argument "aretomo_exe" "${ARETOMO_EXE}" "AreTomo executable" "ANY"
-  add_argument "are_bin" "${bin_factor}" "Binning factor for reconstruction" "INT"
-  add_argument "vol_zdim" "${vol_zdim}" "z-dimension for volume" "INT"
-  add_argument "rec_zdim" "${rec_zdim}" "z-dimension for 3D reconstruction" "INT"
-  add_argument "tilt_axis" "${tilt_axis}" "Estimate for tilt-axis direction, degrees" "FLOAT"
-  add_argument "dark_tol" "${dark_tol}" "Tolerance for dark images (0.0-1.0)" "FLOAT"
-  add_argument "tilt_cor" "${tilt_cor}" "Tilt-correction flag (1: yes, 0: no)" "INT"
-  add_argument "bp_method" "${bp_method}" "Reconstruction method (1: weighted backprojection, 0: SART)" "INT"
-  add_argument "flip_vol" "${flip_vol}" "Flag to flip coordinates axes (1: yes, 0: no)" "INT"
-  add_argument "transfile" "${transfile}" "Flag to generate IMOD XF files (1: yes, 0: no)" "INT"
-  add_argument "are_patches" "${are_patches}" "Number of patches in x & y (delimited by spaces)" "ANY"
-  add_argument "are_time" "${are_time}" "Maximum duration (AreTomo sometimes hangs)" "ANY"
+  add_argument "are_bin" "${SNARTOMO_BINNING}" "Binning factor for reconstruction" "INT"
+  add_argument "vol_zdim" "${SNARTOMO_VOL_ZDIM}" "z-dimension for volume" "INT"
+  add_argument "rec_zdim" "${SNARTOMO_REC_ZDIM}" "z-dimension for 3D reconstruction" "INT"
+  add_argument "tilt_axis" "${SNARTOMO_TILT_AXIS}" "Estimate for tilt-axis direction, degrees" "FLOAT"
+  add_argument "dark_tol" "${SNARTOMO_DARKTOL}" "Tolerance for dark images (0.0-1.0)" "FLOAT"
+  add_argument "tilt_cor" "${SNARTOMO_TILTCOR}" "Tilt-correction flag (1: yes, 0: no)" "INT"
+  add_argument "bp_method" "${SNARTOMO_BP_METHOD}" "Reconstruction method (1: weighted backprojection, 0: SART)" "INT"
+  add_argument "flip_vol" "${SNARTOMO_FLIPVOL}" "Flag to flip coordinates axes (1: yes, 0: no)" "INT"
+  add_argument "transfile" "${SNARTOMO_TRANSFILE}" "Flag to generate IMOD XF files (1: yes, 0: no)" "INT"
+  add_argument "are_patches" "${SNARTOMO_ARETOMO_PATCH}" "Number of patches in x & y (delimited by spaces)" "ANY"
+  add_argument "are_time" "${SNARTOMO_ARETOMO_TIME}" "Maximum duration (AreTomo sometimes hangs)" "ANY"
 
   dynamic_parser "${@}"
   
@@ -539,6 +490,9 @@ function check_env() {
 #     Checks whether environmental variable SNARTOMO_DIR is set
 #     Sources shared functions from central SNARTomo directory
 #     
+#   Calls functions:
+#     check_vars
+#   
 #   Global variables:
 #     do_pace
 #     shared_libs
@@ -553,6 +507,8 @@ function check_env() {
   else
     source "${SNARTOMO_DIR}/${shared_libs}"
     source "${SNARTOMO_DIR}/argumentparser_dynamic.sh"
+    
+    check_vars
     
     if [[ "${do_pace}" == true ]]; then
       source "${SNARTOMO_DIR}/gpu_resources.bash"
@@ -989,65 +945,6 @@ function ctffind4_serial() {
       else
         vprint "" "5+"
       fi
-      
-#       if [[ "${vars[testing]}" == false ]]; then
-#         vprint "    Running CTFFIND4 on $cor_mic, micrograph #${mic_counter}, ${remaining_files} remaining" "5+"
-#         
-#         # Print command
-#         if [[ "$verbose" -ge 5 ]]; then
-#           run_ctffind4 "false"
-#         fi
-# 
-#         if [[ "$verbose" -ge 7 ]]; then
-#           run_ctffind4 "true" 2>&1 | tee $ctf_out
-#         else
-#           run_ctffind4 "true" > $ctf_out 2> /dev/null
-#         fi
-# 
-#         # Print notable CTF information to screen
-#         if [[ "$verbose" -eq 6 ]]; then
-#           echo ""
-#           grep "values\|good" $ctf_out | sed 's/^/    /'  # (prepends spaces to output)
-#           echo ""
-#         fi
-#         
-#         if [[ -f "$avg_rot" ]]; then
-#           if [[ "$verbose" -ge 5 ]]; then
-#             echo "    Running: ctffind_plot_results.sh $avg_rot"
-#           fi
-#           "${vars[ctffind_dir]}"/ctffind_plot_results.sh $avg_rot 1> /dev/null
-#           
-#           # (Temp file may cause problems if lying around)
-#           \rm /tmp/tmp.txt 2> /dev/null
-#         else
-#           echo    "    WARNING! CTFFIND4 output $avg_rot does not exist!"
-#           echo -e "             Continuing...\n"
-#           
-#           return
-#         fi
-# 
-#         # Write last line of CTF text output to summary
-#         if [[ -f "$ctf_txt" ]]; then
-#           echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${curr_summary}
-#         else
-#           echo    "WARNING! CTFFIND4 output $ctf_txt does not exist!"
-#         fi
-#         
-#         if [[ "$verbose" -ge 5 ]] && [[ "${do_pace}" == false ]]; then
-#           remaining_files=$(ls 2>/dev/null -Ubad -- ${vars[movie_dir]}/*.${movie_ext} | wc -w)
-#           echo -e "\n    Finished CTFFIND4 on $cor_mic, micrograph #${mic_counter}, ${remaining_files} remaining"
-#           echo -e   "    $(date)\n"
-#         fi
-# 
-#       # If testing
-#       else
-#         if [[ "$verbose" -ge 5 ]]; then
-#           echo ""
-#           run_ctffind4 "false"
-# #           echo ""
-#         fi
-#       fi
-#       # End testing IF-THEN
     else
       if [[ "$verbose" -ge 4 ]] ; then
         echo    "    WARNING: CTFFIND4 output $ctf_mrc already exists"
@@ -1102,7 +999,6 @@ function compute_tomogram() {
   fi
   
   # Output files
-# #   local tomo_ctfs="${ctf_summary}"
   tomo_root="${vars[outdir]}/${tomo_dir}/${prev_name}"
   local cor_ext="_mic.mrc"
   
@@ -1161,9 +1057,6 @@ function compute_tomogram() {
     fi
     # End found-MDOC IF-THEN
   fi
-  
-#   echo "1160 mcorr_mic_array" ; printf "'%s'\n" "${mcorr_mic_array[@]}" ; exit  ### TESTING
-#   echo "1166 stripped_angle_array" ; printf "'%s'\n" "${stripped_angle_array[@]}" ; exit  ### TESTING
   
   write_angles_lists "${found_mdoc}"
   

@@ -2,33 +2,50 @@
 
 # THIS SCRIPT CONTAINS FUNCTIONS COMMON TO BOTH SNARTomoClassic and SNARTomoPACE
 
-function check_env() {
+function check_vars() {
 ###############################################################################
-#   Functions:
-#     Checks whether environmental variable SNARTOMO_DIR is set
-#     Sources shared functions from central SNARTomo directory
-#     
-#   Global variables:
-#     do_pace
-#     shared_libs
-#     
+#   Function:
+#     Checks specific environmental variables which should be defined in snartomo.bashrc
+#     Adapted from https://stackoverflow.com/a/6394846
+#   
 ###############################################################################
-
-  if [[ "${SNARTOMO_DIR}" == "" ]]; then
-    echo -e "\nERROR!! Environmental variable 'SNARTOMO_DIR' undefined!"
-    echo      "  Set variable with: export SNARTOMO_DIR=<path_to_snartomo_files>"
-    echo -e   "  Exiting...\n"
-    exit
-  else
-    source "${SNARTOMO_DIR}/${shared_libs}"
-    source "${SNARTOMO_DIR}/argumentparser_dynamic.sh"
+  
+  var_array=("SNARTOMO_VOLTAGE" "SNARTOMO_INTERVAL" "SNARTOMO_TILT_TOLERANCE")
+  var_array+=("SNARTOMO_MINFRAMES" "SNARTOMO_MAXFRAMES" "SNARTOMO_RAM_WARN" )
+  var_array+=("SNARTOMO_RAM_KILL" "SNARTOMO_EER_WAIT" "SNARTOMO_MC2_PATCH" )
+  var_array+=("SNARTOMO_MC2_WAIT" "SNARTOMO_IMOD_SLOTS" "SNARTOMO_RUOTNOCON_SD" )
+  var_array+=("SNARTOMO_CTF_SLOTS" "SNARTOMO_CTF_CS" "SNARTOMO_AC" )
+  var_array+=("SNARTOMO_CTF_BOXSIZE" "SNARTOMO_CTF_RESLO" "SNARTOMO_CTF_RESHI" )
+  var_array+=("SNARTOMO_CTF_DFLO" "SNARTOMO_CTF_DFHI" "SNARTOMO_DF_STEP" )
+  var_array+=("SNARTOMO_CTF_DAST" "SNARTOMO_JANNI_BATCH" "SNARTOMO_JANNI_OVERLAP" )
+  var_array+=("SNARTOMO_TOPAZ_PATCH" "SNARTOMO_TOPAZ_TIME" "SNARTOMO_DOSEFIT_MIN" )
+  var_array+=("SNARTOMO_DOSEFIT_RESID" "SNARTOMO_BINNING" "SNARTOMO_VOL_ZDIM" )
+  var_array+=("SNARTOMO_REC_ZDIM" "SNARTOMO_TILT_AXIS" "SNARTOMO_DARKTOL" )
+  var_array+=("SNARTOMO_TILTCOR" "SNARTOMO_BP_METHOD" "SNARTOMO_FLIPVOL" )
+  var_array+=("SNARTOMO_TRANSFILE" "SNARTOMO_ARETOMO_PATCH" "SNARTOMO_ARETOMO_TIME" )
+  
+  declare -a missing_array
+  
+  for curr_var in "${var_array[@]}" ; do
+    eval curr_value=\$$curr_var
     
-    if [[ "${do_pace}" == true ]]; then
-      source "${SNARTOMO_DIR}/gpu_resources.bash"
+    if [[ "${curr_value}" == "" ]] ; then
+      missing_array+=("$curr_var")
+#     else
+#       echo "34 curr_var '$curr_var=$curr_value'"
     fi
+  done
+  
+  if [[ "${#missing_array[@]}" -ge 1 ]]; then
+    echo -e "\nERROR!! The following ${#missing_array[@]} environmental variables are missing:"
+    printf "  %s\n" "${missing_array[@]}"
+    echo -e "You may need to update your 'snartomo.bashrc' file\n"
+    exit
   fi
+  
+# #   echo "40 missing_array '${#missing_array[@]}'" ; exit  ### TESTING
 }
-
+  
 function check_testing() {
 ###############################################################################
 #   Function:
@@ -75,8 +92,6 @@ function check_testing() {
     
     # Serial mode will be when testing is true and slow is false
     if [[ "${vars[testing]}" == true ]] ; then
-#       vars[outdir]="${vars[outdir]}/0-Testing"
-#       
       if [[ "${vars[slow]}" == false ]] ; then
         do_parallel=false
       fi
@@ -157,7 +172,6 @@ function check_format() {
   else
     movie_ext="${dir_array[0]%_dir}"  # strip extension
     vars[movie_dir]="${vars[${dir_array[0]}]}"
-# #     echo "122 dir_array '${dir_array[@]}' '${dir_array[0]}', movie_ext '$movie_ext' "  ; exit ### DIAGNOSTIC
   fi
 }
 
@@ -496,12 +510,10 @@ function vprint() {
         do_echo2screen=true
       fi
       
-# #       echo "418 log_file '${log_file}', do_echo2screen '${do_echo2screen}', string2print '${string2print}'"
-      
       if [[ "${do_echo2screen}" == true ]]; then
         # If no log file is specified simply write to the screen
         if [[ "${log_file}" == "" ]]; then
-#           echo -e "'${#log_array[@]}' ${do_echo2screen} '${firstchar}' '${log_file}' '${string2print}'"
+#           echo -e "'${#log_array[@]}' ${do_echo2screen} '${firstchar}' '${log_file}' '${string2print}'"  ### TESTING
           echo -e "${string2print}"
         else
           # Log file name might be empty after stripping '='
@@ -1019,19 +1031,6 @@ function validate_inputs() {
       vprint "  Found ${exe_descr}: ${search_exe}" "1+" "${outlog}"
       local exe_base=$(basename $search_exe)
       
-  #     # Check if in $PATH (adapted from https://stackoverflow.com/a/26759734/3361621)
-  #     if [[ "${exe_descr}" == "JANNI executable" ]] || [[ "${exe_descr}" == "Topaz executable" ]] ; then
-  #       if ! [[ -x $(command -v "${exe_base}") ]]; then
-  #         # Executable exists but isn't in the $PATH
-  #         try_conda "${exe_descr}" "${conda_env}" "${outlog}"
-  #       fi
-  #       
-  #       if [[ "${exe_descr}" == "JANNI executable" ]] ; then
-  #         check_file "${vars[janni_model]}" "JANNI model" "${outlog}"
-  #       fi
-  #     fi
-  #     # End denoising cases
-    
       if [[ "${exe_descr}" == "MotionCor2 executable" ]] ; then
         # Check owner of /tmp/MotionCor2_FreeGpus.txt
         local mc2_tempfile="/tmp/MotionCor2_FreeGpus.txt"
@@ -2587,8 +2586,7 @@ function denoise_wrapper() {
       local status_code=("${PIPESTATUS[0]}")
     else
       if [[ "${outlog}" != "" ]] ; then
-# #         $denoise_cmd 2> /dev/null >> ${outlog} 
-        $denoise_cmd >${outlog} 2>&1
+        $denoise_cmd >>${outlog} 2>&1
         local status_code=("${PIPESTATUS[0]}")
       else
         # Suppress output (https://stackoverflow.com/a/46009371)
@@ -3047,7 +3045,6 @@ function wrapper_aretomo() {
   
   vprint "" "2+"
 }
-
 
   function run_aretomo() {
   ###############################################################################
@@ -3720,9 +3717,7 @@ function ruotnocon_wrapper() {
       
       # Check if file exists
       if [[ -f "$fn" ]]; then
-# #         if [[ "$verbose" -ge 8 ]]; then
         vprint "  File exists: '$fn'" "8+"
-# #         fi
         
         # Initialize version counter
         local counter=0
@@ -3769,9 +3764,7 @@ function backup_file() {
   
   # Check if file exists
   if [[ -f "$fn" ]]; then
-# #     if [[ "$verbose" -ge 8 ]]; then
     vprint "File exists: '$fn'" "8+"
-# #     fi
     
     # Initialize version counter
     counter=0
