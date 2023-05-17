@@ -198,7 +198,9 @@ function gpu_plot() {
     echo "set xtics rotate" >> "${plotfile}"
     echo "set ylabel 'Memory usage (${default_unit})'" >> "${plotfile}"
     echo "plot \\" >> "${plotfile}"
+    
     gpu_counter=1
+    
     while read -r gpu_line ; do
       gpu_label=$(echo $gpu_line | cut -d':' -f 1)
       let "gpu_counter++"
@@ -234,7 +236,6 @@ function gpu_plot() {
           exit
         fi
       fi
-      
     done <<< $(gpu_resources)
     
     if [[ "${DO_ECHO}" == false ]] ; then
@@ -398,22 +399,14 @@ function ram_plot() {
     local timept_line=$(date +"${TIMEFMT}")
     
     readarray -t ram_array < <(ram_resources)
-# #     echo "400 ram_array"
-# #     printf '%s\n' "${ram_array[@]}"
     
     # curr_col is structured: curr_tag=value
     for curr_col in "${ram_array[@]}" ; do
       local curr_tag=$(echo $curr_col | cut -d "=" -f 1 )
-# #       echo "405 curr_col '$curr_col', curr_tag '$curr_tag'"
       
       if [[ "${col_list}" =~ .*"${curr_tag}".* ]]; then
         value=$(echo "${curr_col}" | cut -d "=" -f 2)
-# #         echo 409 value $value
         timept_line+="\t$value"
-#       
-#       # TESTING
-#       else
-#         echo "412 curr_col '$curr_col', col_list '${col_list}'"
       fi
     done
     
@@ -501,12 +494,6 @@ function power_plot() {
   
   # Get GPU IDs
   readarray -t gpu_array < <(nvidia-smi -q | grep "^GPU") 2> /dev/null
-#   
-#   ### TESTING
-#   echo -e "492 status code '$?'"
-#   echo -e "493\n$(nvidia-smi -q | grep "^GPU")"
-#   printf '%s\n' "${gpu_array[@]}"
-#   exit
   
   # Build header line
   for gpu_num in "${!gpu_array[@]}"; do 
@@ -536,15 +523,16 @@ function power_plot() {
     echo "set xtics rotate" >> "${plotfile}"
     echo "set ylabel 'Power draw (${default_unit})'" >> "${plotfile}"
     echo "plot \\" >> "${plotfile}"
+    
     col_counter=1
+    
     for gpu_line in "${gpu_array[@]}"; do 
       curr_col=$(echo "${gpu_line}" | cut -d "=" -f 1)
       
       # Search input list for string
       let "col_counter++"
       gpu_label=$(echo $gpu_line | cut -d'=' -f 1)
-#         echo "${col_counter} ${gpu_label}"
-      echo "'$(realpath ${logfile})' using 1:${col_counter} with lines title '${gpu_line}', \\" >> "${plotfile}"
+      echo "'$(realpath ${logfile})' using 1:${col_counter} with lines title 'GPU $(( $col_counter - 2 ))', \\" >> "${plotfile}"
       # TODO: make sure at least one value is plotted
     done
   fi
@@ -635,6 +623,7 @@ function temperature_plot() {
     
     # If all 0s before first colon, then ignore
     local before_colon=$(echo ${gpu_id} | cut -d: -f1 | sed 's/0//g')
+    
     if [[ "${before_colon}" == "" ]]; then
 #         echo "before_colon : <blank>"
       local gpu_label=$(echo ${gpu_id} | cut -d: -f2-)
@@ -644,6 +633,7 @@ function temperature_plot() {
       local gpu_label=${gpu_id}
     fi
     
+# #     echo "635 gpu_label '$gpu_label', gpu_num '$gpu_num'"
     hdr_line+="\t$gpu_label"
   done 
   
@@ -654,17 +644,18 @@ function temperature_plot() {
     echo "set timefmt  '${TIMEFMT}'" >> "${plotfile}"
     echo "set format x '${TIMEFMT}'" >> "${plotfile}"
     echo "set xtics rotate" >> "${plotfile}"
-    echo "set ylabel 'Power draw (${default_unit})'" >> "${plotfile}"
+    echo "set ylabel 'Temperature (${default_unit})'" >> "${plotfile}"
     echo "plot \\" >> "${plotfile}"
+    
     col_counter=1
+    
     for gpu_line in "${gpu_array[@]}"; do 
       curr_col=$(echo "${gpu_line}" | cut -d "=" -f 1)
       
       # Search input list for string
       let "col_counter++"
       gpu_label=$(echo $gpu_line | cut -d'=' -f 1)
-#         echo "${col_counter} ${gpu_label}"
-      echo "'$(realpath ${logfile})' using 1:${col_counter} with lines title '${gpu_line}', \\" >> "${plotfile}"
+      echo "'$(realpath ${logfile})' using 1:${col_counter} with lines title 'GPU $(( $col_counter - 2 ))', \\" >> "${plotfile}"
       # TODO: make sure at least one value is plotted
     done
   fi
@@ -707,7 +698,7 @@ function temperature_plot() {
 # Check whether script is being sourced or executed (https://stackoverflow.com/a/2684300/3361621)
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 #   echo "script ${BASH_SOURCE[0]} is being executed..."
-   ram_plot "$@"
+   power_plot "$@"
 # else
 #   echo "script ${BASH_SOURCE[0]} is being sourced..."
 fi
