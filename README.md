@@ -16,4 +16,4 @@ See the wiki at: https://github.com/rubenlab/snartomo/wiki
 
 ## Recent news
 
-2023-05-17 -- Denoising using GPU tested and working using multiple GPUs
+2023-05-17 -- Denoising tested and working using multiple GPUs
