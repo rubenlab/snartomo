@@ -2814,16 +2814,16 @@ function imod_restack() {
       vprint "  Running: ${restack_cmd}\n" "3+" "=${outlog}"
       
       if [[ "$verbose" -ge 7 ]]; then
-        ${vars[imod_dir]}/${restack_cmd} 2>&1 | tee $newstack_log
+        ${vars[imod_dir]}/${restack_cmd} 2>&1 | tee -a $newstack_log
         local newstack_status=("${PIPESTATUS[0]}")
       elif [[ "$verbose" -eq 6 ]]; then
-        # ${vars[imod_dir]}/${restack_cmd} | tee $newstack_log | grep --line-buffered "RO image"
-        ${vars[imod_dir]}/${restack_cmd} | tee $newstack_log | stdbuf -o0 grep "RO image" | sed 's/^/   /'
+        # ${vars[imod_dir]}/${restack_cmd} | tee -a $newstack_log | grep --line-buffered "RO image"
+        ${vars[imod_dir]}/${restack_cmd} | tee -a $newstack_log | stdbuf -o0 grep "RO image" | sed 's/^/   /'
         # line-buffered & stdbuf: https://stackoverflow.com/questions/7161821/how-to-grep-a-continuous-stream
         
         local newstack_status=("${PIPESTATUS[0]}")
       else
-        ${vars[imod_dir]}/${restack_cmd} > $newstack_log
+        ${vars[imod_dir]}/${restack_cmd} >> $newstack_log
         local newstack_status=("${PIPESTATUS[0]}")
       fi
     
@@ -2843,12 +2843,12 @@ function imod_restack() {
         vprint "  Running: ${apix_cmd}" "3+" "=${outlog}"
         
         if [[ "$verbose" -ge 7 ]]; then
-          ${vars[imod_dir]}/${apix_cmd} 2>&1 | tee $newstack_log
+          ${vars[imod_dir]}/${apix_cmd} 2>&1 | tee -a $newstack_log
         elif [[ "$verbose" -eq 6 ]]; then
-          ${vars[imod_dir]}/${apix_cmd} | tee $newstack_log | stdbuf -o0 grep "Pixel spacing" | sed 's/^/   /'
+          ${vars[imod_dir]}/${apix_cmd} | tee -a $newstack_log | stdbuf -o0 grep "Pixel spacing" | sed 's/^/   /'
           # line-buffered & stdbuf: https://stackoverflow.com/questions/7161821/how-to-grep-a-continuous-stream
         else
-          ${vars[imod_dir]}/${apix_cmd} > $newstack_log
+          ${vars[imod_dir]}/${apix_cmd} >> $newstack_log
         fi
       fi
       # End sanity-check IF-THEN
@@ -2864,11 +2864,11 @@ function imod_restack() {
     vprint "  Running: ${ctf_cmd}\n" "3+" "=${outlog}"
     
     if [[ "$verbose" -ge 7 ]]; then
-      ${vars[imod_dir]}/${ctf_cmd} 2>&1 | tee $newstack_log
+      ${vars[imod_dir]}/${ctf_cmd} 2>&1 | tee -a $newstack_log
     elif [[ "$verbose" -eq 6 ]]; then
-      ${vars[imod_dir]}/${ctf_cmd} | tee $newstack_log | stdbuf -o0 grep "RO image" | sed 's/^/   /'
+      ${vars[imod_dir]}/${ctf_cmd} | tee -a $newstack_log | stdbuf -o0 grep "RO image" | sed 's/^/   /'
     else
-      ${vars[imod_dir]}/${ctf_cmd} > $newstack_log
+      ${vars[imod_dir]}/${ctf_cmd} >> $newstack_log
     fi
       
   # Testing

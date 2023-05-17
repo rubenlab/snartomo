@@ -70,7 +70,7 @@ micdir=2-MotionCor2                               # MotionCor directory
 mc2_logs=Logs                                     # Directory for MotionCor log files, relative to $MICDIR
 ctfdir=3-CTFFIND4                                 # CTFFIND directory
 ctf_summary=SUMMARY_CTF.txt                       # CTFFIND summary
-ctf_plot=ctfbytes.png                             # Plot of CTF data by tilt series
+ctf_plot=ctfbyts.png                              # Plot of CTF data by tilt series
 denoisedir=4-Denoise                              # Denoised micrograph directory
 recdir=5-Tomo                                     # Reconstruction directory
 imgdir=Images                                     # Image directory
@@ -2781,8 +2781,8 @@ function tomogram_parallel() {
     touch "${tomogram_3d}"
   fi
   
-  # Sanity check
   if [[ -f "$tomogram_3d" ]]; then
+    vprint "" "1+" "=${tomo_log}"
     vprint "$(date +"$time_format"): Finished computing 3D reconstruction from MDOC file '${new_mdoc}' (#${tomo_counter}/${tot_mdocs})" "1+" "=${file_log} =${tomo_log}"
     vprint "" "1+" "=${tomo_log}"
   fi
