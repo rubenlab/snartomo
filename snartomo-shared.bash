@@ -200,6 +200,7 @@ function create_directories() {
 #     thumbdir
 #     dose_imgdir
 #     contour_imgdir
+#     resid_imgdir
 #     temp_local_dir (OUTPUT)
 #     cmd_file
 #     set_file
@@ -304,6 +305,10 @@ function create_directories() {
     mkdir "${vars[outdir]}/${denoisedir}" "${vars[outdir]}/${imgdir}/${thumbdir}" "${vars[outdir]}/$ctfdir" 2> /dev/null
   fi
   
+  if [[ "${vars[do_laudiseron]}" == true ]] && [[ "${vars[testing]}" == false ]] ; then
+    mkdir "${vars[outdir]}/${imgdir}/${resid_imgdir}" 2> /dev/null
+  fi
+    
   if [[ "${vars[do_ruotnocon]}" == true ]] && [[ "${vars[testing]}" == false ]] ; then
     mkdir "${vars[outdir]}/${imgdir}/${contour_imgdir}" 2> /dev/null
   fi
@@ -676,7 +681,7 @@ function validate_inputs() {
     check_exe "${vars[aretomo_exe]}" "AreTomo executable" "${outlog}"
   fi
   
-  if [[ "${vars[do_ruotnocon]}" == true ]]; then
+  if [[ "${vars[do_ruotnocon]}" == true ]] || [[ "${vars[do_laudiseron]}" == true ]] ; then
     if [[ -z "${vars[batch_directive]}" ]]; then
       validated=false
       vprint "  ERROR!! Can only remove contours if running eTomo!" "0+" "${outlog}"
@@ -685,7 +690,7 @@ function validate_inputs() {
     fi
   fi
   
-  if [[ "${do_pace}" == false ]] || [[ "${vars[do_ruotnocon]}" == true ]] ; then
+  if [[ "${do_pace}" == false ]] || [[ "${vars[do_ruotnocon]}" == true ]] || [[ "${vars[do_laudiseron]}" == true ]] ; then
     check_python "${outlog}"
   fi
   
@@ -2318,12 +2323,10 @@ function write_angles_lists() {
 #     
 ###############################################################################
   
-  local outlog=$2
+  local outlog=$1
 
   if [[ $found_mdoc == "" ]] ; then
-    # Sort
-    sort_array_keys "${stripped_angle_array[@]}"
-# #     sorted_keys=$(sort_array_keys "${stripped_angle_array[@]}")
+    sort_array_keys
   fi
   
   mapfile -t sorted_keys < $good_angles_file
@@ -2372,18 +2375,13 @@ function write_angles_lists() {
   
   ts_mics="${#stripped_angle_array[*]}"
   vprint "  Wrote list of ${ts_mics} angles to $angles_list" "2+" "=${outlog}"
-  vprint "  Wrote list of ${#mcorr_mic_array[*]} images to $mcorr_list" "2+" "=${outlog}"
+  vprint "  Wrote list of ${ts_mics} images to $mcorr_list" "2+" "=${outlog}"
   
   if [[ "${do_denoise}" == true ]]; then
-    vprint "  Wrote list of ${#denoise_array[*]} images to $denoise_list" "2+" "=${outlog}"
+    vprint "  Wrote list of ${ts_mics} images to $denoise_list" "2+" "=${outlog}"
   fi
   
   vprint "" "2+" "=${outlog}"
-
-  # Clean up
-  unset mcorr_mic_array
-  unset denoise_array
-  unset stripped_angle_array
 }
 
   function sort_array_keys() {
@@ -2403,8 +2401,8 @@ function write_angles_lists() {
     for KEY in ${!stripped_angle_array[@]}; do
       echo "${stripped_angle_array[$KEY]}:::$KEY"
     done | sort -n | awk -F::: '{print $2}' >> $good_angles_file
-#     
-#     echo "2407 $good_angles_file" ; nl $good_angles_file ; exit ### TESTING
+    
+# #     echo -e "\n2407 $good_angles_file (${#stripped_angle_array[@]}):" ; nl $good_angles_file #; exit ### TESTING
   }
 
 function plot_tomo_ctfs() {
@@ -2666,6 +2664,11 @@ function clean_up_mdoc() {
   local new_mdoc=$2
   local temp_mdoc_dir=$3
   
+  if [[ "$3" == "" ]]; then
+    echo -e "\nERROR!! Old MDOC, new MDOC, and temp directory required!\n"
+    return
+  fi
+  
   # Clean up pre-existing files
   rm -r $temp_mdoc_dir 2> /dev/null
   mkdir $temp_mdoc_dir
@@ -2732,7 +2735,7 @@ function clean_up_mdoc() {
   
   local good_counter=0
   
-  # Append micorgraph-related chunks
+  # Append micrograph-related chunks
   for mdoc_idx in "${!good_mdoc_array[@]}"; do 
     local old_idx="${good_mdoc_array[mdoc_idx]}"
     local curr_chunk="${chunk_prefix}$(printf '%02d' $(( $old_idx + $last_header_chunk + 1 )) ).txt"
@@ -2751,6 +2754,9 @@ function clean_up_mdoc() {
     cat $curr_chunk >> $new_mdoc
     echo >> $new_mdoc
   done
+  
+  # Clean up 
+  rm -r $temp_mdoc_dir 2> /dev/null
 }
 
 function imod_restack() {
@@ -2770,7 +2776,6 @@ function imod_restack() {
 #     ctf_list
 #     reordered_stack (OUTPUT)
 #     verbose
-#     main_log
 #     warn_log
 #     
 ###############################################################################
@@ -3239,7 +3244,8 @@ function wrapper_etomo() {
 #   Positional variables:
 #     1) file stem (including relative path)
 #     2) number of images in tilt series
-#     3) additional batchruntomo parameters
+#     3) (boolean) flag to remove bad micrographs
+#     4) additional batchruntomo parameters
 #     
 #   Calls functions:
 #     vprint
@@ -3254,7 +3260,8 @@ function wrapper_etomo() {
   
   local tomo_base=$1
   local num_mics=$2
-  local more_flags=$3
+  local do_laudiseron=$3
+  local more_flags=$4
   
   local do_reconstruct=true
   local etomo_out="${vars[outdir]}/${tomo_dir}/${tomo_base}_std.out"
@@ -3301,12 +3308,25 @@ function wrapper_etomo() {
       fi
       # End verbosity cases
       
+      # Remove bad micrographs
+      if [[ "${do_laudiseron}" == true ]] ; then
+        run_laudiseron "${tomo_dir}" "${tomo_base}"
+      fi
+      
+      local do_split_alignment=false
+      if [[ "${vars[do_ruotnocon]}" == true ]] || [[ "${do_laudiseron}" == true ]] ; then
+        do_split_alignment=true
+# #         echo "3319 do_ruotnocon '${vars[do_ruotnocon]}', do_laudiseron '$do_laudiseron'"  ### TESTING
+      fi
+      
       # If final alignment
-      if [[ "${vars[do_ruotnocon]}" == false ]] || [[ "${more_flags}" == "-start 6" ]] ; then
+      echo "3324 more_flags '${more_flags}', do_split_alignment '$do_split_alignment'"  ### TESTING
+      if [[ "${more_flags}" == "-start 6" ]] || [[ "${do_split_alignment}" == false ]] ; then
+        
         # Sanity check: tomogram exists
         if [[ ! -f "$tomogram_3d" ]]; then
           vprint "\n$(date)" "1+"
-          vprint   "WARNING! eTomo output '$tomogram_3d' does not exist!\n" "1+"
+          vprint   "WARNING! eTomo output '$tomogram_3d' does not exist\n" "1+"
           vprint   "Stdout ${etomo_out}:" "1+"
           cat ${etomo_out}
           vprint "\n         Continuing...\n" "1+"
@@ -3317,7 +3337,6 @@ function wrapper_etomo() {
         else
           \rm ${etomo_out} 2> /dev/null
           get_central_slice ${tomogram_3d}
-        
         fi
         # End sanity IF-THEN
       fi
@@ -3344,6 +3363,116 @@ function wrapper_etomo() {
   # End testing IF-THEN
 }
 
+  function run_laudiseron() {
+  ###############################################################################
+  #   Function:
+  #     FUNCTION
+  #   
+  #   Requires:
+  #     sort_residuals.py
+  #     
+  #   Positional variables:
+  #     1) sorted-residual plot file
+  #     2) residual cutoff, units of sigma
+  #   
+  #   Global variables:
+  #     sort_exe
+  #     vars
+  #     imgdir
+  #     good_angles_file
+  #     new_mdoc
+  #   
+  ###############################################################################
+    
+    local tomo_dir=$1
+    local tomo_base=$2
+  
+    # Sanity check for Python script
+    sort_sanity
+    
+    local sort_cmd="$(echo ${sort_exe} \
+      ${vars[outdir]}/${tomo_dir}/taSolution.log \
+      --skip=4 \
+      --sd ${vars[laudiseron_sd]} \
+      --plot ${vars[outdir]}/${imgdir}/${resid_imgdir}/${tomo_base}_residuals.png | xargs)"
+    
+    vprint "\n  Finding micrographs with residuals exceeding ${vars[laudiseron_sd]}*SD..." "4+"
+    vprint   "    ${sort_cmd}\n" "4+"
+    
+    IFS=' ' read -r -a bad_residuals <<< $($sort_cmd)
+    unset IFS
+    
+    mapfile -t sorted_by_angle < $good_angles_file
+    
+    # Sort (adapted from https://stackoverflow.com/a/11789688)
+    IFS=$'\n' sorted_bad=($(sort -r <<<"${bad_residuals[*]}")) ; unset IFS
+    # (Sorting from highest to lowest in case indices are renumbered, which I don't believe is the case)
+    
+    # Remove array entries for bad micrographs
+    for bad_idx in "${sorted_bad[@]}" ; do
+      local mic2rm=$(( $bad_idx - 1))  # numbered from 0
+      unset stripped_angle_array[${sorted_by_angle[$mic2rm]}]
+    done
+    
+    vprint   "    Removed ${#sorted_bad[@]} micrographs from tilt series based on residual" "4+"
+    
+    # Write updated goodangles file
+    sort_array_keys
+    
+    # Write new angles lists, restack micrographs, and update MDOC
+    vprint   "" "4+"
+    write_angles_lists
+    imod_restack
+    
+    # Update MDOC
+    local mdoc_copy="${vars[outdir]}/${tomo_dir}/${mdoc_base%.mrc.mdoc}_1-pre-laudiseron.mrc.mdoc"
+    local temp_mdoc_dir="$(dirname ${new_mdoc})/tmp_mdoc"
+    \cp ${orig_mdoc} ${mdoc_copy}
+    clean_up_mdoc "${mdoc_copy}" "${new_mdoc}" "$temp_mdoc_dir"
+  }
+
+function sort_sanity() {
+###############################################################################
+#   Function:
+#     Sanity check for sort_residuals.py
+#   
+#   Requires:
+#     sort_residuals.py
+#     
+#   Positional variables:
+#     1) sorted-residual plot file
+#     2) residual cutoff, units of sigma
+#   
+#   Global variables:
+#     sort_exe
+#   
+###############################################################################
+  
+  # Sanity check
+  if ! [ -z $SNARTOMO_DIR ] ; then
+    sort_exe="python ${SNARTOMO_DIR}/sort_residuals.py"
+  else
+    if [[ -f "./sort_residuals.py" ]]; then
+      sort_exe="python ./sort_residuals.py"
+    else
+      if [[ "${test_contour}" != true ]]; then
+        echo -e "\nERROR!! Can't find 'sort_residuals.py'!"
+        echo      "  Either copy to current directory or define 'SNARTOMO_DIR'"
+        echo -e   "  Exiting...\n"
+        exit
+      else
+        echo -e "\nWARNING! Can't find 'sort_residuals.py'"
+        sort_exe="python sort_residuals.py"
+        exit
+      fi
+      # End testing IF-THEN
+    fi
+    # End local IF-THEN
+  fi
+  # End SNARTOMO IF-THEN
+  
+}
+
 function ruotnocon_wrapper() {
 ###############################################################################
 #   Function:
@@ -3358,13 +3487,12 @@ function ruotnocon_wrapper() {
 #   
 #   Global variables:
 #     vars
-#     imgdir
+#     contour_imgdir
 #   
 ###############################################################################
   
   local tomo_dir=$1
   local tomo_base=$2
-# #   local outlog=$3
   
   local fid_file="${vars[outdir]}/${tomo_dir}/${tomo_base}_newstack.fid"
   
@@ -3376,7 +3504,7 @@ function ruotnocon_wrapper() {
     "${vars[outdir]}/${imgdir}/${contour_imgdir}/${tomo_base}_residuals.png" \
     "${vars[outdir]}/${tomo_dir}/tmp_contours" \
     "${vars[testing]}" \
-    "${vars[imod_dir]}"  #>> "${outlog}"
+    "${vars[imod_dir]}"
 }
 
   function ruotnocon_run() {
@@ -3403,12 +3531,11 @@ function ruotnocon_wrapper() {
   #   Calls functions:
   #     extract_residuals
   #     split_wimp
-  #     highest_residuals
+  #     find_bad_contours
   #     remove_contours
   #     backup_copy
   #   
   #   Global variables:
-  #     contour_resid_file : defined here
   #     temp_contour_dir : defined here
   #     num_chunks
   #     verbose
@@ -3484,7 +3611,7 @@ function ruotnocon_wrapper() {
     fi
     
     # Get contours exceeding residual cutoff (space-delimited list)
-    highest_residuals "${contour_plot}" "${num_sd}"
+    find_bad_contours "${contour_plot}" "${num_sd}"
     
     if [[ "${test_contour}" != true ]]; then
       # Remove contours
@@ -3568,53 +3695,31 @@ function ruotnocon_wrapper() {
       chunk_array=($(seq -f "%03g" ${num_chunks}))
     }
 
-    function highest_residuals() {
+    function find_bad_contours() {
     ###############################################################################
     #   Function:
     #     Get contours exceeding residual cutoff
     #   
-    #   Requires:
-    #     sort_residuals.py
-    #     
     #   Positional variables:
     #     1) sorted-residual plot file
     #     2) residual cutoff, units of sigma
     #   
     #   Calls functions:
-    #   
+    #     sort_sanity
+    #     
     #   Global variables:
+    #     sort_exe
     #     test_contour
     #     contour_resid_file
-    #     bad_residuals
     #     verbose
+    #     bad_residuals (defined here)
     #   
     ###############################################################################
       
       local contour_plot=$1
       local num_sd=$2
       
-      # Sanity check
-      if ! [ -z $SNARTOMO_DIR ] ; then
-        local sort_exe="python ${SNARTOMO_DIR}/sort_residuals.py"
-      else
-        if [[ -f "./sort_residuals.py" ]]; then
-          local sort_exe="python ./sort_residuals.py"
-        else
-          if [[ "${test_contour}" != true ]]; then
-            echo -e "\nERROR!! Can't find 'sort_residuals.py'!"
-            echo      "  Either copy to current directory or define 'SNARTOMO_DIR'"
-            echo -e   "  Exiting...\n"
-            exit
-          else
-            echo -e "\nWARNING! Can't find 'sort_residuals.py'"
-            local sort_exe="python sort_residuals.py"
-            exit
-          fi
-          # End testing IF-THEN
-        fi
-        # End local IF-THEN
-      fi
-      # End SNARTOMO IF-THEN
+      sort_sanity
       
       local sort_cmd="${sort_exe} ${contour_resid_file} --sd ${num_sd} --plot ${contour_plot}"
       
@@ -3653,7 +3758,6 @@ function ruotnocon_wrapper() {
         local contour2rm=$(( $curr_resid - 1))
 
         vprint "    Removed contour #${curr_resid}" "3+"
-      
       
         # Remove index from array
         unset 'chunk_array[$contour2rm]'

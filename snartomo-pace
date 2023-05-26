@@ -18,14 +18,14 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-05-16"
+  echo "Modified 2023-05-26"
   date
   echo 
 }
 
 #################### Filenames ####################
 
-shared_libs=snartomo-shared.bash                   # Shared libraries
+shared_libs=snartomo-shared-24may.bash                   # Shared libraries
 gpu_libs=gpu_resources.bash                        # Resource (GPUs, etc.) libraries
 frame_file=motioncor-frame.txt                     # Frames file
 outdir=SNARTomoPACE                                # Output top-level directory
@@ -77,6 +77,7 @@ imgdir=Images                                     # Image directory
 ts_list=ts_list.txt                               # List of tilt series
 thumbdir=Thumbnails                               # Central sections of tomograms
 dose_imgdir=DoseFit                               # Dose fitting plot directory
+resid_imgdir=Residuals                            # Micrograph removal plot directory
 contour_imgdir=Contours                           # Contour removal plot directory
 temp_dir=tmp                                      # Temporary files
 dir2denoise=TmpDenoised                           # Denoised micrographs will go here
@@ -423,6 +424,11 @@ function parse_command_line() {
   add_argument "imod_slots" "${SNARTOMO_IMOD_SLOTS}" "Maximum number of IMOD reconstructions to run concurrently" "INT"
   add_argument "imod_dir" "${IMOD_BIN}" "IMOD executable directory" "ANY"
   
+  # Laudiseron micrograph removal
+  add_section "LAUDISERON SETTINGS" "Settings for micrograph removal in IMOD reconstruction."
+  add_argument "do_laudiseron" "false" "Remove micrographs based on alignment residual" "BOOL"
+  add_argument "laudiseron_sd" "3.0" "Micrographs with residuals greater than this multiple of sigma will be removed" "FLOAT"
+
   # Ruotnocon contour removal
   add_section "RUOTNOCON SETTINGS" "Settings for contour removal in IMOD reconstruction."
   add_argument "do_ruotnocon" "false" "Remove contours based on residual" "BOOL"
@@ -2647,7 +2653,7 @@ function tomogram_parallel() {
   
   local mdoc_base=$(basename $orig_mdoc)
   local mdoc_copy="${vars[outdir]}/${tomo_dir}/${mdoc_base%.mrc.mdoc}_orig.mrc.mdoc"
-  local new_mdoc="${vars[outdir]}/${tomo_dir}/${mdoc_base}"
+  new_mdoc="${vars[outdir]}/${tomo_dir}/${mdoc_base}"
   local temp_mdoc_dir="${vars[outdir]}/${tomo_dir}/tmp_mdoc"
   
   declare -a stripped_angle_array=()
@@ -2722,7 +2728,7 @@ function tomogram_parallel() {
   # Plot CTF data
   plot_tomo_ctfs "${new_mdoc} ">> "${tomo_log}"
   
-  write_angles_lists "${new_mdoc}" "${tomo_log}"
+  write_angles_lists "${tomo_log}"
   
   # Optionally denoise
   if [[ "${vars[do_janni]}" == true ]]; then
@@ -2751,30 +2757,45 @@ function tomogram_parallel() {
     local mic_type="micrographs"
   fi
   
+  local mesg="$(date +"$time_format"): Start computing 3D reconstruction from ${mic_type} from MDOC file '${new_mdoc}' on slot #${slot_num}"
   vprint "" "1+" "=${tomo_log} =${rec_log}"
-  vprint "$(date +"$time_format"): Start computing 3D reconstruction from ${mic_type} from MDOC file '${new_mdoc}' on slot #${slot_num}" "1+" "=${file_log} =${tomo_log} =${rec_log}"
+  vprint "${mesg}" "1+" "=${file_log} =${tomo_log} =${rec_log} =${status_file}"
   
   if [[ "${vars[batch_directive]}" == "" ]]; then
     wrapper_aretomo "${ts_mics}" "${slot_num}" >> "${tomo_log}"
   else
     # If removing bad contours
-    if [[ "${vars[do_ruotnocon]}" == true ]]; then
-      local fid_file="${vars[outdir]}/${tomo_dir}/${tomo_base}_newstack.fid"
-      
-      wrapper_etomo "${tomo_base}" "${ts_mics}" "-end 6" >> "${tomo_log}"
-      ruotnocon_wrapper "${tomo_dir}" "${tomo_base}" >> "${tomo_log}"
-      
-      if [[ "${vars[testing]}" == false ]] ; then
-        vprint "$(date +"$time_format"): Removed ${num_bad_residuals} contours based on residuals" "1+" "=${tomo_log}"
+    if [[ "${vars[do_ruotnocon]}" == true ]] || [[ "${vars[do_laudiseron]}" == true ]] ; then
+      if [[ "${vars[do_laudiseron]}" == true ]] ; then
+        wrapper_etomo "${tomo_base}" "${ts_mics}" "true"  "-end 6" >> "${tomo_log}"
+        
+        # Run eTomo again with the cleaned set of micrographs
+        wrapper_etomo "${tomo_base}" "${ts_mics}" "false" "-end 6" >> "${tomo_log}"
+        echo -e "\n2771 tomogram_parallel" ; exit  ### TESTING
       fi
       
-      wrapper_etomo "${tomo_base}" "${ts_mics}" "-start 6" >> "${tomo_log}"
+      if [[ "${vars[do_ruotnocon]}" == true ]] ; then
+  # #       local fid_file="${vars[outdir]}/${tomo_dir}/${tomo_base}_newstack.fid"
+        ruotnocon_wrapper "${tomo_dir}" "${tomo_base}" >> "${tomo_log}"
+        
+        if [[ "${vars[testing]}" == false ]] ; then
+          vprint "$(date +"$time_format"): Removed ${num_bad_residuals} contours based on residuals" "1+" "=${tomo_log}"
+        fi
+      fi
+      
+      # For laudiseron and/or ruotnocon, continue through the end
+      wrapper_etomo "${tomo_base}" "${ts_mics}" "false" "-start 6" >> "${tomo_log}"
     else
-      wrapper_etomo "${tomo_base}" "${ts_mics}" "" >> "${tomo_log}"
+      wrapper_etomo "${tomo_base}" "${ts_mics}" "false" "" >> "${tomo_log}"
     fi
   fi
   # End AreTomo-vs-eTomo IF-THEN
   
+  # We might need these arrays multiple times if we run laudiseron, so don't delete them until now
+  unset mcorr_mic_array
+  unset denoise_array
+  unset stripped_angle_array
+
   # If dose list is missing, tomogram_3d isn't defined until here
   if [[ ! -f "${dose_list}" ]]; then
     # So that calling function doesn't stall
