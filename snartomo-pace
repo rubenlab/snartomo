@@ -18,14 +18,14 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-05-26"
+  echo "Modified 2023-05-31"
   date
   echo 
 }
 
 #################### Filenames ####################
 
-shared_libs=snartomo-shared-24may.bash                   # Shared libraries
+shared_libs=snartomo-shared.bash                   # Shared libraries
 gpu_libs=gpu_resources.bash                        # Resource (GPUs, etc.) libraries
 frame_file=motioncor-frame.txt                     # Frames file
 outdir=SNARTomoPACE                                # Output top-level directory
@@ -365,6 +365,7 @@ function parse_command_line() {
   add_argument "ram_kill" "${SNARTOMO_RAM_KILL}" "Free system memory (GB) before exiting" "FLOAT"
   add_argument "eer_local" "${CP_EER_LOCAL}" "Flag to copy EER files locally temporarily" "BOOL"
   add_argument "eer_latency" "${SNARTOMO_EER_WAIT}" "Maximum header read time before micrograph is copied locally" "FLOAT"
+  add_argument "temp_wait" "${SNARTOMO_WAIT_TIME}" "How long to wait (seconds) for MotionCor2 or CTFFIND4 /tmp files to be removed" "FLOAT"
   add_argument "debug" "false" "Flag for debugging" "BOOL"
 
   # MotionCor2
@@ -379,7 +380,6 @@ function parse_command_line() {
   add_argument "do_splitsum" "false" "Flag to split frames into even & odd half-sets" "BOOL"
   add_argument "split_sum" "${SplitSum}" "(DEPRECATED) Split frames into even & odd half-sets (0: no, 1: yes)" "INT"
   add_argument "reffrm" "${reffrm}" "Reference frame (0: first, 1: middle)" "INT"
-  add_argument "mc2_wait" "${SNARTOMO_MC2_WAIT}" "Maximum wait (seconds) for competing user's MotionCor2_FreeGpus.txt file to be deleted" "FLOAT"
 
   # CTFFIND
   add_section "CTFFIND4 SETTINGS" "Settings for CTF estimation."
@@ -1351,7 +1351,7 @@ function distribute_motioncor() {
   #     
   #   Calls functions:
   #     check_frames
-  #     check_freegpus
+  #     wait_for_file
   #     run_motioncor
   #     file_lock
   #     resource_liberate
@@ -1403,9 +1403,9 @@ function distribute_motioncor() {
       fi
       
       # If someone else owns /tmp/MotionCor2_FreeGpus.txt, MotionCor will be unhappy
-      check_freegpus "=${mc2_out}"
+      wait_for_file "/tmp/MotionCor2_FreeGpus.txt" "${mc2_out}"
       
-      vprint "$(date +"$time_format"): Starting MotionCor2 on '${fn}' on GPU #${gpu_num}, movies remaining: ${remaining_movies}" "0+" "=${file_log}"
+      vprint "$(date +"$time_format"): Starting MotionCor2 on '$(basename ${fn})' on GPU #${gpu_num}, movies remaining: ${remaining_movies}" "0+" "=${file_log}"
       vprint "$(run_motioncor ${fn} $gpu_num)" "5+" "=${mc2_out}" 
       
       local mc2_cmd=$(run_motioncor ${fn} $gpu_num)
@@ -1517,7 +1517,7 @@ function distribute_motioncor() {
       
       if [[ "${vars[testing]}" == false ]]; then
         # Write information to log file
-        vprint "\n    Finished MotionCor2 on micrograph $fn" "0+" "=${mc2_out}"
+        vprint "\n    Finished MotionCor2 on micrograph $(basename $fn)" "0+" "=${mc2_out}"
         
         local mesg=$(grep 'Total time' $ali_out)
         if [[ "$mc2_pid" -gt 0 ]]; then
@@ -2158,9 +2158,9 @@ function distribute_ctffind() {
     
     # Sanity check: Look for existing CTFFIND output
     if [[ ! -e $ctf_mrc ]]; then
-      vprint "$(date +"$time_format"): Starting CTFFIND4 on '${cor_mic}' on slot #${cpu_num}/${vars[ctf_slots]}" "0+" "=${file_log}"
+      vprint "$(date +"$time_format"): Starting CTFFIND4 on '$(basename ${cor_mic})' on slot #${cpu_num}/${vars[ctf_slots]}" "0+" "=${file_log}"
       ctffind_common "${stem_movie}" >> ${ctf_log}
-      vprint "$(date +"$time_format"): Finished CTFFIND4 on '${cor_mic}' on slot #${cpu_num}/${vars[ctf_slots]}" "0+" "=${file_log}"
+      vprint "$(date +"$time_format"): Finished CTFFIND4 on '$(basename ${cor_mic})' on slot #${cpu_num}/${vars[ctf_slots]}" "0+" "=${file_log}"
 
     # If output already exists
     else
@@ -2652,7 +2652,7 @@ function tomogram_parallel() {
   local tomo_ctfs="${vars[outdir]}/${tomo_dir}/${ctf_summary}"
   
   local mdoc_base=$(basename $orig_mdoc)
-  local mdoc_copy="${vars[outdir]}/${tomo_dir}/${mdoc_base%.mrc.mdoc}_orig.mrc.mdoc"
+  local mdoc_copy="${vars[outdir]}/${tomo_dir}/${mdoc_base%.mrc.mdoc}_0-orig.mrc.mdoc"
   new_mdoc="${vars[outdir]}/${tomo_dir}/${mdoc_base}"
   local temp_mdoc_dir="${vars[outdir]}/${tomo_dir}/tmp_mdoc"
   
@@ -2757,7 +2757,7 @@ function tomogram_parallel() {
     local mic_type="micrographs"
   fi
   
-  local mesg="$(date +"$time_format"): Start computing 3D reconstruction from ${mic_type} from MDOC file '${new_mdoc}' on slot #${slot_num}"
+  local mesg="$(date +"$time_format"): Start computing 3D reconstruction from ${mic_type} from MDOC file '$(basename ${new_mdoc})' on slot #${slot_num}"
   vprint "" "1+" "=${tomo_log} =${rec_log}"
   vprint "${mesg}" "1+" "=${file_log} =${tomo_log} =${rec_log} =${status_file}"
   
@@ -2768,14 +2768,12 @@ function tomogram_parallel() {
     if [[ "${vars[do_ruotnocon]}" == true ]] || [[ "${vars[do_laudiseron]}" == true ]] ; then
       if [[ "${vars[do_laudiseron]}" == true ]] ; then
         wrapper_etomo "${tomo_base}" "${ts_mics}" "true"  "-end 6" >> "${tomo_log}"
-        
-        # Run eTomo again with the cleaned set of micrographs
-        wrapper_etomo "${tomo_base}" "${ts_mics}" "false" "-end 6" >> "${tomo_log}"
-        echo -e "\n2771 tomogram_parallel" ; exit  ### TESTING
       fi
       
+      # If we ran laudiseron, we need to run eTomo again with the cleaned set of micrographs
+      wrapper_etomo "${tomo_base}" "${ts_mics}" "false" "-end 6" >> "${tomo_log}"
+      
       if [[ "${vars[do_ruotnocon]}" == true ]] ; then
-  # #       local fid_file="${vars[outdir]}/${tomo_dir}/${tomo_base}_newstack.fid"
         ruotnocon_wrapper "${tomo_dir}" "${tomo_base}" >> "${tomo_log}"
         
         if [[ "${vars[testing]}" == false ]] ; then
@@ -2804,7 +2802,7 @@ function tomogram_parallel() {
   
   if [[ -f "$tomogram_3d" ]]; then
     vprint "" "1+" "=${tomo_log}"
-    vprint "$(date +"$time_format"): Finished computing 3D reconstruction from MDOC file '${new_mdoc}' (#${tomo_counter}/${tot_mdocs})" "1+" "=${file_log} =${tomo_log}"
+    vprint "$(date +"$time_format"): Finished computing 3D reconstruction from MDOC file '$(basename ${new_mdoc})' (#${tomo_counter}/${tot_mdocs})" "1+" "=${file_log} =${tomo_log}"
     vprint "" "1+" "=${tomo_log}"
   fi
   
@@ -2825,6 +2823,7 @@ function tomogram_parallel() {
     resource_liberate "${recon_status}" "${slot_num}" "1" "0"
   fi
   
+  # Mark that we're finished
   touch "$(to_tempname ${new_mdoc})"
 }
 

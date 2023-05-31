@@ -22,6 +22,7 @@ export SNARTOMO_INTERVAL=2                                        # Monitors fil
 export SNARTOMO_MINFRAMES=400                                     # Minimum number of frames (EERs only) before warning
 export SNARTOMO_MAXFRAMES=1200                                    # Maximum number of frames (EERs only) before warning
 export SNARTOMO_EER_WAIT=8                                        # (seconds) EER files are copied locally if header takes longer than this time
+export SNARTOMO_WAIT_TIME=120.0                                   # (seconds) How long to wait for MotionCor2 or CTFFIND4 /tmp files to be removed
 export SNARTOMO_RUOTNOCON_SD=3.0                                  # Contours with eTomo residuals greater than this multiple of sigma will be removed
 # 
 # SNARTomoPACE only
@@ -31,7 +32,6 @@ export SNARTOMO_RAM_KILL=10                                       # Free system 
 export SNARTOMO_IMOD_SLOTS=2                                      # Maximum number of IMOD processes to run concurrently
 
 # MotionCor2
-export SNARTOMO_MC2_WAIT=120.0                                    # (seconds) How long to wait for /tmp/MotionCor2_FreeGpus.txt to be removed
 export SNARTOMO_MC2_PATCH="0 0"                                   # number of patches in x y, delimited by spaces
 
 # CTFFIND

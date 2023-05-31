@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2023-05-16"
+  echo "Modified 2023-05-31"
   date
   echo 
 }
@@ -59,7 +59,7 @@ function howto_stop() {
 #################### Filenames ####################
 
 # Inputs
-shared_libs=snartomo-shared-15may.bash                   # Shared libraries
+shared_libs=snartomo-shared.bash                   # Shared libraries
 log_file=log-snartomo.txt                          # Log file
 outdir=SNARTomo                                    # Output top-level directory
 
@@ -106,6 +106,7 @@ imgdir=Images                                     # Image directory
 ts_list=ts_list.txt                               # List of tilt series
 thumbdir=Thumbnails                               # Central sections of tomograms
 dose_imgdir=DoseFit                               # Dose fitting plot directory
+resid_imgdir=Residuals                            # Micrograph removal plot directory
 contour_imgdir=Contours                           # Contour removal plot directory
 temp_dir=tmp                                      # Temporary files
 dir2denoise=TmpDenoised                           # Denoised micrographs will go here
@@ -142,7 +143,7 @@ main
             wrapper_etomo
         motioncor2_serial
           shared.check_frames
-          check_freegpus
+          wait_for_file
           shared.run_motioncor
           remove_local
         ctffind4_serial
@@ -304,6 +305,7 @@ function parse_command_line() {
   add_argument "temp_local" "${SNARTOMO_LOCAL}" "Directory to copy EER files locally" "ANY"
   add_argument "eer_local" "${CP_EER_LOCAL}" "Flag to temporarily copy EER files locally" "BOOL"
   add_argument "eer_latency" "${SNARTOMO_EER_WAIT}" "Maximum header read time before micrograph is copied locally" "FLOAT"
+  add_argument "temp_wait" "${SNARTOMO_WAIT_TIME}" "How long to wait (seconds) for MotionCor2 or CTFFIND4 /tmp files to be removed" "FLOAT"
   add_argument "debug" "false" "Flag for debugging" "BOOL"
   
   # MotionCor2
@@ -318,7 +320,6 @@ function parse_command_line() {
   add_argument "do_splitsum" "false" "Flag to split frames into even & odd half-sets" "BOOL"
   add_argument "split_sum" "${SplitSum}" "(DEPRECATED) Split frames into even & odd half-sets (0: no, 1: yes)" "INT"
   add_argument "reffrm" "${reffrm}" "Reference frame (0: first, 1: middle)" "INT"
-  add_argument "mc2_wait" "${SNARTOMO_MC2_WAIT}" "Maximum wait (seconds) for competing user's MotionCor2_FreeGpus.txt file to be deleted" "FLOAT"
 
   # CTFFIND
   add_section "CTFFIND4 SETTINGS" "Settings for CTF estimation."
@@ -365,6 +366,11 @@ function parse_command_line() {
   add_section "IMOD SETTINGS" "Settings for IMOD: restacking and optional eTomo reconstruction."
   add_argument "imod_dir" "${IMOD_BIN}" "IMOD executable directory" "ANY"
   add_argument "batch_directive" "" "IMOD eTomo batch directive file" "ANY"
+
+  # Laudiseron micrograph removal
+  add_section "LAUDISERON SETTINGS" "Settings for micrograph removal in IMOD reconstruction."
+  add_argument "do_laudiseron" "false" "Remove micrographs based on alignment residual" "BOOL"
+  add_argument "laudiseron_sd" "3.0" "Micrographs with residuals greater than this multiple of sigma will be removed" "FLOAT"
 
   # AreTomo parameters
   add_section "ARETOMO SETTINGS" "Reconstruction will be computed either with AreTomo (default) or IMOD."
@@ -780,7 +786,7 @@ function motioncor2_serial() {
 #     
 #   Calls functions:
 #     check_frames
-#     check_freegpus
+#     wait_for_file
 #     run_motioncor
 #     remove_local
 #   
@@ -810,7 +816,7 @@ function motioncor2_serial() {
         fi
         
         # If someone else owns /tmp/MotionCor2_FreeGpus.txt, MotionCor will be unhappy
-        check_freegpus
+        wait_for_file "/tmp/MotionCor2_FreeGpus.txt"
         
         # Update number of remaining files
         if [[ "$verbose" -ge 5 ]]; then
@@ -900,42 +906,26 @@ function ctffind4_serial() {
 #   
 #   Calls functions:
 #     ctffind_common
-# #     stem2ctf_txt
 #     vprint
-# #     run_ctffind4
 #   
 #   Global variables:
 #     ctf_out
 #     vars
-# #     outdir
 #     stem_movie
-# #     ctf_summary
 #     kill_all_humans
 #     ctf_mrc
-# #     cor_mic
 #     warn_msg
 #     verbose
-# #     do_pace
-# #     mic_counter
-# #     remaining_files
 #     
 ###############################################################################
 
-#   ctf_out="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.out"
-#   local ctf_txt="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.txt"
-#   local ctf_txt=$(stem2ctfout "$stem_movie")
-#   local curr_summary="${vars[outdir]}/${ctfdir}/${ctf_summary}"
-#   local avg_rot="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf_avrot.txt"
-  local ctf_mrc="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.mrc"
+  ctf_out="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.out"
+  ctf_mrc="${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.mrc"
   
   # Check termination flag
   if [[ "$kill_all_humans" == false ]]; then
-# #     echo "967 do_pace : '$do_pace', verbose '$verbose', kill_all_humans '$kill_all_humans'" ; exit ### TESTING
-    
     # Sanity check: Look for existing CTFFIND output
     if [[ ! -e $ctf_mrc ]]; then
-# #       echo "971 do_pace : '$do_pace', verbose '$verbose', kill_all_humans '$kill_all_humans', ctf_mrc '$ctf_mrc'" ; exit ### TESTING
-      
       ctffind_common "${stem_movie}"
       
       # Print only one warning message per micrograph
@@ -977,8 +967,8 @@ function compute_tomogram() {
 #   Global variables:
 #     vars
 #     mcorr_mic_array
-#     denoise_array
 #     tomo_dir
+#     new_mdoc (OUTPUT)
 #     good_angles_file
 #     recdir
 #     prev_name
@@ -1027,7 +1017,7 @@ function compute_tomogram() {
     if [[ $found_mdoc != "" ]] ; then
       local mdoc_base=$(basename $found_mdoc)
       local mdoc_copy="${vars[outdir]}/${tomo_dir}/${mdoc_base%.mrc.mdoc}_orig.mrc.mdoc"
-      local new_mdoc="${vars[outdir]}/${tomo_dir}/${mdoc_base}"
+      new_mdoc="${vars[outdir]}/${tomo_dir}/${mdoc_base}"
       local temp_mdoc_dir="${vars[outdir]}/${tomo_dir}/tmp_mdoc"
       
       if [[ "$verbose" -ge 2 ]]; then
@@ -1058,7 +1048,7 @@ function compute_tomogram() {
     # End found-MDOC IF-THEN
   fi
   
-  write_angles_lists "${found_mdoc}"
+  write_angles_lists
   
   # Plot CTF data
   plot_tomo_ctfs "${found_mdoc}"
@@ -1088,24 +1078,37 @@ function compute_tomogram() {
   # Restack micrographs from lowest angle (most negative) to highest
   imod_restack
   
-# #   if [[ "${vars[batch_directive]}" == "" ]]; then
   if [[ "${vars[batch_directive]}" == "" ]]; then
     wrapper_aretomo "${num_mics}" "${vars[gpus]}"
   else
-# #     wrapper_etomo "${prev_name}" "${num_mics}"
-    # If removing bad contours
-    if [[ "${vars[do_ruotnocon]}" == true ]]; then
-      local fid_file="${vars[outdir]}/${tomo_dir}/${prev_name}_newstack.fid"
+    # If splitting eTomo (laudiseron or ruotnocon)
+    if [[ "${vars[do_ruotnocon]}" == true ]] || [[ "${vars[do_laudiseron]}" == true ]] ; then
+# #       local fid_file="${vars[outdir]}/${tomo_dir}/${prev_name}_newstack.fid"
       
-      wrapper_etomo "${prev_name}" "${num_mics}" "-end 6"
-      ruotnocon_wrapper "${tomo_dir}" "${prev_name}"
+      if [[ "${vars[do_laudiseron]}" == true ]] ; then
+        wrapper_etomo "${tomo_base}" "${ts_mics}" "true"  "-end 6"
+      fi
       
-      wrapper_etomo "${prev_name}" "${num_mics}" "-start 6"
+      # If we ran laudiseron, we need to run eTomo again with the cleaned set of micrographs
+      wrapper_etomo "${prev_name}" "${num_mics}" "false" "-end 6"
+      
+      if [[ "${vars[do_ruotnocon]}" == true ]] ; then
+        ruotnocon_wrapper "${tomo_dir}" "${prev_name}"
+      fi
+      
+      wrapper_etomo "${prev_name}" "${num_mics}" "false" "-start 6"
     else
-      wrapper_etomo "${prev_name}" "${num_mics}" ""
+      wrapper_etomo "${prev_name}" "${num_mics}" "false" ""
     fi
+    # End splitting-eTomo IF-THEN
   fi
+  # End AreTomo-vs-eTomo IF-THEN
 
+  # We might need these arrays multiple times if we run laudiseron, so don't delete them until now
+  unset mcorr_mic_array
+  unset denoise_array
+  unset stripped_angle_array
+  
   # Increment tomogram counter
   let "tomo_counter++"
 }

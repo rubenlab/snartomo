@@ -13,7 +13,7 @@ function check_vars() {
   var_array=("SNARTOMO_VOLTAGE" "SNARTOMO_INTERVAL" "SNARTOMO_TILT_TOLERANCE")
   var_array+=("SNARTOMO_MINFRAMES" "SNARTOMO_MAXFRAMES" "SNARTOMO_RAM_WARN" )
   var_array+=("SNARTOMO_RAM_KILL" "SNARTOMO_EER_WAIT" "SNARTOMO_MC2_PATCH" )
-  var_array+=("SNARTOMO_MC2_WAIT" "SNARTOMO_IMOD_SLOTS" "SNARTOMO_RUOTNOCON_SD" )
+  var_array+=("SNARTOMO_WAIT_TIME" "SNARTOMO_IMOD_SLOTS" "SNARTOMO_RUOTNOCON_SD" )
   var_array+=("SNARTOMO_CTF_SLOTS" "SNARTOMO_CTF_CS" "SNARTOMO_AC" )
   var_array+=("SNARTOMO_CTF_BOXSIZE" "SNARTOMO_CTF_RESLO" "SNARTOMO_CTF_RESHI" )
   var_array+=("SNARTOMO_CTF_DFLO" "SNARTOMO_CTF_DFHI" "SNARTOMO_DF_STEP" )
@@ -339,8 +339,6 @@ function create_directories() {
   
   # In case we need to copy EERs locally, remember the PID ($$)
   temp_local_dir="${vars[temp_local]}/$$"
-  
-# #   echo "308 temp_local '${vars[temp_local]}/$$', temp_local_dir '$temp_local_dir', whoami '$(whoami)'" ; exit  ### TESTING
   
   if [[ "${vars[eer_local]}" == "true" ]] ; then
     if [[ "$verbose" -ge 1 ]]; then
@@ -1052,12 +1050,6 @@ function validate_inputs() {
             
             # Check if you own MotionCor's temporary file (NOW CHECKS BEFORE EVERY MICROGRAPH)
             if [[ "${tempfile_owner}" != "$(whoami)" ]]; then
-  #             if [[ "${vars[testing]}" == false ]]; then
-  #               validated=false
-  #               vprint "  ERROR!! ${mc2_tempfile} owned by ${tempfile_owner} and not you!" "1+" "${outlog}"
-  #               vprint "    MotionCor writes a temporary file called '${mc2_tempfile}'." "2+" "${outlog}"
-  #               vprint "    Get the owner to delete this file." "2+" "${outlog}"
-  #             fi
               if [[ "${vars[testing]}" == true ]]; then
                 vprint "  WARNING! ${mc2_tempfile} owned by ${tempfile_owner} and not you" "1+" "${outlog}"
                 vprint "    MotionCor writes a temporary file called '${mc2_tempfile}'" "2+" "${outlog}"
@@ -1826,15 +1818,15 @@ function check_freegpus() {
           
           # If file disappears, then exit loop
           if ! [[ -e "${mc2_tempfile}" ]] ; then
-            local wait_time=$(( $SECONDS - $start_time ))
-            vprint "  Waited ${wait_time} seconds for '${mc2_tempfile}' to be released by ${last_owner}" "1+" "${outlog}"
+            local curr_wait=$(( $SECONDS - $start_time ))
+            vprint "  Waited ${curr_wait} seconds for '${mc2_tempfile}' to be released by ${last_owner}" "1+" "${outlog}"
             
             break
           
           # If file is now owned by me, then exit loop
           elif [[ "${tempfile_owner}" == "$(whoami)" ]] ; then
-            local wait_time=$(( $SECONDS - $start_time ))
-            vprint "  After ${wait_time} seconds, '${mc2_tempfile}' now owned by ${tempfile_owner}" "1+" "${outlog}"
+            local curr_wait=$(( $SECONDS - $start_time ))
+            vprint "  After ${curr_wait} seconds, '${mc2_tempfile}' now owned by ${tempfile_owner}" "1+" "${outlog}"
             
             break
           
@@ -1849,6 +1841,79 @@ function check_freegpus() {
         if (( $( echo "$(( $SECONDS - $start_time )) > ${vars[mc2_wait]}" | bc -l ) )) && [[ "${tempfile_owner}" != "$(whoami)" ]] ; then
             vprint "  WARNING! ${mc2_tempfile} owned by '${last_owner}' and not you" "1+" "${outlog}"
             vprint "    Continuing...\n" "1+" "${outlog}"
+        fi
+      fi
+      # End not-owner IF-THEN
+    fi
+    # End still-exists IF-THEN
+  fi
+  # End file-exists IF-THEN
+}
+
+function wait_for_file() {
+###############################################################################
+#   Function:
+#     Check if someone else owns /tmp/MotionCor2_FreeGpus.txt or /tmp/tmp.txt
+#   
+#   Positional variables:
+#     1) file to wait for
+#     2) log file
+#   
+#   Calls functions:
+#     vprint
+#   
+#   Global variables:
+#     vars
+#   
+###############################################################################
+  
+  local wait_file=$1  # WAS "/tmp/MotionCor2_FreeGpus.txt"
+  local outlog=$2
+  
+  # Check if file exists
+  if [[ -e "${wait_file}" ]]; then
+    # Try to remove it
+    \rm -r ${wait_file} 2> /dev/null
+    
+    # Check if it still exists
+    if [[ -e "${wait_file}" ]]; then
+      # Get owner
+      local tempfile_owner=$(stat -c '%U' "${wait_file}")
+      
+      # Check if you own
+      if [[ "${tempfile_owner}" != "$(whoami)" ]]; then
+        # Wait for file to disappear
+        local start_time=$SECONDS
+        while [[ $( echo "$(( $SECONDS - $start_time )) < ${vars[temp_wait]}" | bc -l ) ]] ; do
+        
+          sleep "${vars[search_interval]}"
+          local tempfile_owner=$(stat -c '%U' "${wait_file}" 2> /dev/null)
+          
+          # If file disappears, then exit loop
+          if ! [[ -e "${wait_file}" ]] ; then
+            local curr_wait=$(( $SECONDS - $start_time ))
+            vprint "    Waited ${curr_wait} seconds for '${wait_file}' to be released by ${last_owner}" "1+" "=${outlog}"
+            
+            break
+          
+          # If file is now owned by me, then exit loop
+          elif [[ "${tempfile_owner}" == "$(whoami)" ]] ; then
+            local curr_wait=$(( $SECONDS - $start_time ))
+            vprint "    After ${curr_wait} seconds, '${wait_file}' now owned by ${tempfile_owner}" "1+" "=${outlog}"
+            
+            break
+          
+          # Else keep waiting until time limit reached
+          else
+            local last_owner=$tempfile_owner
+          fi
+        done
+        # End WHILE loop
+        
+        # Print warning if time limit reached
+        if (( $( echo "$(( $SECONDS - $start_time )) > ${vars[temp_wait]}" | bc -l ) )) && [[ "${tempfile_owner}" != "$(whoami)" ]] ; then
+            vprint "  WARNING! ${wait_file} owned by '${last_owner}' and not you" "1+" "=${outlog}"
+            vprint "    Continuing...\n" "1+" "=${outlog}"
         fi
       fi
       # End not-owner IF-THEN
@@ -2055,9 +2120,12 @@ function ctffind_common() {
     
     # Plot 1D profiles
     if [[ -f "$avg_rot" ]]; then
-      if [[ "${do_pace}" == true ]] || [[ "$verbose" -ge 5 ]] ; then
-        echo "    Running: ctffind_plot_results.sh $avg_rot"
+      if [[ "${do_pace}" == true ]] ; then
+        vprint "    Running: ctffind_plot_results.sh $avg_rot" "5+"
       fi
+      
+      # If someone else owns /tmp/tmp.txt (hardwired by CTFFIND4), wait for it to be released
+      wait_for_file "/tmp/tmp.txt"
       
       # Plot results
       ${vars[ctffind_dir]}/ctffind_plot_results.sh $avg_rot 1> /dev/null
@@ -2268,7 +2336,6 @@ function dose_fit() {
     vprint "\nWARNING! Dose list '${dose_list}' not found" "0+" "${main_log} =${warn_log}"
     vprint "  Continuing...\n" "0+" "${main_log} =${warn_log}"
   else
-# #     local verbose=6  ### TESTING
     local dosefit_cmd="$(echo dose_discriminator.py \
       ${dose_list} \
       --min_dose ${vars[dosefit_min]} \
@@ -2279,7 +2346,6 @@ function dose_fit() {
       --log_file ${dose_log} \
       --log_verbose ${vars[dosefit_verbose]} | xargs)"
     
-# #     echo "2277 $dosefit_cmd"  ### TESTING
     vprint "\n  $dosefit_cmd\n" "1+" "=${tomo_log}"
     local error_code=$(${SNARTOMO_DIR}/$dosefit_cmd 2>&1)
     
@@ -2453,14 +2519,12 @@ function plot_tomo_ctfs() {
     
     # If MDOC not used...
     else
-# #       echo "2452 mcorr_mic_array" ; printf "'%s'\n" "${mcorr_mic_array[@]}" ; exit  ### TESTING
         
       # Loop through micrographs
       for fn in ${mcorr_mic_array[@]} ; do
         local stem_mic=$(basename $fn | rev | cut -d. -f2- | rev)
         local stem_movie=${stem_mic%_mic}
         local ctf_txt=$(stem2ctfout "$stem_movie")
-# #         echo "2458 stem_movie '$stem_movie', ctf_txt '$ctf_txt'" ; exit  ### TESTING
         
         # Check that file exists
         if [[ -f "$ctf_txt" ]]; then
@@ -2474,7 +2538,6 @@ function plot_tomo_ctfs() {
     
     # "<" suppreses filename (TODO: Sanity check for length 0)
     local len_before=$(wc -l < $tomo_ctfs)  
-# #     echo "2450 len_before '$len_before'" ; exit  ### TESTING
     
     # Look for duplicates (Might be able to do this without intermediate file)
     awk '!seen[$0]++' $tomo_ctfs > ${tomo_ctfs}.tmp 
@@ -2698,8 +2761,6 @@ function clean_up_mdoc() {
   IFS=$'\n' sorted_good_angles=($(sort -n <<<"${good_angle_array[*]}"))
   unset IFS
   
-# #     printf "'%s'\n" "${sorted_good_angles[@]}" ; exit ### TESTING
-  
   # Find boundaries of MDOC file
   local movie_file=$(echo ${old_subframe_array[0]##*[/\\]} )
   local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
@@ -2746,7 +2807,6 @@ function clean_up_mdoc() {
     
     # Replace ZValue
     local new_line=$(echo ${zvalue_line/$zvalue_orig/$good_counter})
-# #       echo "2984 zvalue_line '${zvalue_line}', new_line '${new_line}'"  ### TESTING
     sed -i "s/${zvalue_line}/${new_line}/" $curr_chunk
     let "good_counter++"
     
@@ -3316,11 +3376,9 @@ function wrapper_etomo() {
       local do_split_alignment=false
       if [[ "${vars[do_ruotnocon]}" == true ]] || [[ "${do_laudiseron}" == true ]] ; then
         do_split_alignment=true
-# #         echo "3319 do_ruotnocon '${vars[do_ruotnocon]}', do_laudiseron '$do_laudiseron'"  ### TESTING
       fi
       
       # If final alignment
-      echo "3324 more_flags '${more_flags}', do_split_alignment '$do_split_alignment'"  ### TESTING
       if [[ "${more_flags}" == "-start 6" ]] || [[ "${do_split_alignment}" == false ]] ; then
         
         # Sanity check: tomogram exists
@@ -3366,7 +3424,7 @@ function wrapper_etomo() {
   function run_laudiseron() {
   ###############################################################################
   #   Function:
-  #     FUNCTION
+  #     Removes micrographs with eTomo alignment residual exceeding a threshold
   #   
   #   Requires:
   #     sort_residuals.py
@@ -3427,7 +3485,7 @@ function wrapper_etomo() {
     # Update MDOC
     local mdoc_copy="${vars[outdir]}/${tomo_dir}/${mdoc_base%.mrc.mdoc}_1-pre-laudiseron.mrc.mdoc"
     local temp_mdoc_dir="$(dirname ${new_mdoc})/tmp_mdoc"
-    \cp ${orig_mdoc} ${mdoc_copy}
+    \cp ${new_mdoc} ${mdoc_copy}
     clean_up_mdoc "${mdoc_copy}" "${new_mdoc}" "$temp_mdoc_dir"
   }
 
