@@ -18,7 +18,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-05-31"
+  echo "Modified 2023-06-08"
   date
   echo 
 }
@@ -81,6 +81,7 @@ resid_imgdir=Residuals                            # Micrograph removal plot dire
 contour_imgdir=Contours                           # Contour removal plot directory
 temp_dir=tmp                                      # Temporary files
 dir2denoise=TmpDenoised                           # Denoised micrographs will go here
+isonet_star=isonet_deconv.star                    # IsoNet STAR file
 
 # Log files (in $log_dir)
 main_log=snartomo.txt                             # Main log file
@@ -201,9 +202,14 @@ function main() {
   
   validate_inputs "${main_log}"
   
-  mapfile -t target_array < <(ls ${vars[target_files]} 2> /dev/null)
+  # Read target files as array
+  mapfile -t target_array < <(ls -tr ${vars[target_files]})
   local num_targets="${#target_array[*]}"
-# #   printf "'%s'\n" "${target_array[@]}" ; exit
+  
+#   ### TESTING
+#   echo "209 target_files '${vars[target_files]}'"
+#   printf "'%s'\n" "${target_array[@]}"
+#   exit
   
   check_gain_format "${main_log}"
   update_adoc "${main_log}"
@@ -448,6 +454,12 @@ function parse_command_line() {
   add_argument "are_time" "${SNARTOMO_ARETOMO_TIME}" "Maximum duration (AreTomo sometimes hangs)" "ANY"
   add_argument "tilt_axis" "${SNARTOMO_TILT_AXIS}" "Estimate for tilt-axis direction, degrees" "FLOAT"
   add_argument "aretomo_exe" "${ARETOMO_EXE}" "AreTomo executable" "ANY"
+
+  # IsoNet
+  add_section "ISONET SETTINGS" "Settings for IsoNet deconvolution."
+  add_argument "do_deconvolute" "false" "Deconvolute using IsoNet" "BOOL"
+  add_argument "snr_falloff" "${SNARTOMO_SNRFALLOFF}" "Signal-to-noise falloff" "FLOAT"
+  add_argument "isonet_env" "${ISONET_ENV}" "IsoNet conda environment" "ANY"
 
   dynamic_parser "${@}"
 #   print_vars
@@ -2467,7 +2479,7 @@ function compute_tomograms() {
   local start_time=$SECONDS
   while (( $(( $SECONDS - $start_time )) < $max_seconds )) ; do
     # Read slot state
-    source ${recon_status}
+    source ${recon_status} 
     
     # Loop through slots
     for slot_num in "${slot_list[@]}" ; do
@@ -2553,7 +2565,7 @@ function compute_tomograms() {
         else
           vprint   "WARNING! eTomo output '$tomogram_3d' does not exist!" "1+" "${main_log} =${warn_log}"
           cat ${etomo_out} | grep -Ev 'quit|Beginning|ABORT|failures|^$' | sed 's/^/         /' | tee -a ${main_log} ${warn_log}
-          vprint  "\n         Continuing...\n" "1+" "${main_log} =${warn_log}"
+          vprint "\n         Continuing...\n" "1+" "${main_log} =${warn_log}"
           
           # Don't look for this output
           let "num_mdocs--"
@@ -2619,7 +2631,7 @@ function tomogram_parallel() {
 #     mcorr_mic_array (OUTPUT)
 #     denoise_array (OUTPUT)
 #     ctf_stk_array (OUTPUT)
-#     new_mdoc
+#     new_mdoc (OUTPUT)
 #     mdoc_angle_array (OUTPUT)
 #     new_subframe_array (OUTPUT)
 #     dose_rate_array (OUTPUT)
@@ -2677,6 +2689,8 @@ function tomogram_parallel() {
   # Write MDOC file with remaining micrographs
   clean_up_mdoc "${mdoc_copy}" "${new_mdoc}" "$temp_mdoc_dir"
   
+# #   echo "2687 tomogram_parallel" ; exit
+  
   # Sanity check that arrays have same length
   if [[ "${#mdoc_angle_array[*]}" -ne "${#new_subframe_array[*]}" ]] || [[ "${#mdoc_angle_array[*]}" -ne "${#dose_rate_array[*]}" ]] ; then
     local warn_msg="\nWARNING! MDOC file '$new_mdoc' has differing number of entries for TiltAngle (${#mdoc_angle_array[*]}), SubFramePath (${#new_subframe_array[*]}), and DoseRate (${#dose_rate_array[*]})"
@@ -2688,7 +2702,7 @@ function tomogram_parallel() {
     local do_denoise=true  # IF-OR statement is a mouthful
   fi
   
-  # Loop through angles
+  # Loop through angles (TODO: Move to function)
   for subfm_idx in "${!new_subframe_array[@]}"; do 
     # Get movie filename
     local movie_file=$(echo ${new_subframe_array[${subfm_idx}]##*[/\\]} )
@@ -2761,6 +2775,8 @@ function tomogram_parallel() {
   vprint "" "1+" "=${tomo_log} =${rec_log}"
   vprint "${mesg}" "1+" "=${file_log} =${tomo_log} =${rec_log} =${status_file}"
   
+#   echo "2769 tomogram_parallel" ; exit
+#   
   if [[ "${vars[batch_directive]}" == "" ]]; then
     wrapper_aretomo "${ts_mics}" "${slot_num}" >> "${tomo_log}"
   else
@@ -2789,11 +2805,6 @@ function tomogram_parallel() {
   fi
   # End AreTomo-vs-eTomo IF-THEN
   
-  # We might need these arrays multiple times if we run laudiseron, so don't delete them until now
-  unset mcorr_mic_array
-  unset denoise_array
-  unset stripped_angle_array
-
   # If dose list is missing, tomogram_3d isn't defined until here
   if [[ ! -f "${dose_list}" ]]; then
     # So that calling function doesn't stall
@@ -2801,11 +2812,26 @@ function tomogram_parallel() {
   fi
   
   if [[ -f "$tomogram_3d" ]]; then
+    if [[ "${vars[do_deconvolute]}" == true ]]; then
+      deconvolute_wrapper "${vars[outdir]}/${tomo_dir}" "${new_mdoc}" "${tomo_log}"
+# #       echo "2811 tomogram_parallel" ; exit
+    fi
+    
+    if [[ "${vars[testing]}" == false ]]; then
+      get_central_slice ${tomogram_3d} >> "${tomo_log}"
+    fi
+    
     vprint "" "1+" "=${tomo_log}"
     vprint "$(date +"$time_format"): Finished computing 3D reconstruction from MDOC file '$(basename ${new_mdoc})' (#${tomo_counter}/${tot_mdocs})" "1+" "=${file_log} =${tomo_log}"
     vprint "" "1+" "=${tomo_log}"
   fi
+  # End tomogram-exists IF-THEN
   
+  # We might need these arrays multiple times if we run laudiseron, so don't delete them until now
+  unset mcorr_mic_array
+  unset denoise_array
+  unset stripped_angle_array
+
   # In testing mode, add a delay
   if [[ "${vars[testing]}" == true ]]; then
     if [[ "${vars[slow]}" == true ]]; then

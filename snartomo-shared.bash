@@ -11,18 +11,19 @@ function check_vars() {
 ###############################################################################
   
   var_array=("SNARTOMO_VOLTAGE" "SNARTOMO_INTERVAL" "SNARTOMO_TILT_TOLERANCE")
-  var_array+=("SNARTOMO_MINFRAMES" "SNARTOMO_MAXFRAMES" "SNARTOMO_RAM_WARN" )
-  var_array+=("SNARTOMO_RAM_KILL" "SNARTOMO_EER_WAIT" "SNARTOMO_MC2_PATCH" )
-  var_array+=("SNARTOMO_WAIT_TIME" "SNARTOMO_IMOD_SLOTS" "SNARTOMO_RUOTNOCON_SD" )
-  var_array+=("SNARTOMO_CTF_SLOTS" "SNARTOMO_CTF_CS" "SNARTOMO_AC" )
-  var_array+=("SNARTOMO_CTF_BOXSIZE" "SNARTOMO_CTF_RESLO" "SNARTOMO_CTF_RESHI" )
-  var_array+=("SNARTOMO_CTF_DFLO" "SNARTOMO_CTF_DFHI" "SNARTOMO_DF_STEP" )
-  var_array+=("SNARTOMO_CTF_DAST" "SNARTOMO_JANNI_BATCH" "SNARTOMO_JANNI_OVERLAP" )
-  var_array+=("SNARTOMO_TOPAZ_PATCH" "SNARTOMO_TOPAZ_TIME" "SNARTOMO_DOSEFIT_MIN" )
-  var_array+=("SNARTOMO_DOSEFIT_RESID" "SNARTOMO_BINNING" "SNARTOMO_VOL_ZDIM" )
-  var_array+=("SNARTOMO_REC_ZDIM" "SNARTOMO_TILT_AXIS" "SNARTOMO_DARKTOL" )
-  var_array+=("SNARTOMO_TILTCOR" "SNARTOMO_BP_METHOD" "SNARTOMO_FLIPVOL" )
-  var_array+=("SNARTOMO_TRANSFILE" "SNARTOMO_ARETOMO_PATCH" "SNARTOMO_ARETOMO_TIME" )
+  var_array+=("SNARTOMO_MINFRAMES" "SNARTOMO_MAXFRAMES" "SNARTOMO_RAM_WARN")
+  var_array+=("SNARTOMO_RAM_KILL" "SNARTOMO_EER_WAIT" "SNARTOMO_MC2_PATCH")
+  var_array+=("SNARTOMO_WAIT_TIME" "SNARTOMO_IMOD_SLOTS" "SNARTOMO_RUOTNOCON_SD")
+  var_array+=("SNARTOMO_CTF_SLOTS" "SNARTOMO_CTF_CS" "SNARTOMO_AC")
+  var_array+=("SNARTOMO_CTF_BOXSIZE" "SNARTOMO_CTF_RESLO" "SNARTOMO_CTF_RESHI")
+  var_array+=("SNARTOMO_CTF_DFLO" "SNARTOMO_CTF_DFHI" "SNARTOMO_DF_STEP")
+  var_array+=("SNARTOMO_CTF_DAST" "SNARTOMO_JANNI_BATCH" "SNARTOMO_JANNI_OVERLAP")
+  var_array+=("SNARTOMO_TOPAZ_PATCH" "SNARTOMO_TOPAZ_TIME" "SNARTOMO_DOSEFIT_MIN")
+  var_array+=("SNARTOMO_DOSEFIT_RESID" "SNARTOMO_BINNING" "SNARTOMO_VOL_ZDIM")
+  var_array+=("SNARTOMO_REC_ZDIM" "SNARTOMO_TILT_AXIS" "SNARTOMO_DARKTOL")
+  var_array+=("SNARTOMO_TILTCOR" "SNARTOMO_BP_METHOD" "SNARTOMO_FLIPVOL")
+  var_array+=("SNARTOMO_TRANSFILE" "SNARTOMO_ARETOMO_PATCH" "SNARTOMO_ARETOMO_TIME")
+  var_array+=("ISONET_ENV" "SNARTOMO_SNRFALLOFF")
   
   declare -a missing_array
   
@@ -42,8 +43,6 @@ function check_vars() {
     echo -e "You may need to update your 'snartomo.bashrc' file\n"
     exit
   fi
-  
-# #   echo "40 missing_array '${#missing_array[@]}'" ; exit  ### TESTING
 }
   
 function check_testing() {
@@ -669,6 +668,7 @@ function validate_inputs() {
       vprint "    Denoising using GPU..." "1+" "${outlog}"
     fi
   fi
+  # End denoising IF-THEN
   
   if [[ ! -z "${vars[batch_directive]}" ]]; then
     vprint "  Computing reconstruction using IMOD" "1+" "${outlog}"
@@ -686,6 +686,11 @@ function validate_inputs() {
     else
       vprint "  Removing contours with a residual greater than ${vars[ruotnocon_sd]} standard deviations" "2+" "${outlog}"
     fi
+  fi
+  
+  if [[ "${vars[do_deconvolute]}" == true ]]; then
+    vprint "  Deconvoluting using IsoNet" "1+" "${outlog}"
+    try_conda "IsoNet executable" "${vars[isonet_env]}" "${outlog}"
   fi
   
   if [[ "${do_pace}" == false ]] || [[ "${vars[do_ruotnocon]}" == true ]] || [[ "${vars[do_laudiseron]}" == true ]] ; then
@@ -867,8 +872,10 @@ function validate_inputs() {
 
       local outlog=$1
       
-      # Get first match (https://unix.stackexchange.com/a/156326)
-      first_target=$(set -- ${vars[target_files]}; echo "$1")
+#       # Get first match (https://unix.stackexchange.com/a/156326)
+#       local first_target=$(set -- ${vars[target_files]}; echo "$1")
+      # Get first match 
+      local first_target=$(echo $(ls -tr ${vars[target_files]} | head -n 1 ) )
       
       # Get first MDOC
       while read -r target_line ; do
@@ -1212,33 +1219,37 @@ function validate_inputs() {
     local conda_env=$2
     local outlog=$3
     
-  if [[ "${vars[testing]}" == "false" ]]; then
-    vprint "    Current conda environment: ${CONDA_DEFAULT_ENV}" '5+' "${outlog}"
-    vprint "    Temporarily activating conda environment: ${conda_env}" "5+" "${outlog}"
+# #     echo "1222 '$exe_descr' '$conda_env' '$outlog'" ; exit  ### TESTING
     
-    vprint '    Executing: eval "$(conda shell.bash hook)"' "5+" "${outlog}"
-    eval "$(conda shell.bash hook)"
-    # (Can't combine the eval command into a variable and run it, for some reason)
-    
-    local conda_cmd="conda activate ${conda_env}"
-    vprint "    Executing: $conda_cmd" "5+" "${outlog}"
-    $conda_cmd
-    
-    # Sanity check
-    if [[ "${CONDA_DEFAULT_ENV}" == "${conda_env}"  ]]; then
-      vprint "    New conda environment: ${CONDA_DEFAULT_ENV}" "5+" "${outlog}"
-    else
-      echo -e "\nERROR!! Conda environment not found: ${conda_env}"
-      echo    "Install ${conda_env} or disable option!"
-      echo -e "Exiting...\n"
-      exit
+    if [[ "${vars[testing]}" == "false" ]]; then
+      vprint "    Current conda environment: ${CONDA_DEFAULT_ENV}" '5+' "${outlog}"
+      vprint "    Temporarily activating conda environment: ${conda_env}" "5+" "${outlog}"
+      
+      vprint '    Executing: eval "$(conda shell.bash hook)"' "5+" "${outlog}"
+      eval "$(conda shell.bash hook)"
+      # (Can't combine the eval command into a variable and run it, for some reason)
+      
+      local conda_cmd="conda activate ${conda_env}"
+      vprint "    Executing: $conda_cmd" "5+" "${outlog}"
+      $conda_cmd 2> /dev/null
+      
+      # Sanity check
+      if [[ "${CONDA_DEFAULT_ENV}" == "${conda_env}"  ]]; then
+        vprint "    New conda environment: ${CONDA_DEFAULT_ENV}" "5+" "${outlog}"
+      else
+        echo -e "\nERROR!! Conda environment '${conda_env}' not found!"
+        echo    "Install '${conda_env}' or disable option,"
+        echo -e "Exiting...\n"
+        exit
+      fi
+      
+      # TODO: For IsoNet, make sure isonet.py is in the PATH
+      
+      # Matplotlib won't work later on
+      conda deactivate
     fi
-    
-    # Matplotlib won't work later on
-    conda deactivate
-  fi
-  # End testing IF-THEN
-}
+    # End testing IF-THEN
+  }
 
   function check_targets() {
   ###############################################################################
@@ -2716,6 +2727,7 @@ function clean_up_mdoc() {
 #     vprint
 #   
 #   Global variables:
+#     chunk_prefix
 #     good_angles_file
 #     vars
 #     micdir
@@ -2732,27 +2744,32 @@ function clean_up_mdoc() {
     return
   fi
   
-  # Clean up pre-existing files
-  rm -r $temp_mdoc_dir 2> /dev/null
-  mkdir $temp_mdoc_dir
+# #   echo "2742 clean_up_mdoc" ; exit
+  
+  split_mdoc "${old_mdoc}" "${temp_mdoc_dir}"
+  
+#   echo "2744 clean_up_mdoc" ; exit
+#   
+#   # Clean up pre-existing files
+#   rm -r $temp_mdoc_dir 2> /dev/null
+#   mkdir $temp_mdoc_dir
   
   # Parse MDOC (awk notation from Tat)
   mapfile -t old_subframe_array < <( grep "SubFramePath" "${old_mdoc}" | awk '{print $3}' | sed 's/\r//' )
   
-  # Remove CRLF (https://www.cyberciti.biz/faq/sed-remove-m-and-line-feeds-under-unix-linux-bsd-appleosx/)
-  local mdoc_nocrlf="$temp_mdoc_dir/$(basename $old_mdoc).txt"
-  sed 's/\r//' $old_mdoc > ${mdoc_nocrlf}
-  local status_code=$?
-  
-  if [[ $status_code -ne 0 ]] ; then
-    echo -e "ERROR!! Status code: '$status_code'\n"
-    exit 3
-  fi
-  
-  # Split MDOC (Adapted from https://stackoverflow.com/a/60972105/3361621)
-  local chunk_prefix="${temp_mdoc_dir}/chunk"
-  csplit --quiet --prefix=$chunk_prefix --suffix-format=%02d.txt --suppress-matched ${mdoc_nocrlf} /^$/ {*}
-  declare -a good_mdoc_array
+#   # Remove CRLF (https://www.cyberciti.biz/faq/sed-remove-m-and-line-feeds-under-unix-linux-bsd-appleosx/)
+#   local mdoc_nocrlf="$temp_mdoc_dir/$(basename $old_mdoc).txt"
+#   sed 's/\r//' $old_mdoc > ${mdoc_nocrlf}
+#   local status_code=$?
+#   
+#   if [[ $status_code -ne 0 ]] ; then
+#     echo -e "ERROR!! Status code: '$status_code'\n"
+#     exit 3
+#   fi
+#   
+#   # Split MDOC (Adapted from https://stackoverflow.com/a/60972105/3361621)
+#   local chunk_prefix="${temp_mdoc_dir}/chunk"
+#   csplit --quiet --prefix=$chunk_prefix --suffix-format=%02d.txt --suppress-matched ${mdoc_nocrlf} /^$/ {*}
   
   # Read angles from dose-fitting
   readarray -t good_angle_array < $good_angles_file
@@ -2761,12 +2778,18 @@ function clean_up_mdoc() {
   IFS=$'\n' sorted_good_angles=($(sort -n <<<"${good_angle_array[*]}"))
   unset IFS
   
+#   echo "2774 clean_up_mdoc" ; exit
+#   
   # Find boundaries of MDOC file
   local movie_file=$(echo ${old_subframe_array[0]##*[/\\]} )
   local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
   local first_movie_file="$(grep -l $stem_movie ${chunk_prefix}*)"  # assuming single hit
   local first_movie_chunk="$(basename $first_movie_file | sed 's/[^0-9]*//g')"
   local last_header_chunk=$(( $first_movie_chunk - 1 ))
+  
+# #   echo "2783 clean_up_mdoc" ; exit
+  
+  declare -a good_mdoc_array
   
   # Loop through movies
   for mdoc_idx in "${sorted_good_angles[@]}"; do 
@@ -2817,6 +2840,52 @@ function clean_up_mdoc() {
   
   # Clean up 
   rm -r $temp_mdoc_dir 2> /dev/null
+#   
+#   echo "2833 clean_up_mdoc" ; exit
+}
+
+
+function split_mdoc() {
+###############################################################################
+#   Function:
+#     Split MDOC into chunks
+#   
+#   Positional variables:
+#     1) MDOC file
+#     2) output directory
+#     3) temporary MDOC file w/o CRLFs
+#   
+#   Calls functions:
+#   
+#   Global variables:
+#     chunk_prefix (OUTPUT)
+#   
+###############################################################################
+  
+  local old_mdoc=$1
+  local temp_mdoc_dir=$2
+  
+  # Clean up pre-existing files
+  rm -r $temp_mdoc_dir 2> /dev/null
+  mkdir $temp_mdoc_dir
+  
+# #   echo "2866 temp_mdoc_dir '$temp_mdoc_dir'" ; exit
+  
+  # Remove CRLF (https://www.cyberciti.biz/faq/sed-remove-m-and-line-feeds-under-unix-linux-bsd-appleosx/)
+  local mdoc_nocrlf="$temp_mdoc_dir/$(basename $old_mdoc).txt"
+  sed 's/\r//' $old_mdoc > ${mdoc_nocrlf}
+  local status_code=$?
+  
+  if [[ $status_code -ne 0 ]] ; then
+    echo -e "ERROR!! Status code: '$status_code'\n"
+    exit 3
+  fi
+  
+  # Split MDOC (Adapted from https://stackoverflow.com/a/60972105/3361621)
+  chunk_prefix="${temp_mdoc_dir}/chunk"
+  csplit --quiet --prefix=$chunk_prefix --suffix-format=%02d.txt --suppress-matched ${mdoc_nocrlf} /^$/ {*}
+# 
+#   echo "2882 temp_mdoc_dir '$temp_mdoc_dir'" ; exit
 }
 
 function imod_restack() {
@@ -2954,7 +3023,6 @@ function wrapper_aretomo() {
 #   Positional variable:
 #     1) number of micrographs in tilt series
 #     2) GPU number
-# #     3) (boolean) redo pre-existing reconstruction (default: true, old file backed up)
 #     
 #   Calls functions:
 #     run_aretomo
@@ -2973,11 +3041,6 @@ function wrapper_aretomo() {
   local num_mics=$1
   local gpu_local=$2
   
-#   if [[ "$3" == "" ]]; then
-#     local do_overwrite=true
-#   else
-#     local do_overwrite=false
-#   fi
   local do_reconstruct=true
   
   # Output files
@@ -2989,14 +3052,11 @@ function wrapper_aretomo() {
   if [[ "${vars[testing]}" != true ]]; then
     # Check if output already exists
     if [[ -e $tomogram_3d ]]; then
-# #       if [[ "${do_overwrite}" == false ]] && [[ "${vars[no_redo3d]}" == true ]] ; then
       if [[ "${vars[no_redo3d]}" == true ]] ; then
         do_reconstruct=false
         
         if [[ "$verbose" -ge 2 ]]; then
           echo -e "\n  AreTomo output $tomogram_3d already exists, skipping..."
-#         else
-#           mv $tomogram_3d ${tomogram_3d}.bak
         fi
       else
         if [[ "$verbose" -ge 2 ]]; then
@@ -3056,7 +3116,6 @@ function wrapper_aretomo() {
       # Sanity check
       if [[ ! -f "$tomogram_3d" ]]; then
         if [[ "$verbose" -ge 1 ]]; then
-# #           echo    ""
           date
           if [[ "$status_code" -eq 139 ]]; then
             echo    "WARNING! AreTomo output $tomogram_3d does not exist!"
@@ -3084,7 +3143,8 @@ function wrapper_aretomo() {
       
       # Tomogram found
       else
-        get_central_slice ${tomogram_3d}
+          vprint "\n$(date)" "1+"
+          vprint   "Finished reconstructing '$tomogram_3d'\n" "1+"
       fi
       # End do-reconstruct IF-THEN
     fi
@@ -3193,105 +3253,6 @@ function mdoc2tomo() {
 # #   echo $tomogram_3d
 }
 
-function get_central_slice() {
-###############################################################################
-#   Function:
-#     Gets central slice
-#     Requires ImageMagick's convert
-#   
-#   Positional variable:
-#     1) tomogram name
-#     
-#   Global variables:
-#     vars
-#     tomo_dir
-#     verbose
-#     imgdir
-#     thumbdir
-#   
-###############################################################################
-  
-  local fn=$1
-# #   local tomo_dir="$(dirname $(dirname $fn))"
-  local trim_log="${vars[outdir]}/${tomo_dir}/trimvol.log"
-  
-  dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)
-#   echo "dimension_string '$dimension_string'"
-  IFS=' ' read -r -a dimension_array <<< ${dimension_string}
-#   printf "'%s'\n" "${dimension_array[@]}"
-  
-  # initialize minimum
-  min_dim=99999
-  axis_array=("-nx" "-ny" "-nz")
-  
-  # Get minimimum (https://stackoverflow.com/a/40642705)
-  for idx in "${!dimension_array[@]}" ; do
-#     echo "$idx: ${dimension_array[$idx]}"
-    if (( $( echo "${dimension_array[$idx]} < $min_dim" | bc -l ) )) ; then
-      min_dim=${dimension_array[$idx]}
-      min_axis=${axis_array[$idx]}
-    fi
-  done
-  
-  # If short axis along y, then rotate (or else, there'll be N images of width 1)
-  local rot_flag=""
-  if [[ "${min_axis}" == "-ny" ]]; then
-    rot_flag="-rx"
-  elif [[ "${min_axis}" == "-nx" ]]; then
-    echo -e "    WARNING! Untested with short dimension along x...\n"
-    rot_flag="-rx"
-  elif [[ "${min_axis}" == "-nz" ]]; then
-    rot_flag=""
-  else
-    echo -e "    WARNING! unrecognized axis: ${min_axis}\n"
-    rot_flag=""
-  fi
-  
-  central_slice_num=$(echo "${min_dim}"/2 | bc)
-  echo ""
-  echo "  Extracting central slice:"
-  echo "    Shortest dimension: ${min_dim}"
-  echo "    Shortest axis:      ${min_axis}"
-  echo "    Central slice:      ${central_slice_num}"
-  echo ""
-  
-  # Strip extension
-  tomo_stem="${fn%.mrc}"
-  
-  # Take central slice
-  mrc_slice="${tomo_stem}_slice.mrc"
-  trim_cmd="trimvol ${rot_flag} ${min_axis} 1 $fn ${mrc_slice}" 
-# #   if [[ "$verbose" -ge 3 ]]; then
-  vprint "    $trim_cmd" "3+"
-# #   fi
-  if [[ "$verbose" -ge 7 ]]; then
-    ${vars[imod_dir]}/$trim_cmd 2>&1 | tee ${trim_log}
-  else
-    ${vars[imod_dir]}/$trim_cmd 1> ${trim_log}
-  fi
-  
-  jpg_slice="${tomo_stem}_slice.jpg"
-  jpg_cmd="mrc2tif -j ${mrc_slice} ${jpg_slice}"
-# #   if [[ "$verbose" -ge 3 ]]; then
-  vprint "    $jpg_cmd" "3+"
-# #   fi
-  
-  # Suppress "Writing JPEG images"
-  if [[ "$verbose" -le 6 ]]; then
-#     ${vars[imod_dir]}/$jpg_cmd #&& rm ${mrc_slice} 2> /dev/null
-    ${vars[imod_dir]}/$jpg_cmd 1> /dev/null
-  else
-    ${vars[imod_dir]}/$jpg_cmd #&& rm mrc_slice${}
-  fi
-  
-  central_slice_jpg="${vars[outdir]}/${imgdir}/${thumbdir}/$(basename ${tomo_stem})_slice_norm.jpg"
-  norm_cmd="convert ${jpg_slice} -normalize $central_slice_jpg "
-# #   if [[ "$verbose" -ge 3 ]]; then
-  vprint "    $norm_cmd" "3+"
-# #   fi
-  $norm_cmd && rm ${jpg_slice}
-}
-
 function wrapper_etomo() {
 ###############################################################################
 #   Function:
@@ -3313,7 +3274,7 @@ function wrapper_etomo() {
 #   Global variables:
 #     vars
 #     tomo_dir
-#     tomogram_3d
+#     tomogram_3d (OUTPUT)
 #     verbose
 # 
 ###############################################################################
@@ -3393,8 +3354,11 @@ function wrapper_etomo() {
         
         # Tomogram found
         else
+          vprint "\n$(date)" "1+"
+          vprint   "Finished reconstructing '$tomogram_3d'\n" "1+"
+          
           \rm ${etomo_out} 2> /dev/null
-          get_central_slice ${tomogram_3d}
+# #           get_central_slice ${tomogram_3d}
         fi
         # End sanity IF-THEN
       fi
@@ -3941,6 +3905,242 @@ function backup_file() {
       mv "${fn}" "${fn}_${counter}"
     fi
   fi
+}
+
+function deconvolute_wrapper() {
+###############################################################################
+#   Function:
+#     Runs deconvolution filter using IsoNet
+#   
+#   Positional variables:
+#     1) I/O directory
+#     2) MDOC file
+#     3) Log file (optional)
+#   
+#   Global variables:
+#     stripped_angle_array
+#     mcorr_mic_array
+#     vars
+#       isonet_env
+#       apix
+#     chunk_prefix
+#     isonet_star
+#     tomogram_3d
+#   
+###############################################################################
+  
+  local io_dir=$1
+  local mdoc_file=$2
+  local outlog=$3
+  
+  # Get minimum angle (TODO: Move to function)
+  local min_angle=360
+  local min_index=-1
+  
+  for idx in "${!stripped_angle_array[@]}" ; do
+    local curr_angle=${stripped_angle_array[$idx]}
+    
+    # Take asbolute value (from https://stackoverflow.com/a/47240327)
+    local abs_angle=${curr_angle#-}
+    
+    # Update if minimum
+    if (( $(echo "${abs_angle} < ${min_angle}" |bc -l) )); then
+      min_angle=${abs_angle}
+      min_index=${idx}
+    fi
+  done
+  
+  if [[ $mdoc_file != "" ]] ; then
+    local temp_dir="${io_dir}/tmp_mdoc"
+    split_mdoc "${mdoc_file}" "${temp_dir}"
+    local min_mic_stem=$(basename ${mcorr_mic_array[$min_index]%_mic.mrc})
+    
+    # Get defocus value
+    if [[ "${vars[testing]}" == true ]]; then
+      local min_chunk=$(grep -l $min_mic_stem ${chunk_prefix}*)
+      local df_microns=$(grep CtfFind $min_chunk | awk '{print $3}' )
+      local df_angstroms=$(echo -10000*${df_microns} | bc)
+  #     
+  #     ### TESTING
+  #     echo "3955 min_index '${min_index}', min_angle '${min_angle}', min_chunk '$min_chunk', df_angstroms '$df_angstroms', tomogram_3d '$tomogram_3d'"  ; exit
+    else
+      # Get data from CTFFIND
+      local tomo_ctfs="${io_dir}/${ctf_summary}"
+      local ctf_data=$(grep $min_mic_stem ${tomo_ctfs} | tail -n 1 | xargs)
+      local df_minor=$(echo $ctf_data | cut -d " " -f 3)
+      local df_major=$(echo $ctf_data | cut -d " " -f 4)
+      local df_angstroms=$(echo $df_minor/2 + $df_major/2 | bc)
+    fi
+  else
+    local df_angstroms="0.0"
+  fi
+  # End MDOC IF-THEN
+  
+  # IsoNet creates a directory called './deconv_temp', so let's change to a unique directory where parallel processes won't conflict.
+  local abs_outlog=$(realpath ${outlog} 2> /dev/null)
+  local abs_tomo=$(realpath $tomogram_3d)
+  pushd ${io_dir} > /dev/null
+  
+  local temp_indir="InIsonet"
+# #   local out_star="${isonet_star}"
+  local temp_outdir="OutIsonet"
+  
+  # Link tomogram so that there aren't multiple MRCs when we generate the STAR file
+  mkdir $temp_indir 2> /dev/null
+  ln -sf ${abs_tomo} $(realpath ${temp_indir}/)
+  
+  local conda_cmd="conda activate ${vars[isonet_env]}"
+  local isonet_exe="isonet.py"
+  
+  # Prepare STAR file
+  local bin_apix=$(${vars[imod_dir]}/header $abs_tomo | grep Pixel | awk '{print $4}')
+  local star_args="prepare_star ${temp_indir} --output_star ${isonet_star} --pixel_size ${bin_apix} --defocus ${df_angstroms}"
+  local star_cmd="${isonet_exe} ${star_args}"
+  
+  # Deconvolute
+  local deconvolute_args="deconv ${isonet_star} --snrfalloff ${vars[snr_falloff]} --deconv_folder ${temp_outdir}"
+  local deconvolute_cmd="${isonet_exe} ${deconvolute_args}"
+  
+  if [[ "${vars[testing]}" == false ]]; then
+    vprint "\n  Executing: $conda_cmd" "2+" "=${abs_outlog}"
+    $conda_cmd 2> /dev/null
+    vprint   "    conda environment: '$CONDA_DEFAULT_ENV'" "2+" "=${abs_outlog}"
+    
+    vprint "\n    Executing: ${star_cmd}" "2+" "=${abs_outlog}"
+    if [[ "${do_pace}" == true ]]; then
+      $star_cmd        >>${abs_outlog} 2>&1
+    else
+      $star_cmd
+    fi
+    
+    vprint "\n    Executing: $deconvolute_cmd" "2+" "=${abs_outlog}"
+    if [[ "${do_pace}" == true ]]; then
+      $deconvolute_cmd >>${abs_outlog} 2>&1
+    else
+      $deconvolute_cmd
+    fi
+    
+    # Move to io_dir and use this volume from now on
+    local tomo_base=$(basename $tomogram_3d)
+    local orig_location="${temp_outdir}/${tomo_base}"
+    local new_location="${tomo_base%.mrc}_deconv.mrc"
+    local move_cmd="mv $orig_location $new_location"
+    $move_cmd 2> /dev/null
+    popd > /dev/null
+    new_location="${io_dir}/${new_location}"
+    
+    # Sanity check
+    if [[ -e $new_location ]] ; then
+      vprint "  Moved '$(basename ${temp_outdir})/${tomo_base}' to $(basename ${new_location})" "2+" "=${outlog}"
+      tomogram_3d=$new_location
+      \rm -r ${temp_dir} 2> /dev/null
+    else
+      vprint "\nWARNING! IsoNet output '$new_location' does not exist!" "1+" "${main_log} =${warn_log} =${outlog}"
+      vprint   "         Attempted command line: '$move_cmd'" "1+" "=${outlog}"
+      vprint   "         Continuing...\n" "1+" "=${outlog}"
+    fi
+    
+    # Clean up
+    conda deactivate
+    vprint "  conda environment: '$CONDA_DEFAULT_ENV'\n" "2+" "=${outlog}"
+  
+  # Testing
+  else
+    vprint "  TESTING: ${star_cmd}" "3+" "=${outlog}"
+    vprint "  TESTING: ${deconvolute_cmd}\n" "3+" "=${outlog}"
+  fi
+  # End testing IF-THEN
+}
+
+function get_central_slice() {
+###############################################################################
+#   Function:
+#     Gets central slice
+#     Requires ImageMagick's convert
+#   
+#   Positional variable:
+#     1) tomogram name
+#     
+#   Global variables:
+#     vars
+#     tomo_dir
+#     verbose
+#     imgdir
+#     thumbdir
+#   
+###############################################################################
+  
+  local fn=$1
+
+  local trim_log="${vars[outdir]}/${tomo_dir}/trimvol.log"
+  
+  dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)
+  IFS=' ' read -r -a dimension_array <<< ${dimension_string}
+  
+  # initialize minimum
+  min_dim=99999
+  axis_array=("-nx" "-ny" "-nz")
+  
+  # Get minimimum (https://stackoverflow.com/a/40642705)
+  for idx in "${!dimension_array[@]}" ; do
+    if (( $( echo "${dimension_array[$idx]} < $min_dim" | bc -l ) )) ; then
+      min_dim=${dimension_array[$idx]}
+      min_axis=${axis_array[$idx]}
+    fi
+  done
+  
+  # If short axis along y, then rotate (or else, there'll be N images of width 1)
+  local rot_flag=""
+  if [[ "${min_axis}" == "-ny" ]]; then
+    rot_flag="-rx"
+  elif [[ "${min_axis}" == "-nx" ]]; then
+    echo -e "    WARNING! Untested with short dimension along x...\n"
+    rot_flag="-rx"
+  elif [[ "${min_axis}" == "-nz" ]]; then
+    rot_flag=""
+  else
+    echo -e "    WARNING! unrecognized axis: ${min_axis}\n"
+    rot_flag=""
+  fi
+  
+  central_slice_num=$(echo "${min_dim}"/2 | bc)
+  echo ""
+  echo "  Extracting central slice:"
+  echo "    Shortest dimension: ${min_dim}"
+  echo "    Shortest axis:      ${min_axis}"
+  echo "    Central slice:      ${central_slice_num}"
+  echo ""
+  
+  # Strip extension
+  tomo_stem="${fn%.mrc}"
+  
+  # Take central slice
+  mrc_slice="${tomo_stem}_slice.mrc"
+  trim_cmd="trimvol ${rot_flag} ${min_axis} 1 $fn ${mrc_slice}" 
+  vprint "    $trim_cmd" "3+"
+
+  if [[ "$verbose" -ge 7 ]]; then
+    ${vars[imod_dir]}/$trim_cmd 2>&1 | tee ${trim_log}
+  else
+    ${vars[imod_dir]}/$trim_cmd 1> ${trim_log}
+  fi
+  
+  jpg_slice="${tomo_stem}_slice.jpg"
+  jpg_cmd="mrc2tif -j ${mrc_slice} ${jpg_slice}"
+  vprint "    $jpg_cmd" "3+"
+  
+  # Suppress "Writing JPEG images"
+  if [[ "$verbose" -le 6 ]]; then
+#     ${vars[imod_dir]}/$jpg_cmd #&& rm ${mrc_slice} 2> /dev/null
+    ${vars[imod_dir]}/$jpg_cmd 1> /dev/null
+  else
+    ${vars[imod_dir]}/$jpg_cmd #&& rm mrc_slice${}
+  fi
+  
+  central_slice_jpg="${vars[outdir]}/${imgdir}/${thumbdir}/$(basename ${tomo_stem})_slice_norm.jpg"
+  norm_cmd="convert ${jpg_slice} -normalize $central_slice_jpg "
+  vprint "    $norm_cmd" "3+"
+  $norm_cmd && rm ${jpg_slice}
 }
 
 function DUMMY_FUNCTION() {

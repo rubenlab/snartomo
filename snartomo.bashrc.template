@@ -15,6 +15,7 @@ export IMOD_BIN=""                             # IMOD executable directory
 export ARETOMO_EXE=""                          # AreTomo executable
 export CP_EER_LOCAL="false"                    # Copy EER file temporarily to local drive (useful for Falcon 4i data)
 export SNARTOMO_LOCAL="/tmp/SNARTomo-${USER}"  # Local directory for temporary EERs
+export ISONET_ENV="isonet"                     # IsoNet conda environment
 
 # Global parameters
 export SNARTOMO_VOLTAGE=300.0                                     # Acceleration voltage (kV) -- F20: 200, Krios: 300
@@ -70,6 +71,9 @@ export SNARTOMO_FLIPVOL=1                                         # (boolean) Fl
 export SNARTOMO_TRANSFILE=1                                       # (boolean) Generate IMOD XF files
 export SNARTOMO_ARETOMO_PATCH="0 0"                               # Number of patches in x & y (slows down alignment)
 export SNARTOMO_ARETOMO_TIME=30m                                  # Maximum duration, AreTomo sometimes hangs
+
+# IsoNet parameter
+export SNARTOMO_SNRFALLOFF=0.7                                    # Signal-to-noise falloff
 
 ##### YOU SHOULDN'T NEED TO MODIFY ANYTHING BELOW THIS LINE #####
 

@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2023-05-31"
+  echo "Modified 2023-06-08"
   date
   echo 
 }
@@ -110,6 +110,7 @@ resid_imgdir=Residuals                            # Micrograph removal plot dire
 contour_imgdir=Contours                           # Contour removal plot directory
 temp_dir=tmp                                      # Temporary files
 dir2denoise=TmpDenoised                           # Denoised micrographs will go here
+isonet_star=isonet_deconv.star                    # IsoNet STAR file
 
 ################ END BATCH HEADER ################
 
@@ -386,6 +387,12 @@ function parse_command_line() {
   add_argument "transfile" "${SNARTOMO_TRANSFILE}" "Flag to generate IMOD XF files (1: yes, 0: no)" "INT"
   add_argument "are_patches" "${SNARTOMO_ARETOMO_PATCH}" "Number of patches in x & y (delimited by spaces)" "ANY"
   add_argument "are_time" "${SNARTOMO_ARETOMO_TIME}" "Maximum duration (AreTomo sometimes hangs)" "ANY"
+
+  # IsoNet
+  add_section "ISONET SETTINGS" "Settings for IsoNet deconvolution."
+  add_argument "do_deconvolute" "false" "Deconvolute using IsoNet" "BOOL"
+  add_argument "snr_falloff" "${SNARTOMO_SNRFALLOFF}" "Signal-to-noise falloff" "FLOAT"
+  add_argument "isonet_env" "${ISONET_ENV}" "IsoNet conda environment" "ANY"
 
   dynamic_parser "${@}"
   
@@ -975,6 +982,7 @@ function compute_tomogram() {
 #     tomo_root (OUTPUT)
 #     tomo_dns_dir
 #     micdir
+#     tomogram_3d
 #     
 ###############################################################################
   
@@ -1046,13 +1054,14 @@ function compute_tomogram() {
       good_angles_file="${tomo_root}_goodangles.txt"
     fi
     # End found-MDOC IF-THEN
+  else
+    new_mdoc=""
   fi
   
   write_angles_lists
   
   # Plot CTF data
   plot_tomo_ctfs "${found_mdoc}"
-  
   
   # Optionally denoise
   if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]] ; then
@@ -1083,7 +1092,6 @@ function compute_tomogram() {
   else
     # If splitting eTomo (laudiseron or ruotnocon)
     if [[ "${vars[do_ruotnocon]}" == true ]] || [[ "${vars[do_laudiseron]}" == true ]] ; then
-# #       local fid_file="${vars[outdir]}/${tomo_dir}/${prev_name}_newstack.fid"
       
       if [[ "${vars[do_laudiseron]}" == true ]] ; then
         wrapper_etomo "${tomo_base}" "${ts_mics}" "true"  "-end 6"
@@ -1104,6 +1112,15 @@ function compute_tomogram() {
   fi
   # End AreTomo-vs-eTomo IF-THEN
 
+  if [[ -f "$tomogram_3d" ]]; then
+    if [[ "${vars[do_deconvolute]}" == true ]]; then
+      deconvolute_wrapper "${vars[outdir]}/${tomo_dir}" "${new_mdoc}"
+    fi
+    
+    get_central_slice ${tomogram_3d}
+  fi
+  # End tomogram-exists IF-THEN
+    
   # We might need these arrays multiple times if we run laudiseron, so don't delete them until now
   unset mcorr_mic_array
   unset denoise_array
