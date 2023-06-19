@@ -18,14 +18,14 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-06-08"
+  echo "Modified 2023-06-15"
   date
   echo 
 }
 
 #################### Filenames ####################
 
-shared_libs=snartomo-shared.bash                   # Shared libraries
+shared_libs=snartomo-shared-15jun.bash                   # Shared libraries
 gpu_libs=gpu_resources.bash                        # Resource (GPUs, etc.) libraries
 frame_file=motioncor-frame.txt                     # Frames file
 outdir=SNARTomoPACE                                # Output top-level directory
@@ -2685,11 +2685,10 @@ function tomogram_parallel() {
   
   # Fit dose to cosine function
   dose_fit "${tomo_base}" "${mdoc_copy}" "${tomo_log}"
+# #   echo "2688 tomogram_parallel" ; exit  ### TESTING
   
   # Write MDOC file with remaining micrographs
-  clean_up_mdoc "${mdoc_copy}" "${new_mdoc}" "$temp_mdoc_dir"
-  
-# #   echo "2687 tomogram_parallel" ; exit
+  clean_up_mdoc "${mdoc_copy}" "${new_mdoc}" "${temp_mdoc_dir}"
   
   # Sanity check that arrays have same length
   if [[ "${#mdoc_angle_array[*]}" -ne "${#new_subframe_array[*]}" ]] || [[ "${#mdoc_angle_array[*]}" -ne "${#dose_rate_array[*]}" ]] ; then

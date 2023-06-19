@@ -532,9 +532,9 @@ function vprint() {
           local status_code=$?
           if [[ "${status_code}" != 0 ]] ; then
             echo "status_code : '${status_code}'"
-            echo "${FUNCNAME[1]}"
-            echo "${log_file}" "$(dirname ${log_file})"
-            echo -e "string2print : ${string2print}\n"
+            echo "calling function: ${FUNCNAME[1]}"
+            echo "log file '${log_file}'"
+            echo -e "string2print '${string2print}'\n"
             exit
           fi
         fi
@@ -2402,15 +2402,17 @@ function write_angles_lists() {
   
   local outlog=$1
 
-  if [[ $found_mdoc == "" ]] ; then
-    sort_array_keys
-  fi
+  # TODO: Test in Classic mode w/o MDOC
+#   if [[ $found_mdoc == "" ]] ; then
+#     sort_array_keys
+#   fi
   
   mapfile -t sorted_keys < $good_angles_file
 
-#   echo "2334 sorted_keys ${#sorted_keys[*]}:"
+#   echo "2412  $(ls -l --full-time ${good_angles_file})"
+#   echo "2414 sorted_keys ${#sorted_keys[*]}:"
 #   printf "  '%s'\n" "${sorted_keys[@]}"
-#   echo "2336 stripped_angle_array ${#stripped_angle_array[*]}:"
+#   echo "2415 stripped_angle_array ${#stripped_angle_array[*]}:"
 #   printf "  '%s'\n" "${stripped_angle_array[@]}"
 #   exit
   
@@ -2434,7 +2436,6 @@ function write_angles_lists() {
   
   # Loop through sorted keys 
   for idx in "${sorted_keys[@]}" ; do
-# #     echo "2357 idx '${idx}' '${stripped_angle_array[${idx}]}'"
     echo    "${stripped_angle_array[${idx}]}" >> $angles_list
     echo -e "${mcorr_mic_array[$idx]}\n/" >> $mcorr_list
     echo -e "${ctf_stk_array[$idx]}\n/" >> $ctf_list
@@ -2450,7 +2451,7 @@ function write_angles_lists() {
     fi
   done  
   
-  ts_mics="${#stripped_angle_array[*]}"
+  ts_mics="${#sorted_keys[*]}"
   vprint "  Wrote list of ${ts_mics} angles to $angles_list" "2+" "=${outlog}"
   vprint "  Wrote list of ${ts_mics} images to $mcorr_list" "2+" "=${outlog}"
   
@@ -2744,32 +2745,10 @@ function clean_up_mdoc() {
     return
   fi
   
-# #   echo "2742 clean_up_mdoc" ; exit
-  
   split_mdoc "${old_mdoc}" "${temp_mdoc_dir}"
-  
-#   echo "2744 clean_up_mdoc" ; exit
-#   
-#   # Clean up pre-existing files
-#   rm -r $temp_mdoc_dir 2> /dev/null
-#   mkdir $temp_mdoc_dir
   
   # Parse MDOC (awk notation from Tat)
   mapfile -t old_subframe_array < <( grep "SubFramePath" "${old_mdoc}" | awk '{print $3}' | sed 's/\r//' )
-  
-#   # Remove CRLF (https://www.cyberciti.biz/faq/sed-remove-m-and-line-feeds-under-unix-linux-bsd-appleosx/)
-#   local mdoc_nocrlf="$temp_mdoc_dir/$(basename $old_mdoc).txt"
-#   sed 's/\r//' $old_mdoc > ${mdoc_nocrlf}
-#   local status_code=$?
-#   
-#   if [[ $status_code -ne 0 ]] ; then
-#     echo -e "ERROR!! Status code: '$status_code'\n"
-#     exit 3
-#   fi
-#   
-#   # Split MDOC (Adapted from https://stackoverflow.com/a/60972105/3361621)
-#   local chunk_prefix="${temp_mdoc_dir}/chunk"
-#   csplit --quiet --prefix=$chunk_prefix --suffix-format=%02d.txt --suppress-matched ${mdoc_nocrlf} /^$/ {*}
   
   # Read angles from dose-fitting
   readarray -t good_angle_array < $good_angles_file
@@ -2778,16 +2757,12 @@ function clean_up_mdoc() {
   IFS=$'\n' sorted_good_angles=($(sort -n <<<"${good_angle_array[*]}"))
   unset IFS
   
-#   echo "2774 clean_up_mdoc" ; exit
-#   
   # Find boundaries of MDOC file
   local movie_file=$(echo ${old_subframe_array[0]##*[/\\]} )
   local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
   local first_movie_file="$(grep -l $stem_movie ${chunk_prefix}*)"  # assuming single hit
   local first_movie_chunk="$(basename $first_movie_file | sed 's/[^0-9]*//g')"
   local last_header_chunk=$(( $first_movie_chunk - 1 ))
-  
-# #   echo "2783 clean_up_mdoc" ; exit
   
   declare -a good_mdoc_array
   
@@ -2819,6 +2794,10 @@ function clean_up_mdoc() {
   
   local good_counter=0
   
+#   # Backup good-angles file
+#   local good_angles_copy="${good_angles_file%.txt}_0-orig.txt"
+#   mv ${good_angles_file} ${good_angles_copy}
+  
   # Append micrograph-related chunks
   for mdoc_idx in "${!good_mdoc_array[@]}"; do 
     local old_idx="${good_mdoc_array[mdoc_idx]}"
@@ -2838,10 +2817,14 @@ function clean_up_mdoc() {
     echo >> $new_mdoc
   done
   
+#   echo "2815 good_mdoc_array ${#good_mdoc_array[*]}:"
+#   printf "  '%s'\n" "${good_mdoc_array[@]}"
+#   echo "2823 ${good_angles_file} '$(cat ${good_angles_file} | wc -l )'"
+#   echo "2821 $(ls -l --full-time ${good_angles_file})"
+#   exit
+  
   # Clean up 
   rm -r $temp_mdoc_dir 2> /dev/null
-#   
-#   echo "2833 clean_up_mdoc" ; exit
 }
 
 
@@ -3621,7 +3604,7 @@ function ruotnocon_wrapper() {
     if [[ ${verbose} -ge 4 ]] ; then
       echo
       echo "  Converting to WIMP format: ${fid_file}"
-      echo "    $convertmod_cmd"
+      echo "    Running: $convertmod_cmd"
     fi
     
     if [[ "${test_contour}" != true ]]; then
@@ -3646,7 +3629,7 @@ function ruotnocon_wrapper() {
       local wmod2imod_cmd="${contour_imod_dir}/wmod2imod -z ${zscale} ${new_wimp} ${tmp_fid}"
       if [[ ${verbose} -ge 4 ]] ; then
         echo -e "\n  Converting to FID model..."
-        echo -e "    $wmod2imod_cmd"
+        echo -e "    Running: $wmod2imod_cmd"
       fi
       $wmod2imod_cmd
       local status_code=$?  # will be 3 on error, 0 if OK
@@ -3663,7 +3646,7 @@ function ruotnocon_wrapper() {
       local imodjoin_cmd="${contour_imod_dir}/imodjoin -r 1 ${fid_file} ${tmp_fid} ${out_fid_file}"
       if [[ ${verbose} -ge 4 ]] ; then
         echo -e "  Copying header from input to output..."
-        echo -e "    $imodjoin_cmd"
+        echo -e "    Running: $imodjoin_cmd"
       fi
       $imodjoin_cmd > /dev/null
       local status_code=$?
@@ -3927,6 +3910,9 @@ function deconvolute_wrapper() {
 #     isonet_star
 #     tomogram_3d
 #   
+#   Calls functions:
+#     vprint
+#   
 ###############################################################################
   
   local io_dir=$1
@@ -4046,8 +4032,9 @@ function deconvolute_wrapper() {
   
   # Testing
   else
-    vprint "  TESTING: ${star_cmd}" "3+" "=${outlog}"
-    vprint "  TESTING: ${deconvolute_cmd}\n" "3+" "=${outlog}"
+    popd > /dev/null
+    vprint "  TESTING: ${star_cmd}" "3+" "=${abs_outlog}"
+    vprint "  TESTING: ${deconvolute_cmd}\n" "3+" "=${abs_outlog}"
   fi
   # End testing IF-THEN
 }

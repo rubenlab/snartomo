@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2023-06-08"
+  echo "Modified 2023-06-19"
   date
   echo 
 }
@@ -136,12 +136,12 @@ main
         parse_filename
         check_new_tilt_series
           compute_tomogram
-            janni_denoise
+            shared.janni_denoise
             shared.topaz_denoise
             shared.write_angles_lists
-            imod_restack
-            wrapper_aretomo
-            wrapper_etomo
+            shared.imod_restack
+            shared.wrapper_aretomo
+            shared.wrapper_etomo
         motioncor2_serial
           shared.check_frames
           wait_for_file
@@ -1094,7 +1094,7 @@ function compute_tomogram() {
     if [[ "${vars[do_ruotnocon]}" == true ]] || [[ "${vars[do_laudiseron]}" == true ]] ; then
       
       if [[ "${vars[do_laudiseron]}" == true ]] ; then
-        wrapper_etomo "${tomo_base}" "${ts_mics}" "true"  "-end 6"
+        wrapper_etomo "${prev_name}" "${ts_mics}" "true"  "-end 6"
       fi
       
       # If we ran laudiseron, we need to run eTomo again with the cleaned set of micrographs
