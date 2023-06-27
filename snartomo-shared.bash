@@ -113,12 +113,16 @@ function check_args() {
 #     
 #   Positional variable:
 #     1) Number of expected positional arguments
+#     2 (optional) minimum number of positional arguments
 #     
 ###############################################################################
   
-  local num_positional_args=$1
+  local max_args=$1
+  local min_args=$2
   
-  if [[ "${#ARGS[@]}" -gt "${num_positional_args}" ]]; then
+# #   echo "121 max_args '$max_args', ARGS (${#ARGS[@]}) '${ARGS[@]}'"
+  
+  if [[ "${#ARGS[@]}" -gt "${max_args}" ]] ; then
     echo
     echo "ERROR!!"
     echo "  Found unfamiliar arguments: ${ARGS[@]}"
@@ -127,6 +131,18 @@ function check_args() {
     echo "    $(basename $0) --help"
     echo
     exit 1
+  fi
+  
+  if [[ $min_args != "" ]] && [[ "${#ARGS[@]}" -lt "${min_args}" ]] ; then
+    echo
+    echo "ERROR!!"
+    echo "  Need at least ${min_args} arguments"
+    echo
+    print_usage
+#    echo "  To list options & defaults, type:"
+#    echo "    $(basename $0) --help"
+    echo
+    exit 2
   fi  
 }
 
@@ -236,7 +252,7 @@ function create_directories() {
       if [[ $status_code -ne 0 ]] ; then
         echo -e "\nERROR!! Couldn't move '${movie_template}' to '${vars[movie_dir]}'!"
         echo -e   "  Exiting...\n"
-        exit
+        exit 3
       fi
     fi
     # End zero-movie IF-THEN
@@ -702,7 +718,7 @@ function validate_inputs() {
   # Summary
   if [[ "$validated" == false ]]; then
     vprint "Missing required inputs, exiting...\n" "0+" "${outlog}"
-    exit 1
+    exit 4
   else
     vprint "Found required inputs. Continuing...\n" "1+" "${outlog}"
   fi
@@ -761,7 +777,7 @@ function validate_inputs() {
       vprint "\nERROR!! Pixel size ${vars[apix]} is negative!" "0+" "${outlog}"
       vprint   "  Either provide pixel size (--apix) or provide MDOC file (--mdoc_file)" "0+" "${outlog}"
       vprint   "  Exiting...\n" "0+" "${outlog}"
-      exit 3
+      exit 5
     else
       vprint "  Pixel size: ${vars[apix]}" "1+" "${outlog}"
     fi
@@ -918,7 +934,7 @@ function validate_inputs() {
       if [[ "${mdoc_apix}" == "" ]] ; then
         vprint "\nERROR!! MDOC file '${mdoc_file}' doesn't contain pixel size!" "0+" "${outlog}"
         vprint   "  Exiting...\n" "0+" "${outlog}"
-        exit 2
+        exit 6
       fi
       
       # Strip ^M (Adapted from https://stackoverflow.com/a/8327426/3361621)
@@ -939,7 +955,7 @@ function validate_inputs() {
         else
           vprint "\nERROR!! Different pixel sizes specified on command line (${vars[apix]}) and in MDOC file (${mdoc_apix})!" "0+" "${outlog}"
           vprint   "  Exiting...\n" "0+" "${outlog}"
-          exit 2
+          exit 7
         fi
       fi
       # End command-line IF-THEN
@@ -1277,7 +1293,7 @@ function validate_inputs() {
     if [[ "${vars[mdoc_files]}" != "" ]] ; then
       if [[ "${vars[target_files]}" != "" ]] ; then
         echo -e "  ERROR!! Flags '--target_files' and '--mdoc_files' cannot be used simultaneously!\n"
-        exit 4
+        exit 7
       else
         # Read MDOC list as array
         mapfile -t mdoc_array < <(ls ${vars[mdoc_files]} 2> /dev/null)
@@ -1306,7 +1322,7 @@ function validate_inputs() {
       if [[ "${num_targets}" -eq 0 ]]; then
         validated=false
         echo -e "  ERROR!! At least one target file is required!\n"
-        exit 3
+        exit 8
       elif [[ "${num_targets}" -eq 1 ]]; then
         vprint "  Found target file: ${target_array[0]}" "1+" "${outlog}"
       else
@@ -1585,7 +1601,7 @@ function check_gain_format() {
           
           if [[ ! "$status_code" == 0 ]]; then
             echo -e "ERROR!! tif2mrc failed with exit status $status_code\n"
-            exit
+            exit 9
           fi
           
           # Update gain file
@@ -2861,7 +2877,7 @@ function split_mdoc() {
   
   if [[ $status_code -ne 0 ]] ; then
     echo -e "ERROR!! Status code: '$status_code'\n"
-    exit 3
+    exit 10
   fi
   
   # Split MDOC (Adapted from https://stackoverflow.com/a/60972105/3361621)
@@ -4051,6 +4067,7 @@ function get_central_slice() {
 #   Global variables:
 #     vars
 #     tomo_dir
+#     axis_array
 #     verbose
 #     imgdir
 #     thumbdir
@@ -4061,20 +4078,23 @@ function get_central_slice() {
 
   local trim_log="${vars[outdir]}/${tomo_dir}/trimvol.log"
   
-  dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)
+  local dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)
   IFS=' ' read -r -a dimension_array <<< ${dimension_string}
   
   # initialize minimum
   min_dim=99999
   axis_array=("-nx" "-ny" "-nz")
   
-  # Get minimimum (https://stackoverflow.com/a/40642705)
-  for idx in "${!dimension_array[@]}" ; do
-    if (( $( echo "${dimension_array[$idx]} < $min_dim" | bc -l ) )) ; then
-      min_dim=${dimension_array[$idx]}
-      min_axis=${axis_array[$idx]}
-    fi
-  done
+  # Get minimimum dimension & axis
+  get_shortest_axis
+#   for idx in "${!dimension_array[@]}" ; do
+#     if (( $( echo "${dimension_array[$idx]} < $min_dim" | bc -l ) )) ; then
+#       min_dim=${dimension_array[$idx]}
+#       min_axis=${axis_array[$idx]}
+#     fi
+#   done
+#   
+  min_axis=${axis_array[$min_idx]}
   
   # If short axis along y, then rotate (or else, there'll be N images of width 1)
   local rot_flag=""
@@ -4128,6 +4148,38 @@ function get_central_slice() {
   norm_cmd="convert ${jpg_slice} -normalize $central_slice_jpg "
   vprint "    $norm_cmd" "3+"
   $norm_cmd && rm ${jpg_slice}
+}
+
+function get_shortest_axis() {
+###############################################################################
+#   Function:
+#     FUNCTION
+#   
+#   Positional variables:
+#   
+#   Calls functions:
+#   
+#   Global variables:
+#     vars
+#     fn
+#     min_dim (OUTPUT)
+#     min_idx (OUTPUT)
+#   
+###############################################################################
+  
+  local dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)
+  IFS=' ' read -r -a dimension_array <<< ${dimension_string}
+  
+  # initialize minimum
+  min_dim=99999
+  
+  # Get minimimum (https://stackoverflow.com/a/40642705)
+  for idx in "${!dimension_array[@]}" ; do
+    if (( $( echo "${dimension_array[$idx]} < $min_dim" | bc -l ) )) ; then
+      min_dim=${dimension_array[$idx]}
+      min_idx=$idx
+    fi
+  done
 }
 
 function DUMMY_FUNCTION() {

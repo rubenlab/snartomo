@@ -18,14 +18,14 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-06-15"
+  echo "Modified 2023-06-23"
   date
   echo 
 }
 
 #################### Filenames ####################
 
-shared_libs=snartomo-shared-15jun.bash                   # Shared libraries
+shared_libs=snartomo-shared-23jun.bash                   # Shared libraries
 gpu_libs=gpu_resources.bash                        # Resource (GPUs, etc.) libraries
 frame_file=motioncor-frame.txt                     # Frames file
 outdir=SNARTomoPACE                                # Output top-level directory
@@ -57,7 +57,7 @@ SplitSum=0                                        # (boolean) Split frames into 
 
 # CTFFIND
 ctf1d_dpi=250                                     # Resolution (dpi) of PNG of 1D CTF profile
-ctfplot_first=-1                                  # Plots first CTF data for first N images in tilt series
+ctfplot_first=13                                  # Plots first CTF data for first N images in tilt series
 
 #################### Outputs ###################
 
