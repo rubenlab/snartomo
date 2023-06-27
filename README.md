@@ -16,4 +16,4 @@ See the wiki at: https://github.com/rubenlab/snartomo/wiki
 
 ## Recent news
 
-2023-06-08 -- Deconvolution filter from IsoNet added
+2023-06-23 -- Added SNARTomoAnimate, which generates movies (MPEG, MP4, etc.) from MRC volumes/stacks
