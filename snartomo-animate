@@ -11,7 +11,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoAnimate"
-  echo "Modified 2023-06-26"
+  echo "Modified 2023-06-27"
   date
   echo 
 }
@@ -37,7 +37,7 @@ main
   get_axis
     shared.get_shortest_axis
   shared.set_local_dir
-  convert_mrc
+  movie_convert
   shared.clean_local_dir
 '
 
@@ -68,7 +68,7 @@ function main() {
   get_axis
   
   # Prevent potential conflicts with full SNARTomo runs
-  vars[temp_local]="./$(basename $SNARTOMO_LOCAL)-animate"
+  vars[temp_local]="./.$(basename $SNARTOMO_LOCAL)-animate"
   
   if [[ "${vars[testing]}" == false ]]; then
     set_local_dir
