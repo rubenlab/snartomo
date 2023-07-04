@@ -580,7 +580,7 @@ function validate_inputs() {
 #   Calls functions:
 #     vprint
 #     read_mdoc (Classic only)
-#     check_targets
+#     check_targets (PACE only)
 #     check_file
 #     check_dir
 #     check_exe
@@ -689,7 +689,6 @@ function validate_inputs() {
   if [[ ! -z "${vars[batch_directive]}" ]]; then
     vprint "  Computing reconstruction using IMOD" "1+" "${outlog}"
     check_file "${vars[batch_directive]}" "IMOD batch directive" "${outlog}"
-# #     update_adoc "${outlog}"
   else
     vprint "  Computing reconstruction using AreTomo" "1+" "${outlog}"
     check_exe "${vars[aretomo_exe]}" "AreTomo executable" "${outlog}"
@@ -813,10 +812,8 @@ function validate_inputs() {
       
       if [[ "${data_descr}" == "defocus values" ]]; then
         # Get defocus value(s)
-# #         local list_values=$(grep Defocus ${vars[mdoc_files]} | grep -v TargetDefocus | cut -d" " -f3)
         readarray -t list_values < <(grep Defocus ${vars[mdoc_files]} | grep -v TargetDefocus | cut -d" " -f3)
       elif [[ "${data_descr}" == "frame numbers" ]]; then
-# #         local list_values=$(grep NumSubFrames ${vars[mdoc_files]} | cut -d" " -f3)
         readarray -t list_values < <(grep NumSubFrames ${vars[mdoc_files]} | grep -v TargetDefocus | cut -d" " -f3)
       else
         vprint "\nERROR!! Data type unknown: ${data_descr} "  "0+" "${outlog}"
@@ -888,8 +885,6 @@ function validate_inputs() {
 
       local outlog=$1
       
-#       # Get first match (https://unix.stackexchange.com/a/156326)
-#       local first_target=$(set -- ${vars[target_files]}; echo "$1")
       # Get first match 
       local first_target=$(echo $(ls -tr ${vars[target_files]} | head -n 1 ) )
       
@@ -1300,7 +1295,7 @@ function validate_inputs() {
         
         local fake_targets="${vars[outdir]}/${temp_dir}/single_tgts.txt"
         rm ${fake_targets} 2> /dev/null
-        vprint "  Creating target file: ${fake_targets}" "1+" "${outlog}"
+        vprint "  Creating target file: ${fake_targets} with ${#mdoc_array[@]} MDOCs" "1+" "${outlog}"
         
         for curr_mdoc in ${mdoc_array[@]} ; do
           # Strip extension and write to fake targets file
@@ -1310,6 +1305,22 @@ function validate_inputs() {
           cp ${curr_mdoc} ${vars[outdir]}/${temp_dir}/
         done
         # End MDOC loop
+        
+        # Sanity check: Check that there are subframes
+        local num_subframes=$(grep -c SubFramePath ${mdoc_array[0]})
+        
+        # Maybe in Live mode, there won't be any subframes yet
+        if [[ "${vars[live]}" == false ]] ; then
+          if [[ $num_subframes -eq 0 ]] ; then
+            validated=false
+            vprint "  ERROR!! MDOC file '${mdoc_array[0]}' has no subframes!" "0+" "${outlog}"
+            vprint "          Maybe you provided the wrong kind of file?" "0+" "${outlog}"
+          else
+            vprint "    First MDOC file '${mdoc_array[0]}' OK: has valid subframe entries" "2+" "${outlog}"
+          fi
+        fi
+        
+# #         echo "1311 num_subframes '$num_subframes'" ; exit
         
         # Remember for later
         vars[target_files]="${fake_targets}"
@@ -1757,7 +1768,7 @@ function check_frames() {
       
       # Check if within range
       if [[ "$num_sections" -lt "${vars[min_frames]}" ]] || [[ "$num_sections" -gt "${vars[max_frames]}" ]] ; then
-        vprint "    WARNING! Micrograph $fn: number of frames ($num_sections) outside of range (${vars[min_frames]} to ${vars[max_frames]})\n" "0+" "${outlog} =${warn_log}"
+        vprint "    WARNING! Micrograph $fn: number of frames ($num_sections) outside of range (${vars[min_frames]} to ${vars[max_frames]})" "0+" "${outlog} =${warn_log}"
       fi
     fi
     # End success IF-THEN
@@ -2868,8 +2879,6 @@ function split_mdoc() {
   rm -r $temp_mdoc_dir 2> /dev/null
   mkdir $temp_mdoc_dir
   
-# #   echo "2866 temp_mdoc_dir '$temp_mdoc_dir'" ; exit
-  
   # Remove CRLF (https://www.cyberciti.biz/faq/sed-remove-m-and-line-feeds-under-unix-linux-bsd-appleosx/)
   local mdoc_nocrlf="$temp_mdoc_dir/$(basename $old_mdoc).txt"
   sed 's/\r//' $old_mdoc > ${mdoc_nocrlf}
@@ -2883,8 +2892,6 @@ function split_mdoc() {
   # Split MDOC (Adapted from https://stackoverflow.com/a/60972105/3361621)
   chunk_prefix="${temp_mdoc_dir}/chunk"
   csplit --quiet --prefix=$chunk_prefix --suffix-format=%02d.txt --suppress-matched ${mdoc_nocrlf} /^$/ {*}
-# 
-#   echo "2882 temp_mdoc_dir '$temp_mdoc_dir'" ; exit
 }
 
 function imod_restack() {
@@ -3917,16 +3924,18 @@ function deconvolute_wrapper() {
 #     3) Log file (optional)
 #   
 #   Global variables:
-#     stripped_angle_array
-#     mcorr_mic_array
+# #     stripped_angle_array
+# #     mcorr_mic_array
+#     df_angstroms
 #     vars
 #       isonet_env
 #       apix
-#     chunk_prefix
+# #     chunk_prefix
 #     isonet_star
 #     tomogram_3d
 #   
 #   Calls functions:
+#     get_untilted_defocus
 #     vprint
 #   
 ###############################################################################
@@ -3935,48 +3944,54 @@ function deconvolute_wrapper() {
   local mdoc_file=$2
   local outlog=$3
   
-  # Get minimum angle (TODO: Move to function)
-  local min_angle=360
-  local min_index=-1
-  
-  for idx in "${!stripped_angle_array[@]}" ; do
-    local curr_angle=${stripped_angle_array[$idx]}
-    
-    # Take asbolute value (from https://stackoverflow.com/a/47240327)
-    local abs_angle=${curr_angle#-}
-    
-    # Update if minimum
-    if (( $(echo "${abs_angle} < ${min_angle}" |bc -l) )); then
-      min_angle=${abs_angle}
-      min_index=${idx}
-    fi
-  done
-  
-  if [[ $mdoc_file != "" ]] ; then
-    local temp_dir="${io_dir}/tmp_mdoc"
-    split_mdoc "${mdoc_file}" "${temp_dir}"
-    local min_mic_stem=$(basename ${mcorr_mic_array[$min_index]%_mic.mrc})
-    
-    # Get defocus value
-    if [[ "${vars[testing]}" == true ]]; then
-      local min_chunk=$(grep -l $min_mic_stem ${chunk_prefix}*)
-      local df_microns=$(grep CtfFind $min_chunk | awk '{print $3}' )
-      local df_angstroms=$(echo -10000*${df_microns} | bc)
-  #     
-  #     ### TESTING
-  #     echo "3955 min_index '${min_index}', min_angle '${min_angle}', min_chunk '$min_chunk', df_angstroms '$df_angstroms', tomogram_3d '$tomogram_3d'"  ; exit
-    else
-      # Get data from CTFFIND
-      local tomo_ctfs="${io_dir}/${ctf_summary}"
-      local ctf_data=$(grep $min_mic_stem ${tomo_ctfs} | tail -n 1 | xargs)
-      local df_minor=$(echo $ctf_data | cut -d " " -f 3)
-      local df_major=$(echo $ctf_data | cut -d " " -f 4)
-      local df_angstroms=$(echo $df_minor/2 + $df_major/2 | bc)
-    fi
-  else
-    local df_angstroms="0.0"
-  fi
-  # End MDOC IF-THEN
+  # Get minimum angle
+  get_untilted_defocus "$io_dir" "$mdoc_file"
+#   local min_angle=360
+#   local min_index=-1
+#   
+#   for idx in "${!stripped_angle_array[@]}" ; do
+#     local curr_angle=${stripped_angle_array[$idx]}
+#     
+#     # Take absolute value (from https://stackoverflow.com/a/47240327)
+#     local abs_angle=${curr_angle#-}
+#     
+#     # Update if minimum
+#     if (( $(echo "${abs_angle} < ${min_angle}" |bc -l) )); then
+#       min_angle=${abs_angle}
+#       min_index=${idx}
+#     fi
+#   done
+#   
+#   if [[ $mdoc_file != "" ]] ; then
+#     local temp_dir="${io_dir}/tmp_mdoc"
+#     split_mdoc "${mdoc_file}" "${temp_dir}"
+#     local min_mic_stem=$(basename ${mcorr_mic_array[$min_index]%_mic.mrc})
+#     
+#     # Get defocus value
+#     if [[ "${vars[testing]}" == true ]]; then
+#       local min_chunk=$(grep -l $min_mic_stem ${chunk_prefix}*)
+#       local df_microns=$(grep "CtfFind =" $min_chunk | awk '{print $3}' )
+#       
+# #       ### TESTING
+# #       grep "CtfFind =" $min_chunk
+# #       echo "2979 df_microns '$df_microns'"
+# #       exit
+# 
+#       local df_angstroms=$(echo -10000*${df_microns} | bc)
+#     else
+#       # Get data from CTFFIND
+#       local tomo_ctfs="${io_dir}/${ctf_summary}"
+#       local ctf_data=$(grep $min_mic_stem ${tomo_ctfs} | tail -n 1 | xargs)
+#       local df_minor=$(echo $ctf_data | cut -d " " -f 3)
+#       local df_major=$(echo $ctf_data | cut -d " " -f 4)
+#       local df_angstroms=$(echo $df_minor/2 + $df_major/2 | bc)
+#     fi
+#   else
+#     local df_angstroms="0.0"
+#   fi
+#   # End MDOC IF-THEN
+#     
+#     echo " 3999 df_angstroms '$df_angstroms'" ; exit
   
   # IsoNet creates a directory called './deconv_temp', so let's change to a unique directory where parallel processes won't conflict.
   local abs_outlog=$(realpath ${outlog} 2> /dev/null)
@@ -3984,7 +3999,6 @@ function deconvolute_wrapper() {
   pushd ${io_dir} > /dev/null
   
   local temp_indir="InIsonet"
-# #   local out_star="${isonet_star}"
   local temp_outdir="OutIsonet"
   
   # Link tomogram so that there aren't multiple MRCs when we generate the STAR file
@@ -3994,8 +4008,27 @@ function deconvolute_wrapper() {
   local conda_cmd="conda activate ${vars[isonet_env]}"
   local isonet_exe="isonet.py"
   
+  # Get pixel size in binned reconstruction
+  if [[ "${vars[testing]}" == false ]]; then
+    local bin_apix=$(${vars[imod_dir]}/header $abs_tomo | grep Pixel | awk '{print $4}')
+  else
+    if [[ "${vars[batch_directive]}" == "" ]]; then
+      local bin_apix=$(echo ${vars[are_bin]}* ${vars[apix]} | bc)
+    else
+      # We switched directories
+      pushd 1> /dev/null
+      local bin_factor=$(grep "runtime.AlignedStack.any.binByFactor" ${vars[batch_directive]} | cut -d '=' -f 2 | sed 's/\r//')
+      pushd 1> /dev/null
+# #       echo "4027 bin_factor '$bin_factor', apix '${vars[apix]}'" ; exit
+      local bin_apix=$(echo ${bin_factor}* ${vars[apix]} | bc)
+    fi
+    # End eTomo IF-THEN
+#     
+#     echo "4031 bin_apix '$bin_apix'" ; exit
+  fi
+  # End testing IF-THEN
+  
   # Prepare STAR file
-  local bin_apix=$(${vars[imod_dir]}/header $abs_tomo | grep Pixel | awk '{print $4}')
   local star_args="prepare_star ${temp_indir} --output_star ${isonet_star} --pixel_size ${bin_apix} --defocus ${df_angstroms}"
   local star_cmd="${isonet_exe} ${star_args}"
   
@@ -4048,12 +4081,89 @@ function deconvolute_wrapper() {
   
   # Testing
   else
+    # Clean up
+    \rm ${temp_indir}/$(basename $tomogram_3d)
+    rmdir ${temp_indir}
+    
     popd > /dev/null
     vprint "  TESTING: ${star_cmd}" "3+" "=${abs_outlog}"
     vprint "  TESTING: ${deconvolute_cmd}\n" "3+" "=${abs_outlog}"
   fi
   # End testing IF-THEN
 }
+
+  function get_untilted_defocus() {
+  ###############################################################################
+  #   Function:
+  #     Gets defocus for minimum angle from MDOC file
+  #   
+  #   Positional variables:
+  #     1) I/O directory
+  #     2) MDOC file
+  #   
+  #   Calls functions:
+  #     split_mdoc
+  #   
+  #   Global variables:
+  #     stripped_angle_array
+  #     mcorr_mic_array
+  #     vars
+  #     chunk_prefix
+  #     ctf_summary
+  #     df_angstroms (OUTPUT)
+  #   
+  ###############################################################################
+    
+    local io_dir=$1
+    local mdoc_file=$2
+    
+    local min_angle=360
+    local min_index=-1
+    
+    for idx in "${!stripped_angle_array[@]}" ; do
+      local curr_angle=${stripped_angle_array[$idx]}
+      
+      # Take absolute value (from https://stackoverflow.com/a/47240327)
+      local abs_angle=${curr_angle#-}
+      
+      # Update if minimum
+      if (( $(echo "${abs_angle} < ${min_angle}" |bc -l) )); then
+        min_angle=${abs_angle}
+        min_index=${idx}
+      fi
+    done
+    
+    if [[ $mdoc_file != "" ]] ; then
+      local temp_dir="${io_dir}/tmp_mdoc"
+      split_mdoc "${mdoc_file}" "${temp_dir}"
+      local min_mic_stem=$(basename ${mcorr_mic_array[$min_index]%_mic.mrc})
+      
+      # Get defocus value
+      if [[ "${vars[testing]}" == true ]]; then
+        local min_chunk=$(grep -l $min_mic_stem ${chunk_prefix}*)
+        local df_microns=$(grep "CtfFind =" $min_chunk | awk '{print $3}' )
+        
+  #       ### TESTING
+  #       grep "CtfFind =" $min_chunk
+  #       echo "2979 df_microns '$df_microns'"
+  #       exit
+
+        df_angstroms=$(echo -10000*${df_microns} | bc)
+      else
+        # Get data from CTFFIND
+        local tomo_ctfs="${io_dir}/${ctf_summary}"
+        local ctf_data=$(grep $min_mic_stem ${tomo_ctfs} | tail -n 1 | xargs)
+        local df_minor=$(echo $ctf_data | cut -d " " -f 3)
+        local df_major=$(echo $ctf_data | cut -d " " -f 4)
+        df_angstroms=$(echo $df_minor/2 + $df_major/2 | bc)
+      fi
+    else
+      df_angstroms="0.0"
+    fi
+    # End MDOC IF-THEN
+#     
+#     echo " 4145 df_angstroms '$df_angstroms'" ; exit
+  }
 
 function get_central_slice() {
 ###############################################################################
