@@ -23,7 +23,7 @@ function check_vars() {
   var_array+=("SNARTOMO_REC_ZDIM" "SNARTOMO_TILT_AXIS" "SNARTOMO_DARKTOL")
   var_array+=("SNARTOMO_TILTCOR" "SNARTOMO_BP_METHOD" "SNARTOMO_FLIPVOL")
   var_array+=("SNARTOMO_TRANSFILE" "SNARTOMO_ARETOMO_PATCH" "SNARTOMO_ARETOMO_TIME")
-  var_array+=("ISONET_ENV" "SNARTOMO_SNRFALLOFF")
+  var_array+=("ISONET_ENV" "SNARTOMO_SNRFALLOFF" "SNARTOMO_SHARE")
   
   declare -a missing_array
   
@@ -71,9 +71,9 @@ function check_testing() {
       echo "  Continuing..."
       echo
     fi
-    
-    # Instead of running, simply print that you're doing it
-    ctf_exe="TESTING ctffind4"
+#     
+#     # Instead of running, simply print that you're doing it
+#     ctf_exe="TESTING ctffind4"
   else
     ctf_exe="$(basename ${vars[ctffind_dir]}/ctffind)"
   fi
@@ -217,6 +217,7 @@ function create_directories() {
 #     contour_imgdir
 #     resid_imgdir
 #     temp_local_dir (OUTPUT)
+#     temp_share_dir (OUTPUT)
 #     cmd_file
 #     set_file
 #
@@ -329,7 +330,7 @@ function create_directories() {
   fi
     
   # PACE-specific options
-  if [[ "${do_pace}" == true ]]; then
+  if [[ "${do_pace}" == true ]] ; then
     # The temp directory has some files which may befuddle later runs
     rm -r "${vars[outdir]}/${temp_dir}" 2> /dev/null
     
@@ -337,6 +338,19 @@ function create_directories() {
     
     if [[ "${vars[testing]}" == true ]]; then
       mkdir "${vars[outdir]}/$ctfdir" 2> /dev/null
+    fi
+  
+    # Shared-memory directory
+    if [[ -z "${vars[temp_share]}" ]] ; then
+      vars[temp_share]="/dev/shm/SNARTomo-$USER"
+    fi
+    
+    temp_share_dir="${vars[temp_share]}/$$"
+    
+    if [[ "$verbose" -ge 1 ]]; then
+      mkdir -pv "${temp_share_dir}" 2> /dev/null
+    else
+      mkdir -p "${temp_share_dir}" 2> /dev/null
     fi
   
   # If non-PACE
@@ -378,7 +392,8 @@ function clean_local_dir() {
 #     Clean local directory if necessary
 #   
 #   Positional arguments:
-#     1) optional log file
+#     1) key (in dictionary vars, corresponding to command-line parameter --KEY)
+#     2) optional log file
 #     
 #   Calls functions:
 #     vprint
@@ -386,19 +401,29 @@ function clean_local_dir() {
 #   Global variables:
 #     vars
 #     warn_log
+#     do_pace
+#     temp_share_dir
+#     temp_local_dir
 #   
 ###############################################################################
   
-  local outlog=$1
+  local key=$1
+  local outlog=$2
   
-  vprint "" "1+" "${outlog}"
+#   vprint "" "1+" "${outlog}"
+#   
+#   echo "412 key '${vars[${key}]}'"
   
   # This condition shouldn't happen, but better to be safe before delecting directories
-  if [[ -z "${vars[temp_local]}" ]] ; then
-    vprint "WARNING! Parameter '--temp_local' should be non-empty" "0+" "${outlog} =${warn_log}"
+  if [[ -z "${vars[${key}]}" ]] ; then
+    vprint "WARNING! Parameter '--${key}' should be non-empty" "0+" "${outlog} =${warn_log}"
   else
+    if [[ "${do_pace}" == true ]] && [[ "${key}" == "temp_local" ]] ; then
+      mv ${temp_share_dir}/* ${vars[outdir]}/${temp_dir}
+    fi
+    
     # Delete old subdirectories unless they are recent
-    mapfile -t dir_array < <(find ${vars[temp_local]} -mindepth 1 -type d 2> /dev/null)
+    mapfile -t dir_array < <(find ${vars[${key}]} -mindepth 1 -type d 2> /dev/null)
     
     for curr_dir in ${dir_array[@]} ; do 
       # Make sure directory is empty
@@ -406,7 +431,7 @@ function clean_local_dir() {
         vprint "WARNING! ${curr_dir} not empty" "0+" "${outlog} =${warn_log}"
       
       else
-        if [[ "$verbose" -ge 1 ]] && [[ vars[eer_local]="true" ]] ; then
+        if [[ "$verbose" -ge 1 ]] && [[ vars[eer_local] == "true" ]] && [[ "${key}" == "temp_local" ]] ; then
           rmdir -v "${curr_dir}" 2> /dev/null
         else
           rmdir "${curr_dir}" 2> /dev/null
@@ -415,7 +440,7 @@ function clean_local_dir() {
       # End non-empty IF-THEN
     done
   fi
-  # End empty-temp_local IF-THEN
+  # End empty-directory IF-THEN
 }
 
 function vprint() {
@@ -2134,18 +2159,19 @@ function ctffind_common() {
     
   if [[ "${vars[testing]}" == false ]]; then
     # Print command
-    if [[ "${do_pace}" == true ]] || [[ "$verbose" -ge 5 ]] ; then
+    if [[ "${do_pace}" == true ]] ; then
+      echo ""
       run_ctffind4 "false"
     fi
 
-    if [[ "$verbose" -ge 7 ]]; then
+    if [[ "$verbose" -ge 7 ]] || [[ "${do_pace}" == true ]] ; then
       run_ctffind4 "true" 2>&1 | tee $ctf_out
     else
       run_ctffind4 "true" > $ctf_out 2> /dev/null
     fi
 
     # Append to log file (PACE only)
-    if [[ "${do_pace}" == true ]]; then
+    if [[ "${do_pace}" == true ]] ; then
       cat $ctf_out >> ${ctf_log}
     fi
     
@@ -2217,23 +2243,23 @@ function ctffind_common() {
   # End testing IF-THEN
 }
 
-function stem2ctfout() {
-###############################################################################
-#   Function:
-#     Template for CTFFIND text output
-#   
-#   Positional variables:
-#     1) micrograph stem
-#   
-#   Global variables:
-#     vars
-#     ctfdir
-#   
-###############################################################################
-  
-  local stem_movie=$1
-  echo "${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.txt"
-}
+  function stem2ctfout() {
+  ###############################################################################
+  #   Function:
+  #     Template for CTFFIND text output
+  #   
+  #   Positional variables:
+  #     1) micrograph stem
+  #   
+  #   Global variables:
+  #     vars
+  #     ctfdir
+  #   
+  ###############################################################################
+    
+    local stem_movie=$1
+    echo "${vars[outdir]}/${ctfdir}/${stem_movie}_ctf.txt"
+  }
 
 function run_ctffind4() {
 ###############################################################################
@@ -2255,28 +2281,31 @@ function run_ctffind4() {
 
   # Simply print command
   if [[ "${do_run}" == false ]]; then
-    echo "    ${ctf_exe} \
-$cor_mic \
-$ctf_mrc \
-${vars[apix]} \
-${vars[kv]} \
-${vars[cs]} \
-${vars[ac]} \
-${vars[box]} \
-${vars[res_lo]} \
-${vars[res_hi]} \
-${vars[df_lo]} \
-${vars[df_hi]} \
-${vars[df_step]} \
-no \
-no \
-yes \
-${vars[ast_step]} \
-no \
-no"
+    local ctf_cmd=$(echo "    ${ctf_exe} \
+      $cor_mic \
+      $ctf_mrc \
+      ${vars[apix]} \
+      ${vars[kv]} \
+      ${vars[cs]} \
+      ${vars[ac]} \
+      ${vars[box]} \
+      ${vars[res_lo]} \
+      ${vars[res_hi]} \
+      ${vars[df_lo]} \
+      ${vars[df_hi]} \
+      ${vars[df_step]} \
+      no \
+      no \
+      yes \
+      ${vars[ast_step]} \
+      no \
+      no" | xargs)
   
     if [[ "${vars[testing]}" == true ]]; then
-      echo "    TESTING ctffind_plot_results.sh $avg_rot"
+      echo "    TESTING: ${ctf_cmd}"
+      echo "    TESTING: ctffind_plot_results.sh $avg_rot"
+    else
+      echo "    RUNNING: ${ctf_cmd}"
     fi
   fi
   # End printing IF-THEN
@@ -3944,58 +3973,11 @@ function deconvolute_wrapper() {
   local mdoc_file=$2
   local outlog=$3
   
-  # Get minimum angle
-  get_untilted_defocus "$io_dir" "$mdoc_file"
-#   local min_angle=360
-#   local min_index=-1
-#   
-#   for idx in "${!stripped_angle_array[@]}" ; do
-#     local curr_angle=${stripped_angle_array[$idx]}
-#     
-#     # Take absolute value (from https://stackoverflow.com/a/47240327)
-#     local abs_angle=${curr_angle#-}
-#     
-#     # Update if minimum
-#     if (( $(echo "${abs_angle} < ${min_angle}" |bc -l) )); then
-#       min_angle=${abs_angle}
-#       min_index=${idx}
-#     fi
-#   done
-#   
-#   if [[ $mdoc_file != "" ]] ; then
-#     local temp_dir="${io_dir}/tmp_mdoc"
-#     split_mdoc "${mdoc_file}" "${temp_dir}"
-#     local min_mic_stem=$(basename ${mcorr_mic_array[$min_index]%_mic.mrc})
-#     
-#     # Get defocus value
-#     if [[ "${vars[testing]}" == true ]]; then
-#       local min_chunk=$(grep -l $min_mic_stem ${chunk_prefix}*)
-#       local df_microns=$(grep "CtfFind =" $min_chunk | awk '{print $3}' )
-#       
-# #       ### TESTING
-# #       grep "CtfFind =" $min_chunk
-# #       echo "2979 df_microns '$df_microns'"
-# #       exit
-# 
-#       local df_angstroms=$(echo -10000*${df_microns} | bc)
-#     else
-#       # Get data from CTFFIND
-#       local tomo_ctfs="${io_dir}/${ctf_summary}"
-#       local ctf_data=$(grep $min_mic_stem ${tomo_ctfs} | tail -n 1 | xargs)
-#       local df_minor=$(echo $ctf_data | cut -d " " -f 3)
-#       local df_major=$(echo $ctf_data | cut -d " " -f 4)
-#       local df_angstroms=$(echo $df_minor/2 + $df_major/2 | bc)
-#     fi
-#   else
-#     local df_angstroms="0.0"
-#   fi
-#   # End MDOC IF-THEN
-#     
-#     echo " 3999 df_angstroms '$df_angstroms'" ; exit
-  
   # IsoNet creates a directory called './deconv_temp', so let's change to a unique directory where parallel processes won't conflict.
   local abs_outlog=$(realpath ${outlog} 2> /dev/null)
   local abs_tomo=$(realpath $tomogram_3d)
+  
+  get_untilted_defocus "$io_dir" "$mdoc_file"
   pushd ${io_dir} > /dev/null
   
   local temp_indir="InIsonet"
@@ -4050,7 +4032,7 @@ function deconvolute_wrapper() {
     
     vprint "\n    Executing: $deconvolute_cmd" "2+" "=${abs_outlog}"
     if [[ "${do_pace}" == true ]]; then
-      $deconvolute_cmd >>${abs_outlog} 2>&1
+      $deconvolute_cmd >> ${abs_outlog} 2>&1
     else
       $deconvolute_cmd
     fi

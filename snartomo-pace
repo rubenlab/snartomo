@@ -18,7 +18,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-06-28"
+  echo "Modified 2023-07-05"
   date
   echo 
 }
@@ -99,7 +99,7 @@ heat_log=log-heat.txt                             # Log of system-memory usage
 heat_plot=plot-heat.gnu                           # Gnuplot script for RAM usage
 warn_log=warnings.txt                             # Warnings log
 
-# Temporary files (in $temp_dir)
+# Temporary files (in $temp_share_dir)
 init_movies=list-movies-init.txt
 mc2_movies=list-movies-mc2.txt
 gpu_status=status-gpu.txt
@@ -274,12 +274,14 @@ function main() {
   done
   # End targets loop
   
-  clean_local_dir "${main_log}"
+  vprint "" "1+" "${main_log}"
+  clean_local_dir "temp_local" "${main_log}"
+  clean_local_dir "temp_share" "${main_log}"
   
   elapsed_min=$((${SECONDS}/60))
   elapsed_sec=$((${SECONDS}%60))
   printf -v date_string "$(date +"$time_format"): Exiting after ${elapsed_min}m%02ds" "${elapsed_sec}"
-  vprint "\n${date_string}\n" "1+" "${main_log} =${file_log} =${status_file}"
+  vprint "${date_string}\n" "1+" "${main_log} =${file_log} =${status_file}"
 }
 
 function check_env() {
@@ -362,6 +364,7 @@ function parse_command_line() {
   add_argument "min_frames" "${SNARTOMO_MINFRAMES}" "Minimum number of frames (EERs only) before printing warning" "INT"
   add_argument "max_frames" "${SNARTOMO_MAXFRAMES}" "Maximum number of frames (EERs only) before printing warning" "INT"
   add_argument "temp_local" "${SNARTOMO_LOCAL}" "Directory to copy EER files locally" "ANY"
+  add_argument "temp_share" "${SNARTOMO_SHARE}" "Shared-memory directory" "ANY"
   add_argument "ram_warn" "${SNARTOMO_RAM_WARN}" "Free system memory (GB) before warning printed" "FLOAT"
   add_argument "ram_kill" "${SNARTOMO_RAM_KILL}" "Free system memory (GB) before exiting" "FLOAT"
   add_argument "eer_local" "${CP_EER_LOCAL}" "Flag to copy EER files locally temporarily" "BOOL"
@@ -483,7 +486,7 @@ function prepare_logfiles() {
 #   Global variables:
 #     vars
 #     log_dir
-#     temp_dir
+#     temp_share_dir
 #     main_log
 #     set_file
 #     file_log
@@ -531,21 +534,21 @@ function prepare_logfiles() {
   heat_log=${vars[outdir]}/${log_dir}/${heat_log}
   heat_plot=${vars[outdir]}/${log_dir}/${heat_plot}
   warn_log=${vars[outdir]}/${log_dir}/${warn_log}
-  mc2_movies=${vars[outdir]}/${temp_dir}/${mc2_movies}
-  init_movies=${vars[outdir]}/${temp_dir}/${init_movies}
-  gpu_status=${vars[outdir]}/${temp_dir}/${gpu_status}
-  mc2_mics=${vars[outdir]}/${temp_dir}/${mc2_mics}
-  ctf_mics=${vars[outdir]}/${temp_dir}/${ctf_mics}
-  ctf_list=${vars[outdir]}/${temp_dir}/${ctf_list}
-  cpu_status=${vars[outdir]}/${temp_dir}/${cpu_status}
-  mdoc_list=${vars[outdir]}/${temp_dir}/${mdoc_list}
-  tomo_list=${vars[outdir]}/${temp_dir}/${tomo_list}
-  recon_status=${vars[outdir]}/${temp_dir}/${recon_status}
-  movies_done=${vars[outdir]}/${temp_dir}/${movies_done}
-  mcor_done=${vars[outdir]}/${temp_dir}/${mcor_done}
-  ctf_done=${vars[outdir]}/${temp_dir}/${ctf_done}
-  rec_done=${vars[outdir]}/${temp_dir}/${rec_done}
-  do_cp_note=${vars[outdir]}/${temp_dir}/${do_cp_note}
+  mc2_movies=${temp_share_dir}/${mc2_movies}
+  init_movies=${temp_share_dir}/${init_movies}
+  gpu_status=${temp_share_dir}/${gpu_status}
+  mc2_mics=${temp_share_dir}/${mc2_mics}
+  ctf_mics=${temp_share_dir}/${ctf_mics}
+  ctf_list=${temp_share_dir}/${ctf_list}
+  cpu_status=${temp_share_dir}/${cpu_status}
+  mdoc_list=${temp_share_dir}/${mdoc_list}
+  tomo_list=${temp_share_dir}/${tomo_list}
+  recon_status=${temp_share_dir}/${recon_status}
+  movies_done=${temp_share_dir}/${movies_done}
+  mcor_done=${temp_share_dir}/${mcor_done}
+  ctf_done=${temp_share_dir}/${ctf_done}
+  rec_done=${temp_share_dir}/${rec_done}
+  do_cp_note=${temp_share_dir}/${do_cp_note}
   
   time_format='%Y-%m-%d %T'
 
@@ -691,7 +694,7 @@ function get_backup_name() {
 #     
 #   Global variables:
 #     vars
-#     temp_dir
+#     temp_share_dir
 #     
 #   Parameters:
 #     1: filename
@@ -703,7 +706,7 @@ function get_backup_name() {
   
   local current_file=$1
   
-  echo "${vars[outdir]}/${temp_dir}/$(basename ${current_file}).old"
+  echo "${temp_share_dir}/$(basename ${current_file}).old"
 }
 
 function movies_init() {
@@ -1590,7 +1593,7 @@ function file_lock() {
 #     vprint
 #
 #   Global variables:
-#     temp_dir
+#     temp_share_dir
 #     lock_file (OUTPUT): need to remove it outside of this function
 #     main_log
 #     
@@ -1599,7 +1602,7 @@ function file_lock() {
   file2lock="$(basename $1)"
   local time_limit=$2
   local id_msg=$3
-  lock_file="${vars[outdir]}/${temp_dir}/LOCK-${file2lock}"
+  lock_file="${temp_share_dir}/LOCK-${file2lock}"
   
   if [[ -f ${lock_file} ]] ; then
     
@@ -2292,7 +2295,7 @@ function to_tempname() {
 #     
 #   Global variables:
 #     vars
-#     temp_dir
+#     temp_share_dir
 #     
 #   Returns:
 #     Output filename
@@ -2301,7 +2304,7 @@ function to_tempname() {
 
   local infile=$1
   
-  echo "${vars[outdir]}/${temp_dir}/DONE-$(basename ${infile})"
+  echo "${temp_share_dir}/DONE-$(basename ${infile})"
 }
 
 function check_completion() {
