@@ -16,4 +16,5 @@ See the wiki at: https://github.com/rubenlab/snartomo/wiki
 
 ## Recent news
 
+2023-07-05 -- Temporary files are written to shared memory by SNARTomoPACE
 2023-06-23 -- Added SNARTomoAnimate, which generates movies (MPEG, MP4, etc.) from MRC volumes/stacks
