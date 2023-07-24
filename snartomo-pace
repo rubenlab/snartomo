@@ -18,7 +18,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-07-07"
+  echo "Modified 2023-07-24"
   date
   echo 
 }
@@ -311,7 +311,7 @@ function check_env() {
     check_vars
     
     if [[ "${do_pace}" == true ]]; then
-      source "${SNARTOMO_DIR}/gpu_resources.bash"
+      source "${SNARTOMO_DIR}/${gpu_libs}"
     fi
   fi
 }
@@ -1416,7 +1416,7 @@ function distribute_motioncor() {
       wait_for_file "/tmp/MotionCor2_FreeGpus.txt" "${mc2_out}"
       
       vprint "$(date +"$time_format"): Starting MotionCor2 on '$(basename ${fn})' on GPU #${gpu_num}, movies remaining: ${remaining_movies}" "0+" "=${file_log}"
-      vprint "$(run_motioncor ${fn} $gpu_num)" "5+" "=${mc2_out}" 
+      vprint "$(run_motioncor ${fn} $gpu_num)" "4+" "=${mc2_out}" 
       
       local mc2_cmd=$(run_motioncor ${fn} $gpu_num)
       
@@ -1445,8 +1445,8 @@ function distribute_motioncor() {
     # If testing
     else
       vprint "$(date +"$time_format"): Starting MotionCor2 on '${fn}' on GPU #${gpu_num}, movies remaining: ${remaining_movies}" "0+" "=${file_log}"
-      vprint "$(run_motioncor ${fn} $gpu_num)" "5+" "=${mc2_out}" 
-      vprint "" "5+" "=${mc2_out}" 
+      vprint "$(run_motioncor ${fn} $gpu_num)" "4+" "=${mc2_out}" 
+      vprint "" "4+" "=${mc2_out}" 
 
       # Delay in slow mode
       if [[ "${vars[slow]}" == true ]]; then
