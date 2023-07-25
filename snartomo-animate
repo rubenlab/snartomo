@@ -11,7 +11,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoAnimate"
-  echo "Modified 2023-06-27"
+  echo "Modified 2023-07-25"
   date
   echo 
 }
@@ -26,6 +26,7 @@ verbosity=2                             # Verbosity level (Max: 4)
 
 ################ END BATCH HEADER ################
 
+cmd_file=commands.txt                             # Output commands file (in ${outdir})
 # Outline (multiline comment)
 : '
 main
@@ -37,8 +38,8 @@ main
   get_axis
     shared.get_shortest_axis
   shared.set_local_dir
-  movie_convert
-  shared.clean_local_dir
+  convert_mrc
+  clean_local_dir
 '
 
 function main() {
@@ -58,27 +59,17 @@ function main() {
   check_args 1 1
   fn="${ARGS[0]}"
   
-  if [[ "${vars[verbosity]}" -ge 2 ]] ; then
-    echo "Validating..."
-  fi
   check_dir "${vars[imod_dir]}" "IMOD executables directory"
   check_exe "$(which ffmpeg)" "FFMPEG executable"
   vprint "" "2+"
-  
   get_axis
   
   # Prevent potential conflicts with full SNARTomo runs
-  vars[temp_local]="./.$(basename $SNARTOMO_LOCAL)-animate"
-  
-  if [[ "${vars[testing]}" == false ]]; then
-    set_local_dir
-  fi
+  vars[temp_local]="./$(basename $SNARTOMO_LOCAL)-animate"
+  set_local_dir
   
   movie_convert
-  
-  if [[ "${vars[testing]}" == false ]] && [[ "${vars[keep]}" == false ]] ; then
-    clean_local_dir
-  fi
+  clean_local_dir
 }
 
 function check_env() {
@@ -123,16 +114,12 @@ function parse_command_line() {
 ###############################################################################
   
   add_argument "bin" "${bin_factor}" "Downsampling factor" "INT"
-  add_argument "output" "AUTO" "Output filename stem (w/o extension, default->stem of input)" "ANY"
-  add_argument "axis" "AUTO" "Axis to animate (stack -> 'z')" "ANY"
+  add_argument "output" "" "Output filename stem (w/o extension, default->stem of input)" "ANY"
+#   add_argument "axis" "" "Axis to animate (stack -> 'z')" "ANY"
   add_argument "fps" "${frame_rate}" "Frames per second" "FLOAT"
-  add_argument "bps" "AUTO" "Bit rate, bits per second" "ANY"
+  add_argument "bps" "" "Bit rate, bits per second" "ANY"
   add_argument "format" "${movie_format}" "Movie format" "ANY"
   add_argument "verbosity" "${verbosity}" "Verbosity level (0..4)" "INT"
-  
-  add_section "ADVANCED SETTINGS" "These settings will rarely need to be changed."
-  add_argument "testing" "false" "Testing flag" "BOOL"
-  add_argument "keep" "false" "Flag to keep intermediates" "BOOL"
   add_argument "imod_dir" "${IMOD_BIN}" "IMOD executable directory" "ANY"
   add_argument "temp_local" "${SNARTOMO_LOCAL}" "Directory for temporary files" "ANY"
 
@@ -172,10 +159,10 @@ function get_axis() {
   
   axis_array=("x" "y" "z")
   
-  if [[ "${vars[axis]}" == "AUTO" ]] ; then
+  if [[ "${vars[axis]}" == "" ]] ; then
     get_shortest_axis
     min_axis="-${axis_array[$min_idx]}"
-  # #   echo "min_dim '$min_dim', min_idx '$min_idx', min_axis '$min_axis'" ; exit
+# #     echo "min_dim '$min_dim', min_idx '$min_idx', min_axis '$min_axis'" ; exit
   else
     min_axis="-${vars[axis]}"
     
@@ -220,7 +207,6 @@ function movie_convert() {
 #   Calls functions:
 #   
 #   Global variables:
-#     temp_local_dir
 #     axis_array
 #     min_axis
 #     min_idx
@@ -230,23 +216,17 @@ function movie_convert() {
 ###############################################################################
   
   local img_format="jpg"  # for intermediate files
-  local stderr="${temp_local_dir}/stderr.$$"
   
   if [[ "${vars[verbosity]}" -ge 1 ]] ; then
     local dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)
-    
-    if [[ "${vars[testing]}" == false ]]; then
-      echo
-    fi
-    
-    echo "Dimensions of $fn: $dimension_string"
+    echo -e "\nDimensions of $fn: $dimension_string"
   fi
   
-  # Remove shortest axis from axis arracy
+  # Remove shortest axis from axis array
   unset "axis_array[$min_idx]"
   
   # Build command line
-  local bin_cmd="${vars[imod_dir]}/binvol"
+  local bin_cmd="${vars[imod_dir]}/binvol ${min_axis} 1"
   
   # add downsampling factor for each axis except along the unstacking axis
   for idx in "${!axis_array[@]}"; do
@@ -254,16 +234,33 @@ function movie_convert() {
   done
   
   local out_prefix="${temp_local_dir}/$(echo $fn | rev | cut -d'.' -f 2- | rev)"
-  local out_bin="${out_prefix}_bin2.mrc"
-  bin_cmd+=" ${min_axis} 1 $fn $out_bin"
+  local out_bin="${out_prefix}_bin.mrc"
+  bin_cmd+=" $fn $out_bin"
   vprint "  Running: $bin_cmd" "1+"
   
-  if [[ "${vars[testing]}" == false ]]; then
+  if [[ $verbose -ge 3 ]] ; then
+    $bin_cmd
+  else
+    $bin_cmd > /dev/null
+  fi
+  
+# #   echo "247 min_axis: '$min_axis'" ; exit
+  
+  # Rotate volume if shortest (original) dimension is not along z
+  if [[ "${min_axis}" != "-z" ]] ; then
+    local out_rot="${out_prefix}_rot.mrc"
+    local rot_cmd="${vars[imod_dir]}/trimvol -RotateX $out_bin $out_rot"
+    vprint "  Running : $rot_cmd" "1+"
+    
     if [[ $verbose -ge 3 ]] ; then
-      $bin_cmd
+      $rot_cmd
     else
-      $bin_cmd > /dev/null
+      $rot_cmd > /dev/null
     fi
+    
+    \rm $out_bin
+  else
+    local out_rot="$out_bin"
   fi
   
   if [[ $img_format == "png" ]] ; then
@@ -272,66 +269,47 @@ function movie_convert() {
     local format_flag='-j'
   fi
   
-  local tif_cmd="${vars[imod_dir]}/mrc2tif ${format_flag} $out_bin ${out_prefix}"
+  local tif_cmd="${vars[imod_dir]}/mrc2tif ${format_flag} $out_rot ${out_prefix}"
   vprint "  Running: $tif_cmd" "1+"
-  
-  if [[ "${vars[testing]}" == false ]]; then
-    if [[ $verbose -ge 3 ]] ; then
-      $tif_cmd
-    else
-      $tif_cmd > /dev/null
-    fi
-    
-    local new_dimensions=$(${vars[imod_dir]}/header $out_bin | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)
-    \rm $out_bin
+  if [[ $verbose -ge 3 ]] ; then
+    $tif_cmd
+  else
+    $tif_cmd > /dev/null
   fi
+  
+  local new_dimensions=$(${vars[imod_dir]}/header $out_rot | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)
+  \rm $out_rot
   
   # Build ffmpeg command
   local movie_cmd="ffmpeg -y -framerate ${vars[fps]} -i ${out_prefix}.%03d.${img_format}"
   
-  if [[ "${vars[output]}" == "AUTO" ]]; then
-    vars[output]="$(basename ${out_prefix}.${vars[format]})"
+  if [[ "${vars[output]}" == "" ]]; then
+    local out_mov="$(basename ${out_prefix}.${vars[format]})"
+  else
+    local out_mov="${vars[output]}.${vars[format]}"
   fi
   
   # Default bit rate is file size divided by framte rate
-  if [[ "${vars[bps]}" == "AUTO" ]]; then
+  if [[ "${vars[bps]}" == "" ]]; then
     vars[bps]=$(echo $(ls -s $fn | cut -d ' ' -f 1) / ${vars[fps]} | bc)
   fi
   
-  local movie_cmd="ffmpeg -y -framerate ${vars[fps]} -i ${out_prefix}.%03d.${img_format} -b:v ${vars[bps]}k ${vars[output]}"
+  local movie_cmd="ffmpeg -y -framerate ${vars[fps]} -i ${out_prefix}.%03d.${img_format} -b:v ${vars[bps]}k ${out_mov}"
   vprint "  Running: $movie_cmd" "1+"
   
-  if [[ "${vars[testing]}" == false ]]; then
-    if [[ $verbose -ge 3 ]] ; then
-      $movie_cmd | tee ${stderr}
-      local status_code=$?
-    else
-      $movie_cmd 2> ${stderr}
-      local status_code=$?
-    fi
-    
-    # Sanity check
-    if [[ "${status_code}" != 0 ]] ; then
-      echo -e "\nERROR!! FFMPEG failed!"
-      echo      "Error message:"
-      
-      # Better would be to print the lines after "Press [q] to stop, [?] for help"
-      tail -n 3 ${stderr} | sed 's/^/  /'
-      echo -e "\nExiting...\n"
-      exit
-    else
-      if [[ "${vars[verbosity]}" -ge 1 ]] ; then
-        local bit_rate=$(ffprobe ${vars[output]} 2>&1 | grep Duration | rev | cut -d ' ' -f 1-2 | rev)
-        echo -e "Dimensions of ${vars[output]}: $new_dimensions, bit rate $bit_rate"
-      fi
-    fi
-    
-    # Clean up
-    if [[ "${vars[keep]}" == false ]]; then
-      \rm ${out_prefix}*.${img_format}
-      \rm ${stderr}
-    fi
+  if [[ $verbose -ge 3 ]] ; then
+    $movie_cmd
+  else
+    $movie_cmd 2> /dev/null
   fi
+  
+  if [[ "${vars[verbosity]}" -ge 1 ]] ; then
+    local bit_rate=$(ffprobe ${out_mov} 2>&1 | grep Duration | rev | cut -d ' ' -f 1-2 | rev)
+    echo -e "\nDimensions of ${out_mov} : $new_dimensions, bit rate $bit_rate"
+  fi
+  
+  # Clean up
+  \rm ${out_prefix}*.${img_format}
 }
 
 function DUMMY_FUNCTION() {
