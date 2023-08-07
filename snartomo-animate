@@ -18,11 +18,11 @@ function program_info() {
 
 #################### Filenames and Parameters ####################
 
-shared_libs=snartomo-shared-23jun.bash  # Shared libraries
-bin_factor=1                            # Downsampling factor
-frame_rate=25                           # Frame rate of movie
-movie_format=mpg                        # Movie format
-verbosity=2                             # Verbosity level (Max: 4)
+shared_libs=snartomo-shared.bash  # Shared libraries
+bin_factor=1                      # Downsampling factor
+frame_rate=25                     # Frame rate of movie
+movie_format=mpg                  # Movie format
+verbosity=2                       # Verbosity level (Max: 4)
 
 ################ END BATCH HEADER ################
 
