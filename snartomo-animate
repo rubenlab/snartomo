@@ -11,7 +11,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoAnimate"
-  echo "Modified 2023-07-25"
+  echo "Modified 2023-08-07"
   date
   echo 
 }
@@ -59,8 +59,19 @@ function main() {
   check_args 1 1
   fn="${ARGS[0]}"
   
+  vprint "\nValidating..." "1+"
+  validated=true
   check_dir "${vars[imod_dir]}" "IMOD executables directory"
   check_exe "$(which ffmpeg)" "FFMPEG executable"
+
+  # Summary
+  if [[ "$validated" == false ]]; then
+    vprint "Missing required inputs, exiting...\n" "0+" "${outlog}"
+    exit 4
+  else
+    vprint "Found required inputs. Continuing..." "1+" "${outlog}"
+  fi
+  
   vprint "" "2+"
   get_axis
   
@@ -69,7 +80,8 @@ function main() {
   set_local_dir
   
   movie_convert
-  clean_local_dir
+  clean_local_dir "temp_local"
+  vprint "\nDone!\n" "1+"
 }
 
 function check_env() {
@@ -120,6 +132,7 @@ function parse_command_line() {
   add_argument "bps" "" "Bit rate, bits per second" "ANY"
   add_argument "format" "${movie_format}" "Movie format" "ANY"
   add_argument "verbosity" "${verbosity}" "Verbosity level (0..4)" "INT"
+  add_argument "save_imgs" "false" "Flag to save intermediate images" "BOOL"
   add_argument "imod_dir" "${IMOD_BIN}" "IMOD executable directory" "ANY"
   add_argument "temp_local" "${SNARTOMO_LOCAL}" "Directory for temporary files" "ANY"
 
@@ -210,6 +223,7 @@ function movie_convert() {
 #     axis_array
 #     min_axis
 #     min_idx
+#     temp_local_dir
 #     fn
 #     verbose
 #   
@@ -236,7 +250,7 @@ function movie_convert() {
   local out_prefix="${temp_local_dir}/$(echo $fn | rev | cut -d'.' -f 2- | rev)"
   local out_bin="${out_prefix}_bin.mrc"
   bin_cmd+=" $fn $out_bin"
-  vprint "  Running: $bin_cmd" "1+"
+  vprint "\nRunning: $bin_cmd" "1+"
   
   if [[ $verbose -ge 3 ]] ; then
     $bin_cmd
@@ -250,7 +264,7 @@ function movie_convert() {
   if [[ "${min_axis}" != "-z" ]] ; then
     local out_rot="${out_prefix}_rot.mrc"
     local rot_cmd="${vars[imod_dir]}/trimvol -RotateX $out_bin $out_rot"
-    vprint "  Running : $rot_cmd" "1+"
+    vprint "\nRunning : $rot_cmd" "1+"
     
     if [[ $verbose -ge 3 ]] ; then
       $rot_cmd
@@ -270,7 +284,7 @@ function movie_convert() {
   fi
   
   local tif_cmd="${vars[imod_dir]}/mrc2tif ${format_flag} $out_rot ${out_prefix}"
-  vprint "  Running: $tif_cmd" "1+"
+  vprint "\nRunning: $tif_cmd" "1+"
   if [[ $verbose -ge 3 ]] ; then
     $tif_cmd
   else
@@ -295,7 +309,7 @@ function movie_convert() {
   fi
   
   local movie_cmd="ffmpeg -y -framerate ${vars[fps]} -i ${out_prefix}.%03d.${img_format} -b:v ${vars[bps]}k ${out_mov}"
-  vprint "  Running: $movie_cmd" "1+"
+  vprint "\nRunning: $movie_cmd" "1+"
   
   if [[ $verbose -ge 3 ]] ; then
     $movie_cmd
@@ -305,11 +319,13 @@ function movie_convert() {
   
   if [[ "${vars[verbosity]}" -ge 1 ]] ; then
     local bit_rate=$(ffprobe ${out_mov} 2>&1 | grep Duration | rev | cut -d ' ' -f 1-2 | rev)
-    echo -e "\nDimensions of ${out_mov} : $new_dimensions, bit rate $bit_rate"
+    echo -e "\nDimensions of ${out_mov} : $new_dimensions, bit rate $bit_rate\n"
   fi
   
   # Clean up
-  \rm ${out_prefix}*.${img_format}
+  if [[ "${vars[save_imgs]}" == false ]] ; then
+    \rm ${out_prefix}*.${img_format}
+  fi
 }
 
 function DUMMY_FUNCTION() {
