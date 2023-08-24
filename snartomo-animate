@@ -4,14 +4,14 @@
 # SNARTomoAnimate
 #
 # Changelog:
-#   2023-06-23 (trs) -- 
+#   2023-06-23 (trs) -- created
 #
 ###############################################################################
 
 function program_info() {
   echo 
   echo "Running: SNARTomoAnimate"
-  echo "Modified 2023-08-07"
+  echo "Modified 2023-08-24"
   date
   echo 
 }
@@ -72,6 +72,9 @@ function main() {
     vprint "Found required inputs. Continuing..." "1+" "${outlog}"
   fi
   
+#   crop_vol "input.mrc" "output_prefix"
+#   exit
+  
   vprint "" "2+"
   get_axis
   
@@ -127,7 +130,8 @@ function parse_command_line() {
   
   add_argument "bin" "${bin_factor}" "Downsampling factor" "INT"
   add_argument "output" "" "Output filename stem (w/o extension, default->stem of input)" "ANY"
-#   add_argument "axis" "" "Axis to animate (stack -> 'z')" "ANY"
+  add_argument "axis" "" "Axis to animate (stack -> 'z')" "ANY"
+  add_argument "range" "" "Range of images (single value for central N, quoted & space-delimited for first+last)" "ANY"
   add_argument "fps" "${frame_rate}" "Frames per second" "FLOAT"
   add_argument "bps" "" "Bit rate, bits per second" "ANY"
   add_argument "format" "${movie_format}" "Movie format" "ANY"
@@ -226,6 +230,7 @@ function movie_convert() {
 #     temp_local_dir
 #     fn
 #     verbose
+#     out_crop
 #   
 ###############################################################################
   
@@ -247,7 +252,7 @@ function movie_convert() {
     bin_cmd+=" -${axis_array[$idx]} ${vars[bin]}"
   done
   
-  local out_prefix="${temp_local_dir}/$(echo $fn | rev | cut -d'.' -f 2- | rev)"
+  local out_prefix="${temp_local_dir}/$(echo $(basename $fn) | rev | cut -d'.' -f 2- | rev)"
   local out_bin="${out_prefix}_bin.mrc"
   bin_cmd+=" $fn $out_bin"
   vprint "\nRunning: $bin_cmd" "1+"
@@ -258,13 +263,11 @@ function movie_convert() {
     $bin_cmd > /dev/null
   fi
   
-# #   echo "247 min_axis: '$min_axis'" ; exit
-  
   # Rotate volume if shortest (original) dimension is not along z
   if [[ "${min_axis}" != "-z" ]] ; then
     local out_rot="${out_prefix}_rot.mrc"
     local rot_cmd="${vars[imod_dir]}/trimvol -RotateX $out_bin $out_rot"
-    vprint "\nRunning : $rot_cmd" "1+"
+    vprint "\nRunning: $rot_cmd" "1+"
     
     if [[ $verbose -ge 3 ]] ; then
       $rot_cmd
@@ -277,13 +280,16 @@ function movie_convert() {
     local out_rot="$out_bin"
   fi
   
+  # Crop if necessary
+  crop_vol "${out_rot}" "${out_prefix}"
+  
   if [[ $img_format == "png" ]] ; then
     local format_flag='-p'
   else
     local format_flag='-j'
   fi
   
-  local tif_cmd="${vars[imod_dir]}/mrc2tif ${format_flag} $out_rot ${out_prefix}"
+  local tif_cmd="${vars[imod_dir]}/mrc2tif ${format_flag} $out_crop ${out_prefix}"
   vprint "\nRunning: $tif_cmd" "1+"
   if [[ $verbose -ge 3 ]] ; then
     $tif_cmd
@@ -291,8 +297,8 @@ function movie_convert() {
     $tif_cmd > /dev/null
   fi
   
-  local new_dimensions=$(${vars[imod_dir]}/header $out_rot | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)
-  \rm $out_rot
+  local new_dimensions=$(${vars[imod_dir]}/header $out_crop | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)
+  \rm $out_crop
   
   # Build ffmpeg command
   local movie_cmd="ffmpeg -y -framerate ${vars[fps]} -i ${out_prefix}.%03d.${img_format}"
@@ -326,6 +332,69 @@ function movie_convert() {
   if [[ "${vars[save_imgs]}" == false ]] ; then
     \rm ${out_prefix}*.${img_format}
   fi
+}
+
+function crop_vol() {
+###############################################################################
+#   Function:
+#     Crops volume, if necessary
+#   
+#   Positional variables:
+#     1) Input volume
+#     2) Prefix for output file
+#   
+#   Calls functions:
+#     vprint
+#   
+#   Global variables:
+#     vars
+#     out_crop (OUTPUT)
+#   
+###############################################################################
+  
+  local invol=$1
+  local out_prefix=$2
+  
+  # Get range if necessary
+  if [[ "${vars[range]}" != "" ]]; then
+    # Get number of arguments
+    read -a range_array <<< ${vars[range]}
+# #     echo "360 range_array : '${#range_array[@]}'"
+    
+    local crop_cmd="${vars[imod_dir]}/trimvol"
+    out_crop="${out_prefix}_crop.mrc"
+    
+    # If 1 value, cut out center
+    if [[ "${#range_array[@]}" -eq 1 ]] ; then
+# #       echo "364 range_array : '1'"
+      crop_cmd+=" -ZSize ${vars[range]} ${invol} ${out_crop}"
+    
+    # If 2 values, use as range
+    elif [[ "${#range_array[@]}" -eq 2 ]] ; then
+# #       echo "368 range_array : '2'"
+      crop_cmd+=" -ZStartAndEnd ${range_array[0]},${range_array[1]} ${invol} ${out_crop}"
+    
+    # If other number of values, exit on error
+    else
+      echo -e "\nERROR!! Don't know how to deal with ${#range_array[@]} values in '--range': '${vars[range]}'"
+      echo -e   "  Exiting...\n"
+      exit
+    fi
+    
+    vprint "\nRunning: $crop_cmd" "1+"
+    if [[ $verbose -ge 3 ]] ; then
+      $crop_cmd
+    else
+      $crop_cmd > /dev/null
+    fi
+    
+    \rm $invol
+  else
+# #     echo "370 range_array : '0'"
+    out_crop=$out_rot
+  fi
+  
+# #   echo "374 crop_cmd : '$crop_cmd'" ; exit
 }
 
 function DUMMY_FUNCTION() {
