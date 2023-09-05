@@ -2931,6 +2931,7 @@ function imod_restack() {
 ###############################################################################
 #   Function:
 #     Runs IMOD's restack and alterheader
+#     Write JPEGs of micrographs and power spectra
 #     Default behavior is to NOT overwrite pre-existing outputs.
 #     
 #   Positional variables:
@@ -2945,6 +2946,8 @@ function imod_restack() {
 #     reordered_stack (OUTPUT)
 #     verbose
 #     warn_log
+#     tomo_dir
+#     thumbdir
 #     
 ###############################################################################
   
@@ -3043,14 +3046,102 @@ function imod_restack() {
     else
       ${vars[imod_dir]}/${ctf_cmd} >> $newstack_log
     fi
-      
+    
+    # Write JPEGs of tilt series and power spectra
+    draw_thumbnails "$outlog"
+    
   # Testing
   else
     vprint "  TESTING: ${restack_cmd}" "3+" "=${outlog}"
     vprint "  TESTING: ${apix_cmd}" "3+" "=${outlog}"
     vprint "  TESTING: ${ctf_cmd}" "3+" "=${outlog}"
+    draw_thumbnails "$outlog"
   fi
   # End testing IF-THEN
+}
+
+function draw_thumbnails() {
+###############################################################################
+#   Function:
+#     Writes JPEG thumbnail images for GUI
+#   
+#   Positional variables:
+#     1) output log file
+#   
+#   Calls functions:
+#   
+#   Global variables:
+#     tomo_dir
+#     thumbdir
+#     vars
+#     tomo_root
+#     reordered_stack
+#   
+###############################################################################
+  
+  local outlog=$1
+
+  # Downsample tilt series
+  local tomo_thumb_dir="${vars[outdir]}/${tomo_dir}/${thumbdir}"
+  local binned_stack="${tomo_root}_bin.mrcs"
+  local bin_cmd="binvol -z 1 -x ${vars[thumb_bin]} -y ${vars[thumb_bin]} ${reordered_stack} ${binned_stack}"
+  
+  # Convert to JPEGs
+  local micjpg_prefix="${tomo_thumb_dir}/$(basename ${tomo_root})_newstack"
+  local mic2jpg_cmd="mrc2tif -j ${binned_stack} ${micjpg_prefix}"
+  
+  # Calculate edge of CTF fitting region
+  local half_width=$(echo ${vars[box]}*${vars[apix]}/${vars[res_hi]}+1 | bc)
+  local box_width=$(echo $half_width*2 | bc)
+  
+  # Crop power spectra
+  local win_ctf="${tomo_root}_ctfstack_center.mrcs"
+  local clip_cmd="clip resize -2d -ox ${box_width} -oy ${box_width} ${ctf_stack} ${win_ctf}"
+  
+  # Convert to JPEGs
+  local ctf_prefix="${tomo_thumb_dir}/$(basename ${tomo_root})_ctfstack_center"
+  local ctf2jpg_cmd="mrc2tif -j ${win_ctf} ${ctf_prefix}"
+  
+  if [[ "${vars[testing]}" == false ]]; then
+    mkdir -p ${tomo_thumb_dir} 2> /dev/null
+    
+    vprint "  Running: ${bin_cmd}\n" "3+" "=${outlog}"
+    if [[ $verbose -ge 3 ]] ; then
+      ${vars[imod_dir]}/$bin_cmd >> ${outlog}
+    else
+      ${vars[imod_dir]}/$bin_cmd > /dev/null
+    fi
+    
+    
+    vprint "  Running: ${mic2jpg_cmd}\n" "3+" "=${outlog}"
+    if [[ $verbose -ge 3 ]] ; then
+      ${vars[imod_dir]}/${mic2jpg_cmd} >> ${outlog}
+    else
+      ${vars[imod_dir]}/${mic2jpg_cmd} > /dev/null
+    fi
+    \rm ${binned_stack} 2> /dev/null
+    
+    vprint "  Running: ${clip_cmd}\n" "3+" "=${outlog}"
+    if [[ $verbose -ge 3 ]] ; then
+      ${vars[imod_dir]}/${clip_cmd} >> ${outlog}
+    else
+      ${vars[imod_dir]}/${clip_cmd} > /dev/null
+    fi
+    
+    vprint "  Running: ${ctf2jpg_cmd}\n" "3+" "=${outlog}"
+    if [[ $verbose -ge 3 ]] ; then
+      ${vars[imod_dir]}/${ctf2jpg_cmd} >> ${outlog}
+    else
+      ${vars[imod_dir]}/${ctf2jpg_cmd} > /dev/null
+    fi
+  
+  else
+    vprint "\n  TESTING: ${bin_cmd}" "3+" "=${outlog}"
+    vprint   "  TESTING: ${mic2jpg_cmd}" "3+" "=${outlog}"
+    vprint   "  TESTING: ${clip_cmd}" "3+" "=${outlog}"
+    vprint   "  TESTING: ${ctf2jpg_cmd}" "3+" "=${outlog}"
+  fi
+  
 }
 
 function wrapper_aretomo() {
@@ -3437,6 +3528,7 @@ function wrapper_etomo() {
   #     2) residual cutoff, units of sigma
   #   
   #   Global variables:
+  #     tomo_dir
   #     sort_exe
   #     vars
   #     imgdir
@@ -3445,7 +3537,7 @@ function wrapper_etomo() {
   #   
   ###############################################################################
     
-    local tomo_dir=$1
+    tomo_dir=$1
     local tomo_base=$2
   
     # Sanity check for Python script
