@@ -2944,6 +2944,7 @@ function imod_restack() {
 #     denoise_list
 #     ctf_list
 #     reordered_stack (OUTPUT)
+#     ctf_stack (OUTPUT)
 #     verbose
 #     warn_log
 #     tomo_dir
@@ -2970,7 +2971,7 @@ function imod_restack() {
     reordered_stack="${tomo_root}_newstack.st"
   fi
   
-  local ctf_stack="${tomo_root}_ctfstack.mrcs"
+  ctf_stack="${tomo_root}_ctfstack.mrcs"
 
   # Delete pre-existing files (IMOD will back them up otherwise)
   if [[ -f "$reordered_stack" ]]; then
