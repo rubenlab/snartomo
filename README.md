@@ -16,4 +16,4 @@ See the wiki at: https://github.com/rubenlab/snartomo/wiki
 
 ## Recent news
 
-2023-07-05 -- Temporary files are written to shared memory by SNARTomoPACE
+2023-08-30 -- Added documentation for SNARTomoAnimate

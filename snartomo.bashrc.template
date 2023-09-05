@@ -45,8 +45,8 @@ export SNARTOMO_CTF_RESLO=30.0                                    # (Angstroms) 
 export SNARTOMO_CTF_RESHI=9.0                                     # (Angstroms) High resolution limit for CTF fitting
 export SNARTOMO_CTF_DFLO=30000.0                                  # (Angstroms) Minimal defocus value to consider during fitting
 export SNARTOMO_CTF_DFHI=70000.0                                  # (Angstroms) Maximal defocus value to consider during fitting
-export SNARTOMO_DF_STEP=500.0                                     # Defocus step
-export SNARTOMO_CTF_DAST=1000                                     # Astigmatism restraint
+export SNARTOMO_DF_STEP=500.0                                     # (Angstroms) Defocus step
+export SNARTOMO_CTF_DAST=1000                                     # (Angstroms) Astigmatism constraint
 
 # JANNI
 export SNARTOMO_JANNI_BATCH=4                                     # Number of patches predicted in parallel
