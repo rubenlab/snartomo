@@ -4,6 +4,7 @@
 # SNARTomoAnimate
 #
 # Changelog:
+#   2023-08-24 (trs) -- added options for first & last images
 #   2023-06-23 (trs) -- created
 #
 ###############################################################################
@@ -11,7 +12,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoAnimate"
-  echo "Modified 2023-08-24"
+  echo "Modified 2023-09-07"
   date
   echo 
 }
@@ -26,7 +27,6 @@ verbosity=2                       # Verbosity level (Max: 4)
 
 ################ END BATCH HEADER ################
 
-cmd_file=commands.txt                             # Output commands file (in ${outdir})
 # Outline (multiline comment)
 : '
 main
@@ -72,14 +72,11 @@ function main() {
     vprint "Found required inputs. Continuing..." "1+" "${outlog}"
   fi
   
-#   crop_vol "input.mrc" "output_prefix"
-#   exit
-  
   vprint "" "2+"
   get_axis
   
   # Prevent potential conflicts with full SNARTomo runs
-  vars[temp_local]="./$(basename $SNARTOMO_LOCAL)-animate"
+  vars[temp_local]="./Animate-$(basename $SNARTOMO_LOCAL)"
   set_local_dir
   
   movie_convert
@@ -132,6 +129,8 @@ function parse_command_line() {
   add_argument "output" "" "Output filename stem (w/o extension, default->stem of input)" "ANY"
   add_argument "axis" "" "Axis to animate (stack -> 'z')" "ANY"
   add_argument "range" "" "Range of images (single value for central N, quoted & space-delimited for first+last)" "ANY"
+  add_argument "options" "" "FFMPEG 'eq' filter options" "ANY"
+  add_argument "zigzag" "false" "Flag to play movie back and forth" "BOOL"
   add_argument "fps" "${frame_rate}" "Frames per second" "FLOAT"
   add_argument "bps" "" "Bit rate, bits per second" "ANY"
   add_argument "format" "${movie_format}" "Movie format" "ANY"
@@ -303,24 +302,46 @@ function movie_convert() {
   # Build ffmpeg command
   local movie_cmd="ffmpeg -y -framerate ${vars[fps]} -i ${out_prefix}.%03d.${img_format}"
   
+  if [[ "${vars[options]}" != "" ]]; then
+    movie_cmd+=" -vf eq=${vars[options]}"
+  fi
+  
   if [[ "${vars[output]}" == "" ]]; then
     local out_mov="$(basename ${out_prefix}.${vars[format]})"
   else
     local out_mov="${vars[output]}.${vars[format]}"
   fi
   
-  # Default bit rate is file size divided by framte rate
+  # Default bit rate is file size divided by frame rate
   if [[ "${vars[bps]}" == "" ]]; then
     vars[bps]=$(echo $(ls -s $fn | cut -d ' ' -f 1) / ${vars[fps]} | bc)
   fi
   
-  local movie_cmd="ffmpeg -y -framerate ${vars[fps]} -i ${out_prefix}.%03d.${img_format} -b:v ${vars[bps]}k ${out_mov}"
+  movie_cmd+=" -b:v ${vars[bps]}k ${out_mov}"
   vprint "\nRunning: $movie_cmd" "1+"
   
   if [[ $verbose -ge 3 ]] ; then
     $movie_cmd
   else
     $movie_cmd 2> /dev/null
+  fi
+  
+  # If zigzag option (Adapted form https://stackoverflow.com/a/42257863)
+  if [[ "${vars[zigzag]}" == "true" ]]; then
+    # Move "zig" move to temporary file
+    local zig_mov="${temp_local_dir}/zig.${vars[format]}"
+    \mv $out_mov ${zig_mov}
+
+    local zigzag_cmd="ffmpeg -y -i $zig_mov -filter_complex '[0:v]reverse,fifo[r];[0:v][r] concat=n=2:v=1 [v]' -map '[v]' -b:v ${vars[bps]}k $out_mov"
+    vprint "\nRunning: $zigzag_cmd" "1+"
+    
+    if [[ $verbose -ge 3 ]] ; then
+        eval "$zigzag_cmd"
+    else
+        eval "$zigzag_cmd" 2> /dev/null
+    fi
+    
+    \rm $zig_mov #2> /dev/null
   fi
   
   if [[ "${vars[verbosity]}" -ge 1 ]] ; then
@@ -334,68 +355,62 @@ function movie_convert() {
   fi
 }
 
-function crop_vol() {
-###############################################################################
-#   Function:
-#     Crops volume, if necessary
-#   
-#   Positional variables:
-#     1) Input volume
-#     2) Prefix for output file
-#   
-#   Calls functions:
-#     vprint
-#   
-#   Global variables:
-#     vars
-#     out_crop (OUTPUT)
-#   
-###############################################################################
-  
-  local invol=$1
-  local out_prefix=$2
-  
-  # Get range if necessary
-  if [[ "${vars[range]}" != "" ]]; then
-    # Get number of arguments
-    read -a range_array <<< ${vars[range]}
-# #     echo "360 range_array : '${#range_array[@]}'"
+  function crop_vol() {
+  ###############################################################################
+  #   Function:
+  #     Crops volume, if necessary
+  #   
+  #   Positional variables:
+  #     1) Input volume
+  #     2) Prefix for output file
+  #   
+  #   Calls functions:
+  #     vprint
+  #   
+  #   Global variables:
+  #     vars
+  #     out_crop (OUTPUT)
+  #   
+  ###############################################################################
     
-    local crop_cmd="${vars[imod_dir]}/trimvol"
-    out_crop="${out_prefix}_crop.mrc"
+    local invol=$1
+    local out_prefix=$2
     
-    # If 1 value, cut out center
-    if [[ "${#range_array[@]}" -eq 1 ]] ; then
-# #       echo "364 range_array : '1'"
-      crop_cmd+=" -ZSize ${vars[range]} ${invol} ${out_crop}"
-    
-    # If 2 values, use as range
-    elif [[ "${#range_array[@]}" -eq 2 ]] ; then
-# #       echo "368 range_array : '2'"
-      crop_cmd+=" -ZStartAndEnd ${range_array[0]},${range_array[1]} ${invol} ${out_crop}"
-    
-    # If other number of values, exit on error
+    # Get range if necessary
+    if [[ "${vars[range]}" != "" ]]; then
+      local crop_cmd="${vars[imod_dir]}/trimvol"
+      out_crop="${out_prefix}_crop.mrc"
+      
+      # Get number of arguments
+      read -a range_array <<< ${vars[range]}
+      
+      # If 1 value, cut out center
+      if [[ "${#range_array[@]}" -eq 1 ]] ; then
+        crop_cmd+=" -ZSize ${vars[range]} ${invol} ${out_crop}"
+      
+      # If 2 values, use as range
+      elif [[ "${#range_array[@]}" -eq 2 ]] ; then
+        crop_cmd+=" -ZStartAndEnd ${range_array[0]},${range_array[1]} ${invol} ${out_crop}"
+      
+      # If other number of values, exit on error
+      else
+        echo -e "\nERROR!! Don't know how to deal with ${#range_array[@]} values in '--range': '${vars[range]}'"
+        echo -e   "  Exiting...\n"
+        exit
+      fi
+      
+      vprint "\nRunning: $crop_cmd" "1+"
+      if [[ $verbose -ge 3 ]] ; then
+        $crop_cmd
+      else
+        $crop_cmd > /dev/null
+      fi
+      
+      \rm $invol
     else
-      echo -e "\nERROR!! Don't know how to deal with ${#range_array[@]} values in '--range': '${vars[range]}'"
-      echo -e   "  Exiting...\n"
-      exit
+      out_crop=$out_rot
     fi
-    
-    vprint "\nRunning: $crop_cmd" "1+"
-    if [[ $verbose -ge 3 ]] ; then
-      $crop_cmd
-    else
-      $crop_cmd > /dev/null
-    fi
-    
-    \rm $invol
-  else
-# #     echo "370 range_array : '0'"
-    out_crop=$out_rot
-  fi
-  
-# #   echo "374 crop_cmd : '$crop_cmd'" ; exit
-}
+  }
 
 function DUMMY_FUNCTION() {
 ###############################################################################
