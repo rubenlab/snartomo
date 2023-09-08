@@ -1,0 +1,155 @@
+#!/bin/bash
+
+###############################################################################
+# SNARTomoTemplate
+#
+# Changelog:
+#   2023-09-08 (trs) -- created
+#
+###############################################################################
+
+function program_info() {
+  echo 
+  echo "Running: SNARTomoTemplate"
+  echo "Modified 2023-09-08"
+  date
+  echo 
+}
+
+#################### Filenames and Parameters ####################
+
+shared_libs=snartomo-shared.bash  # Shared libraries
+verbosity=2                       # Verbosity level (Max: 4)
+
+################ END BATCH HEADER ################
+
+# Outline (multiline comment)
+: '
+main
+  check_env
+  parse_command_line
+  shared.check_dir
+  shared.check_exe
+'
+
+function main() {
+###############################################################################
+#   Passed arguments:
+#     ${@} : command-line arguments
+#   
+###############################################################################
+  
+  # BASH arrays can't be returned, so declare them here
+  declare -A original_vars
+  declare -a var_sequence
+  declare -A vars
+  
+  check_env
+  parse_command_line "${@}"
+# # #   check_args 1 1  # If ordered arguments (w/o '--' flags) are required
+  fn="${ARGS[0]}"
+  
+  vprint "\nValidating..." "1+"
+  validated=true
+  check_exe "$(which ffmpeg)" "FFMPEG executable"
+
+  # Summary
+  if [[ "$validated" == false ]]; then
+    vprint "Missing required inputs, exiting...\n" "0+" "${outlog}"
+    exit 4
+  else
+    vprint "Found required inputs. Continuing..." "1+" "${outlog}"
+  fi
+  
+  # DO STUFF
+  
+  vprint "\nDone!\n" "1+"
+}
+
+function check_env() {
+###############################################################################
+#   Functions:
+#     Checks whether environmental variable SNARTOMO_DIR is set
+#     Sources shared functions from central SNARTomo directory
+#     
+#   Calls functions:
+#     check_vars
+#   
+#   Global variables:
+#     do_pace
+#     shared_libs
+#     
+###############################################################################
+
+  if [[ "${SNARTOMO_DIR}" == "" ]]; then
+    echo -e "\nERROR!! Environmental variable 'SNARTOMO_DIR' undefined!"
+    echo      "  Set variable with: export SNARTOMO_DIR=<path_to_snartomo_files>"
+    echo -e   "  Exiting...\n"
+    exit
+  else
+    source "${SNARTOMO_DIR}/${shared_libs}"
+    source "${SNARTOMO_DIR}/argumentparser_dynamic.sh"
+  fi
+}
+
+function parse_command_line() {
+###############################################################################
+#   Function:
+#     Parses command line
+#   
+#   Passed arguments:
+#     ${@} : command-line arguments
+#   
+#   Global variables:
+#     original_vars : non-associative array, before cleaning
+#     var_sequence : associative array, maintaining the order of the variables
+#     vars : final options array
+#   
+###############################################################################
+  
+  add_argument "output" "" "Output filename stem (w/o extension, default->stem of input)" "ANY"
+  add_argument "axis" "" "Axis to animate (stack -> 'z')" "ANY"
+  add_argument "range" "" "Range of images (single value for central N, quoted & space-delimited for first+last)" "ANY"
+  add_argument "options" "" "FFMPEG 'eq' filter options" "ANY"
+  add_argument "bps" "" "Bit rate, bits per second" "ANY"
+  add_argument "format" "${movie_format}" "Movie format" "ANY"
+  add_argument "verbosity" "${verbosity}" "Verbosity level (0..4)" "INT"
+  add_argument "save_imgs" "false" "Flag to save intermediate images" "BOOL"
+  add_argument "imod_dir" "${IMOD_BIN}" "IMOD executable directory" "ANY"
+  add_argument "temp_local" "${SNARTOMO_LOCAL}" "Directory for temporary files" "ANY"
+
+  dynamic_parser "${@}"
+#   print_vars
+#   printf "'%s'\n" "${ARGS[@]}" ; exit
+
+  if [[ "${vars[verbosity]}" -ge 2 ]] ; then
+    verbose="${vars[verbosity]}"
+  fi
+}
+
+function print_usage() {
+  echo "USAGE : $(basename $0) MRC stack/volume <options>"
+  echo
+  echo "To list options & defaults, type:"
+  echo "  $(basename $0) --help"
+}
+
+function DUMMY_FUNCTION() {
+###############################################################################
+#   Function:
+#     FUNCTION
+#   
+#   Positional variables:
+#   
+#   Calls functions:
+#   
+#   Global variables:
+#   
+###############################################################################
+  
+  return
+}
+
+########################################################################################
+
+main "$@"
