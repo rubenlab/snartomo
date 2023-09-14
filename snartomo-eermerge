@@ -18,7 +18,7 @@ function program_info() {
 
 #################### Filenames and Parameters ####################
 
-shared_libs=snartomo-shared-12sep.bash  # Shared libraries
+shared_libs=snartomo-shared.bash  # Shared libraries
 frame_file=motioncor-frame.txt    # Frames file
 grouping=''                       # Number of EER frames to merge
 max_mic_dose=50                   # Maximum electron dose (e/A2) above which a warning will be printed
