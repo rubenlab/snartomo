@@ -23,7 +23,7 @@ frame_file=motioncor-frame.txt    # Frames file
 grouping=''                       # Number of EER frames to merge
 max_mic_dose=50                   # Maximum electron dose (e/A2) above which a warning will be printed
 verbosity=4                       # Verbosity level (Max: 6)
-outdir=EERMerged                  # Output top-level directory
+outdir=EERMerge                   # Output top-level directory
 
 ################ END BATCH HEADER ################
 
@@ -164,19 +164,17 @@ function parse_command_line() {
 #   
 ###############################################################################
   
-  add_section "REQUIRED SETTINGS" "These settings must be supplied for each run."
-  add_argument "eers" "" "EER files (more than one -> must be enclosed in quotes)" "ANY"
+# #   add_section "REQUIRED SETTINGS" "These settings must be supplied for each run."
+# #   add_argument "eers" "" "EER files (more than one -> must be enclosed in quotes)" "ANY"
   add_argument "grouping" "${grouping}" "Number of EER frames to merge" "INT"
   add_argument "frame_file" "${frame_file}" "Input MotionCor2 frame file" "ANY"
   add_argument "max_mic_dose" "${max_mic_dose}" "Maximum electron dose (e/A2) above which a warning will be printed" "FLOAT"
-  
-  add_section "OTHER SETTINGS" "These settings have default settings that can be overridden."
   add_argument "outdir" "${outdir}" "Output directory" "ANY"
   add_argument "verbosity" "${verbosity}" "Verbosity level (0..6)" "INT"
   add_argument "min_frames" "${SNARTOMO_MINFRAMES}" "Minimum number of frames before printing warning" "INT"
   add_argument "max_frames" "${SNARTOMO_MAXFRAMES}" "Maximum number of frames before printing warning" "INT"
   add_argument "eer_local" "${CP_EER_LOCAL}" "Flag to copy EER files locally temporarily" "BOOL"
-  add_argument "eer_latency" "${SNARTOMO_EER_WAIT}" "Maximum header read time before micrograph is copied locally" "FLOAT"
+  add_argument "eer_latency" "${SNARTOMO_EER_WAIT}" "Maximum header read time (seconds) before micrograph is copied locally" "FLOAT"
   add_argument "temp_local" "${SNARTOMO_LOCAL}" "Directory to copy EER files locally" "ANY"
   add_argument "imod_dir" "${IMOD_BIN}" "IMOD executable directory" "ANY"
   add_argument "testing" "false" "Testing flag" "BOOL"
