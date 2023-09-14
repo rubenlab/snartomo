@@ -16,4 +16,4 @@ See the wiki at: https://github.com/rubenlab/snartomo/wiki
 
 ## Recent news
 
-2023-08-30 -- Added documentation for SNARTomoAnimate
+2023-09-14 -- Added documentation for SNARTomoEERMerge
