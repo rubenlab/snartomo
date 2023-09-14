@@ -18,7 +18,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-07-24"
+  echo "Modified 2023-09-14"
   date
   echo 
 }
@@ -51,9 +51,10 @@ verbosity=4                                       # Verbosity level
 dosefit_verbose=6                                 # Verbosity level for dose-fitting log file (0..8)
 
 # MotionCor2
-do_dosewt=false                                   # Flag to perform dose-weighting
+max_mic_dose=10                                   # Maximum electron dose (e/A2) above which a warning will be printed
 reffrm=1                                          # (boolean) Reference frame (0: first, 1: middle)
 SplitSum=0                                        # (boolean) Split frames into even & odd half-sets (1: yes)
+thumb_bin=16                                      # Downsampling factor for JPEG thumbnails of micrographs
 
 # CTFFIND
 ctf1d_dpi=250                                     # Resolution (dpi) of PNG of 1D CTF profile
@@ -378,12 +379,14 @@ function parse_command_line() {
   add_argument "gain_file" "" "Input gain file" "ANY"
   add_argument "no_gain" "false" "Flag when no gain file is to be used" "BOOL"
   add_argument "motioncor_exe" "${MOTIONCOR2_EXE}" "MotionCor2 executable" "ANY"
-  add_argument "do_dosewt" "${do_dosewt}" "Flag to perform dose-weighting" "BOOL"
+  add_argument "max_mic_dose" "${max_mic_dose}" "Maximum electron dose (e/A2) above which a warning will be printed" "FLOAT"
+  add_argument "do_dosewt" "false" "Flag to perform dose-weighting" "BOOL"
   add_argument "mcor_patches" "${SNARTOMO_MC2_PATCH}" "Number of patches in x y, surrounding quotes & delimited by spaces" "ANY"
   add_argument "do_outstack" "false" "Flag to write aligned stacks" "BOOL"
   add_argument "do_splitsum" "false" "Flag to split frames into even & odd half-sets" "BOOL"
   add_argument "split_sum" "${SplitSum}" "(DEPRECATED) Split frames into even & odd half-sets (0: no, 1: yes)" "INT"
   add_argument "reffrm" "${reffrm}" "Reference frame (0: first, 1: middle)" "INT"
+  add_argument "thumb_bin" "${thumb_bin}" "Downsampling factor for JPEG thumbnails of micrographs" "INT"
 
   # CTFFIND
   add_section "CTFFIND4 SETTINGS" "Settings for CTF estimation."
@@ -2383,7 +2386,6 @@ function compute_tomograms() {
 #     mdoc_list
 #     vars
 #     main_log
-#     recdir
 #     imgdir
 #     dose_imgdir
 #     ctfdir
@@ -2628,6 +2630,7 @@ function tomogram_parallel() {
 #   Global variables:
 #     recdir
 #     vars
+#     tomo_dir (OUTPUT)
 #     tomo_root (OUTPUT)
 #     stripped_angle_array (OUTPUT)
 #     mcorr_mic_array (OUTPUT)
@@ -2660,7 +2663,7 @@ function tomogram_parallel() {
   # MDOC might have dots other than extension
   local tomo_base="$(basename ${orig_mdoc%.mrc.mdoc})"
   
-  local tomo_dir="${recdir}/${tomo_base}"
+  tomo_dir="${recdir}/${tomo_base}"
   tomo_root="${vars[outdir]}/${tomo_dir}/${tomo_base}"
   local tomo_log="${tomo_root}_snartomo.log"
   local tomo_ctfs="${vars[outdir]}/${tomo_dir}/${ctf_summary}"
@@ -2703,42 +2706,43 @@ function tomogram_parallel() {
     local do_denoise=true  # IF-OR statement is a mouthful
   fi
   
-  # Loop through angles (TODO: Move to function)
-  for subfm_idx in "${!new_subframe_array[@]}"; do 
-    # Get movie filename
-    local movie_file=$(echo ${new_subframe_array[${subfm_idx}]##*[/\\]} )
-    
-    # Get motion-corrected micrograph name
-    local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
-    local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
-    
-    # Create micrograph directory (only used if denoising)
-    if [[ "${subfm_idx}" -eq 0 ]] ; then
-      local tomo_mic_dir="${vars[outdir]}/${tomo_dir}/${temp_dir}"
-      tomo_dns_dir="${vars[outdir]}/${tomo_dir}/${temp_dir}/${dir2denoise}"
-      mkdir ${tomo_mic_dir} ${tomo_dns_dir} 2> /dev/null
-    fi
-    
-    # Check that motion-corrected micrograph exists
-    if [[ -f "$mc2_mic" ]]; then
-      # Append to micrograph lists
-      stripped_angle_array+=(${mdoc_angle_array[${subfm_idx}]})
-      mcorr_mic_array+=($mc2_mic)
-      denoise_array+=(${vars[outdir]}/${denoisedir}/${stem_movie}${cor_ext})
-      ctf_stk_array+=($(mic_to_ctf "$mc2_mic"))
-      
-      # Write CTF summary
-      if [[ "${vars[testing]}" == false ]] ; then
-        local ctf_txt=$(stem2ctfout "$stem_movie")
-        echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${tomo_ctfs}
-      fi
+  update_arrays
+#   # Loop through angles (TODO: Move to function)
+#   for subfm_idx in "${!new_subframe_array[@]}"; do 
+#     # Get movie filename
+#     local movie_file=$(echo ${new_subframe_array[${subfm_idx}]##*[/\\]} )
+#     
+#     # Get motion-corrected micrograph name
+#     local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
+#     local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
+#     
+#     # Create micrograph directory (only used if denoising)
+#     if [[ "${subfm_idx}" -eq 0 ]] ; then
+#       local tomo_mic_dir="${vars[outdir]}/${tomo_dir}/${temp_dir}"
+#       tomo_dns_dir="${vars[outdir]}/${tomo_dir}/${temp_dir}/${dir2denoise}"
+#       mkdir ${tomo_mic_dir} ${tomo_dns_dir} 2> /dev/null
+#     fi
+#     
+#     # Check that motion-corrected micrograph exists
+#     if [[ -f "$mc2_mic" ]]; then
+#       # Append to micrograph lists
+#       stripped_angle_array+=(${mdoc_angle_array[${subfm_idx}]})
+#       mcorr_mic_array+=($mc2_mic)
+#       denoise_array+=(${vars[outdir]}/${denoisedir}/${stem_movie}${cor_ext})
+#       ctf_stk_array+=($(mic_to_ctf "$mc2_mic"))
 #       
-#       ### DIAGNOSTIC
-#       else
-#         echo "2758 : $mc2_mic doesn't exist"
-    fi
-  done
-  # End angles loop
+#       # Write CTF summary
+#       if [[ "${vars[testing]}" == false ]] ; then
+#         local ctf_txt=$(stem2ctfout "$stem_movie")
+#         echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${tomo_ctfs}
+#       fi
+# #       
+# #       ### DIAGNOSTIC
+# #       else
+# #         echo "2758 : $mc2_mic doesn't exist"
+#     fi
+#   done
+#   # End angles loop
   
   # Plot CTF data
   plot_tomo_ctfs "${new_mdoc} ">> "${tomo_log}"
@@ -2813,7 +2817,6 @@ function tomogram_parallel() {
   if [[ -f "$tomogram_3d" ]]; then
     if [[ "${vars[do_deconvolute]}" == true ]]; then
       deconvolute_wrapper "${vars[outdir]}/${tomo_dir}" "${new_mdoc}" "${tomo_log}"
-# #       echo "2813 tomogram_parallel" ; exit
     fi
     
     if [[ "${vars[testing]}" == false ]]; then
@@ -2851,6 +2854,70 @@ function tomogram_parallel() {
   # Mark that we're finished
   touch "$(to_tempname ${new_mdoc})"
 }
+
+  function update_arrays() {
+  ###############################################################################
+  #   Function:
+  #     Updates angle arrays
+  #   
+  #   Calls functions:
+  #     stem2ctfout
+  #     
+  #   Global variables:
+  #     new_subframe_array
+  #     vars
+  #     micdir
+  #     stem_movie
+  #     cor_ext
+  #     tomo_mic_dir (OUTPUT)
+  #     tomo_dns_dir (OUTPUT)
+  #     tomo_dir
+  #     temp_dir
+  #     dir2denoise
+  #     stripped_angle_array
+  #     mcorr_mic_array
+  #     denoise_array
+  #     ctf_stk_array
+  #   
+  ###############################################################################
+    
+    # Loop through angles
+    for subfm_idx in "${!new_subframe_array[@]}"; do 
+      # Get movie filename
+      local movie_file=$(echo ${new_subframe_array[${subfm_idx}]##*[/\\]} )
+      
+      # Get motion-corrected micrograph name
+      local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
+      local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
+      
+      # Create micrograph directory (only used if denoising)
+      if [[ "${subfm_idx}" -eq 0 ]] ; then
+        tomo_mic_dir="${vars[outdir]}/${tomo_dir}/${temp_dir}"
+        tomo_dns_dir="${vars[outdir]}/${tomo_dir}/${temp_dir}/${dir2denoise}"
+        mkdir ${tomo_mic_dir} ${tomo_dns_dir} 2> /dev/null
+      fi
+      
+      # Check that motion-corrected micrograph exists
+      if [[ -f "$mc2_mic" ]]; then
+        # Append to micrograph lists
+        stripped_angle_array+=(${mdoc_angle_array[${subfm_idx}]})
+        mcorr_mic_array+=($mc2_mic)
+        denoise_array+=(${vars[outdir]}/${denoisedir}/${stem_movie}${cor_ext})
+        ctf_stk_array+=($(mic_to_ctf "$mc2_mic"))
+        
+        # Write CTF summary
+        if [[ "${vars[testing]}" == false ]] ; then
+          local ctf_txt=$(stem2ctfout "$stem_movie")
+          echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${tomo_ctfs}
+        fi
+  #       
+  #       ### DIAGNOSTIC
+  #       else
+  #         echo "2758 : $mc2_mic doesn't exist"
+      fi
+    done
+    # End angles loop
+  }
 
 function DUMMY_FUNCTION() {
 ###############################################################################

@@ -1,0 +1,335 @@
+#!/bin/bash
+
+###############################################################################
+# SNARTomoMergEER
+#
+# Changelog:
+#   2023-09-07 (trs) -- created
+#
+###############################################################################
+
+function program_info() {
+  echo 
+  echo "Running: SNARTomoMergEER"
+  echo "Modified 2023-09-13"
+  date
+  echo 
+}
+
+#################### Filenames and Parameters ####################
+
+shared_libs=snartomo-shared-12sep.bash  # Shared libraries
+frame_file=motioncor-frame.txt    # Frames file
+grouping=''                       # Number of EER frames to merge
+max_mic_dose=50                   # Maximum electron dose (e/A2) above which a warning will be printed
+verbosity=4                       # Verbosity level (Max: 6)
+outdir=EERMerged                  # Output top-level directory
+
+################ END BATCH HEADER ################
+
+# Outline (multiline comment)
+: '
+main
+  check_env
+  parse_command_line
+  validateEers
+    shared.check_exe
+'
+
+function main() {
+###############################################################################
+#   Passed arguments:
+#     ${@} : command-line arguments
+#   
+###############################################################################
+  
+  # BASH arrays can't be returned, so declare them here
+  declare -A original_vars
+  declare -a var_sequence
+  declare -A vars
+  
+  check_env
+  parse_command_line "${@}"
+  
+  if [[ "${verbose}" -ge 1 ]]; then
+    program_info
+  fi
+  
+  vprint "Validating..." "1+"
+  validated=true
+  
+  check_vars
+  validateEers
+  check_file "${vars[frame_file]}" "MotionCor2 frame file"
+  check_exe "$(which relion_convert_to_tiff)" "RELION executable"
+  check_dir "${vars[imod_dir]}" "IMOD executables directory"
+  check_mc2_frame
+  validateDose
+  createTempLocal
+
+  # Validation summary
+  if [[ "$validated" == false ]]; then
+    vprint "Missing required inputs, exiting...\n" "0+" "${outlog}"
+    exit 4
+  else
+    vprint "Found required inputs. Continuing...\n" "1+" "${outlog}"
+    vprint "Looping through ${#eer_array[@]} EERs..." "1+" "${outlog}"
+  fi
+  
+  # Loop through EERs
+  for fn in ${eer_array[@]} ; do
+    local merge_cmd="relion_convert_to_tiff --i $fn --eer_grouping ${vars[grouping]} --o ${vars[outdir]}"
+    
+    if [[ "${vars[testing]}" == false ]] ; then
+      # Remember original path in case we copy it locally
+      local orig_eer=$fn
+      
+      check_frames
+      
+      if [[ $verbose -ge 6 ]] ; then
+        echo "    Running: $merge_cmd"
+        eval $merge_cmd 2> /dev/null | sed 's/^/    /'  # (prepends spaces to output)
+      elif [[ $verbose -ge 4 ]] ; then
+        echo "    Running: $merge_cmd"
+        
+        # (I couldn't save the time command output and suppress stdout at the same time)
+        echo "    Run time: $(TIMEFORMAT='%R' ; { time $merge_cmd > /dev/null 2>&1 ; } 2>&1) sec"
+      else
+        $merge_cmd > /dev/null 2>&1
+      fi
+      
+      out_tiff="${vars[outdir]}/$(echo $orig_eer | rev | cut -d. -f2- | rev).tif"
+      
+      # Make sure number of frames in the output is correct
+      validateTiff "$orig_eer" "$out_tiff" "${num_sections}"
+      
+      # Remove locally-copied movie file (make sure it's in the temp directory and not the original)
+      remove_local "$fn"
+      vprint "" "3+"
+    else
+      echo "TESTING: $merge_cmd"
+    fi
+  done
+  # End EER loop
+  
+  # If input is in a subdirectory (e.g., A/B/file.eer), then the output directory will have also contained that subdirectory (OutDir/A/B/file.tif)
+  local eer_dir=$(dirname $orig_eer)
+  if [[ "${eer_dir}" != "." ]] && [[ "${vars[testing]}" == false ]] ; then
+# #     echo "104 out_tiff '${out_tiff}'"
+    rmdir -p $(dirname ${out_tiff}) 2> /dev/null
+  fi
+  
+  clean_local_dir "temp_local"
+  vprint "Done!\n" "1+"
+}
+
+function check_env() {
+###############################################################################
+#   Functions:
+#     Checks whether environmental variable SNARTOMO_DIR is set
+#     Sources shared functions from central SNARTomo directory
+#     
+#   Calls functions:
+#     check_vars
+#   
+#   Global variables:
+#     do_pace
+#     shared_libs
+#     
+###############################################################################
+
+  if [[ "${SNARTOMO_DIR}" == "" ]]; then
+    echo -e "\nERROR!! Environmental variable 'SNARTOMO_DIR' undefined!"
+    echo      "  Set variable with: export SNARTOMO_DIR=<path_to_snartomo_files>"
+    echo -e   "  Exiting...\n"
+    exit
+  else
+    source "${SNARTOMO_DIR}/${shared_libs}"
+    source "${SNARTOMO_DIR}/argumentparser_dynamic.sh"
+  fi
+}
+
+function parse_command_line() {
+###############################################################################
+#   Function:
+#     Parses command line
+#   
+#   Passed arguments:
+#     ${@} : command-line arguments
+#   
+#   Global variables:
+#     original_vars : non-associative array, before cleaning
+#     var_sequence : associative array, maintaining the order of the variables
+#     vars : final options array
+#   
+###############################################################################
+  
+  add_section "REQUIRED SETTINGS" "These settings must be supplied for each run."
+  add_argument "eers" "" "EER files (more than one -> must be enclosed in quotes)" "ANY"
+  add_argument "grouping" "${grouping}" "Number of EER frames to merge" "INT"
+  add_argument "frame_file" "${frame_file}" "Input MotionCor2 frame file" "ANY"
+  add_argument "max_mic_dose" "${max_mic_dose}" "Maximum electron dose (e/A2) above which a warning will be printed" "FLOAT"
+  
+  add_section "OTHER SETTINGS" "These settings have default settings that can be overridden."
+  add_argument "outdir" "${outdir}" "Output directory" "ANY"
+  add_argument "verbosity" "${verbosity}" "Verbosity level (0..6)" "INT"
+  add_argument "min_frames" "${SNARTOMO_MINFRAMES}" "Minimum number of frames before printing warning" "INT"
+  add_argument "max_frames" "${SNARTOMO_MAXFRAMES}" "Maximum number of frames before printing warning" "INT"
+  add_argument "eer_local" "${CP_EER_LOCAL}" "Flag to copy EER files locally temporarily" "BOOL"
+  add_argument "eer_latency" "${SNARTOMO_EER_WAIT}" "Maximum header read time before micrograph is copied locally" "FLOAT"
+  add_argument "temp_local" "${SNARTOMO_LOCAL}" "Directory to copy EER files locally" "ANY"
+  add_argument "imod_dir" "${IMOD_BIN}" "IMOD executable directory" "ANY"
+  add_argument "testing" "false" "Testing flag" "BOOL"
+  add_argument "debug" "false" "Flag for debugging" "BOOL"
+
+  dynamic_parser "${@}"
+#   print_vars
+#   printf "'%s'\n" "${ARGS[@]}" ; exit
+
+  if [[ "${vars[verbosity]}" -ge 2 ]] ; then
+    verbose="${vars[verbosity]}"
+  fi
+}
+
+function print_usage() {
+  echo "USAGE : $(basename $0) <eer_files> <options>"
+  echo
+  echo "To list options & defaults, type:"
+  echo "  $(basename $0) --help"
+}
+
+function validateEers() {
+###############################################################################
+#   Function:
+#     Check number of input EERs
+#   
+#   Calls functions:
+#     vprint
+#     shared.check_exe
+#   
+#   Global variables:
+#     validated
+#     ARGS
+#     eer_array (OUTPUT)
+#   
+###############################################################################
+  
+  IFS=' ' read -a eer_array <<< "${ARGS[@]}"
+  if [[ "${#eer_array[@]}" -eq 0 ]] ; then
+    echo -e "  ERROR!! Need at least one file as input!"
+    validated=false
+  else
+# #     printf "'%s'\n" "${eer_array[0]}"
+# #     exit
+    
+    # If expanded array is a pattern that doesn't exist, then array will be simply that pattern, and not a file
+    if ! [[ -e "${eer_array[0]}" ]] ; then
+      echo -e "  ERROR!! No files match the pattern '${eer_array[0]}'!"
+      validated=false
+    else
+      vprint "  Found ${#eer_array[@]} input EERs" "1+"
+    fi
+  fi
+}
+
+function validateDose() {
+###############################################################################
+#   Function:
+#     Make sure the dose settings make sense
+#   
+#   Positional variables:
+#   
+#   Calls functions:
+#   
+#   Global variables:
+#     frame_array
+#     vars
+#     validated
+#   
+###############################################################################
+  
+  local frames2merge_mc2="${frame_array[1]}"
+  local dose_per_frame="${frame_array[2]}"
+  
+  # If no frames file, there will be an error printed elsewhere
+  if [[ -e "${vars[frame_file]}" ]] ; then
+    if [[ "${vars[grouping]}" -gt $frames2merge_mc2 ]] ; then
+      echo "  ERROR!! Number of frames to merge (${vars[grouping]}, ${grouping} is default) is more than in MotionCor2 ($frames2merge_mc2)!"
+      echo "    (The resulting TIFF file would have worse sampling than the merged frames internal to MotionCor2.)"
+      validated=false
+    else
+      echo "  Number of frames to merge here: ${vars[grouping]}, in MotionCor2: $frames2merge_mc2"
+      
+      local frame_dose_tiff=$(printf "%.4f" $(echo "${vars[grouping]} * $dose_per_frame" | bc))
+      local frame_dose_mc2=$(printf "%.4f" $(echo "$frames2merge_mc2 * $dose_per_frame" | bc))
+      echo "  Dose per merged frame here: $frame_dose_tiff, in MotionCor2: $frame_dose_mc2 (e-/A2)"
+    fi
+  fi
+}
+
+function validateTiff() {
+###############################################################################
+#   Function:
+#     Make sure the output TIFF file has the correct number of frames
+#   
+#   Positional variables:
+#     1) input filename
+#     2) output filename
+#     3) number of EER frames
+#   
+#   Calls functions:
+#     getDimensions
+#   
+#   Global variables:
+#     vars
+#     dimension_array
+#   
+###############################################################################
+  
+  local fn=$1
+  local curr_tiff=$2
+  local num_eer_frames=$3
+  
+  getDimensions "$curr_tiff"
+  
+  # Sanity check
+  local num_tiff_frames="${dimension_array[2]}"
+  local num_calc_frames=$(($num_eer_frames/"${vars[grouping]}"))
+  if [[ ${num_tiff_frames} -ne ${num_calc_frames} ]] ; then
+    vprint "    WARNING! Number of frames in TIFF file (${num_tiff_frames}) differs from calculated ($num_eer_frames/${vars[grouping]}=$num_calc_frames)" "1+"
+  else
+    vprint "    OK: Number of frames in TIFF file (${num_tiff_frames}) equals calculated ($num_eer_frames/${vars[grouping]}=$num_calc_frames)" "4+"
+  fi
+  
+# #   echo "270 directory : '$(dirname $fn)'"
+# #   exit
+  
+  # If input is in a subdirectory (e.g., A/B/file.eer), then the output directory will also contain that subdirectory (OutDir/A/B/file.tif)
+  local eer_dir=$(dirname $fn)
+  if [[ "${eer_dir}" != "." ]] ; then
+# # #     echo "298 curr_tiff : '$curr_tiff'"
+    \mv $curr_tiff "${vars[outdir]}"
+# #   else
+# #     echo "273 $fn is in current directory"
+  fi
+}
+
+function DUMMY_FUNCTION() {
+###############################################################################
+#   Function:
+#     FUNCTION
+#   
+#   Positional variables:
+#   
+#   Calls functions:
+#   
+#   Global variables:
+#   
+###############################################################################
+  
+  return
+}
+
+########################################################################################
+
+main "$@"

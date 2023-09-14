@@ -23,7 +23,7 @@ function check_vars() {
   var_array+=("SNARTOMO_REC_ZDIM" "SNARTOMO_TILT_AXIS" "SNARTOMO_DARKTOL")
   var_array+=("SNARTOMO_TILTCOR" "SNARTOMO_BP_METHOD" "SNARTOMO_FLIPVOL")
   var_array+=("SNARTOMO_TRANSFILE" "SNARTOMO_ARETOMO_PATCH" "SNARTOMO_ARETOMO_TIME")
-  var_array+=("ISONET_ENV" "SNARTOMO_SNRFALLOFF" "SNARTOMO_SHARE")
+  var_array+=("ISONET_ENV" "SNARTOMO_SNRFALLOFF" "SNARTOMO_SHARE" "IMOD_BIN")
   
   declare -a missing_array
   
@@ -32,8 +32,6 @@ function check_vars() {
     
     if [[ "${curr_value}" == "" ]] ; then
       missing_array+=("$curr_var")
-#     else
-#       echo "34 curr_var '$curr_var=$curr_value'"
     fi
   done
   
@@ -44,7 +42,7 @@ function check_vars() {
     exit
   fi
 }
-  
+
 function check_testing() {
 ###############################################################################
 #   Function:
@@ -216,7 +214,7 @@ function create_directories() {
 #     dose_imgdir
 #     contour_imgdir
 #     resid_imgdir
-#     temp_local_dir (OUTPUT)
+# # #     temp_local_dir (OUTPUT)
 #     temp_share_dir (OUTPUT)
 #     cmd_file
 #     set_file
@@ -366,6 +364,41 @@ function create_directories() {
     vars[temp_local]="/tmp/SNARTomo-$USER"
   fi
   
+  # Create temp_local_dir, or at least determine the path
+  createTempLocal
+  
+#   # In case we need to copy EERs locally, remember the PID ($$)
+#   temp_local_dir="${vars[temp_local]}/$$"
+#   
+#   if [[ "${vars[eer_local]}" == "true" ]] ; then
+#     if [[ "$verbose" -ge 1 ]]; then
+#       mkdir -pv "${temp_local_dir}" 2> /dev/null
+#     else
+#       mkdir -p "${temp_local_dir}" 2> /dev/null
+#     fi
+#   fi
+  
+  # Write command line to output directory
+  echo -e "$0 ${@}\n" >> "${vars[outdir]}/${cmd_file}"
+  print_arguments > "${vars[outdir]}/${set_file}"
+  
+  if [[ "${verbose}" -ge 1 ]]; then
+    echo -e "Wrote settings to ${vars[outdir]}/${vars[settings]}\n"
+  fi
+}
+
+function createTempLocal() {
+###############################################################################
+#   Function:
+#     Create temp_local_dir, or at least determine the path
+#   
+#   Global variables:
+#     vars
+#     temp_local_dir (OUTPUT)
+#     verbose
+#   
+###############################################################################
+  
   # In case we need to copy EERs locally, remember the PID ($$)
   temp_local_dir="${vars[temp_local]}/$$"
   
@@ -375,14 +408,6 @@ function create_directories() {
     else
       mkdir -p "${temp_local_dir}" 2> /dev/null
     fi
-  fi
-  
-  # Write command line to output directory
-  echo -e "$0 ${@}\n" >> "${vars[outdir]}/${cmd_file}"
-  print_arguments > "${vars[outdir]}/${set_file}"
-  
-  if [[ "${verbose}" -ge 1 ]]; then
-    echo -e "Wrote settings to ${vars[outdir]}/${vars[settings]}\n"
   fi
 }
 
@@ -1405,7 +1430,7 @@ function validate_inputs() {
       
       if [[ "${vars[testing]}" == true ]]; then
         echo    "    To validate testing, type:"
-        echo -e "      touch ${search_file}"
+        echo -e "      touch ${search_file}\n"
       fi
       
     else
@@ -1457,31 +1482,44 @@ function validate_inputs() {
     #   Global variables:
     #     vars
     #     validated
+    #     frame_array (OUTPUT)
     #   
     ###############################################################################
       
       local outlog=$1
       
-      # Read space-delimited string as array
-      IFS=' ' read -r -a frame_array <<< "$(cat ${vars[frame_file]})"
-      local mic_dose=$(printf "%.3f" $(echo "${frame_array[0]} * ${frame_array[2]}" | bc 2> /dev/null) )
-      
-      # If the dose is less than 10, show a warning and perform a sanity check on the frames file
-      if (( $( echo "$mic_dose < 10" | bc -l) )) ; then
-        vprint "  Dose per micrograph : $mic_dose e-/A2" "1+" "${outlog}"
-      else
-        vprint "  WARNING! Dose per micrograph : $mic_dose e-/A2" "1+" "${outlog}"
+      # Make sure frame file exists
+      if [[ -e "${vars[frame_file]}" ]]; then
+        # Read space-delimited string as array
+        IFS=' ' read -r -a frame_array <<< "$(cat ${vars[frame_file]})"
+        local mic_dose=$(printf "%.3f" $(echo "${frame_array[0]} * ${frame_array[2]}" | bc 2> /dev/null) )
         
-        # Sanity check on frames file
-        check_integer "${frame_array[0]}" "int"   "Number of frames" "${outlog}"
-        check_integer "${frame_array[1]}" "int"   "Frames to merge " "${outlog}"
-        check_integer "${frame_array[2]}" "float" "Dose per frame  " "${outlog}"
-        
-        if [[ "$validated" == false ]]; then
-          vprint "  ERROR!! Frame file '${vars[frame_file]}' has the wrong format!" "0+" "${outlog}"
+  # # #       echo "1470 max_mic_dose '${vars[max_mic_dose]}'" ; exit
+       
+        if [[ "${vars[max_mic_dose]}" == "" ]] ; then
+          echo -e "ERROR!! Parameter 'max_mic_dose' must be defined! Exiting...\n"
+          exit
         fi
+        
+        # If the dose is less than 10, show a warning and perform a sanity check on the frames file
+        if (( $( echo "$mic_dose < ${vars[max_mic_dose]}" | bc -l) )) ; then
+          vprint "  Dose per micrograph : $mic_dose e-/A2" "1+" "${outlog}"
+        else
+          vprint "  WARNING! Dose per micrograph $mic_dose is greater than maximum expected dose ${vars[max_mic_dose]} (e-/A2)" "1+" "${outlog}"
+          
+          # Sanity check on frames file
+          check_integer "${frame_array[0]}" "int"   "Number of frames" "${outlog}"
+          check_integer "${frame_array[1]}" "int"   "Frames to merge " "${outlog}"
+          check_integer "${frame_array[2]}" "float" "Dose per frame  " "${outlog}"
+          
+          validated=false
+  #         if [[ "$validated" == false ]]; then
+  #           vprint "  ERROR!! Frame file '${vars[frame_file]}' has the wrong format!" "0+" "${outlog}"
+  #         fi
+        fi
+        # End dose IF-THEN
       fi
-      # End dose IF-THEN
+      # End frame-file-exists IF-THEN
     }
 
   function check_python() {
@@ -1554,7 +1592,7 @@ function validate_inputs() {
     local filename=$1
     
     # Remove extension (last period-delimited string)
-    local stem=`basename $filename | rev | cut -d. -f2- | rev`
+    local stem=$(basename $filename | rev | cut -d. -f2- | rev)
     # (Syntax adapted from https://unix.stackexchange.com/a/64673)
     
     echo $stem
@@ -1720,20 +1758,21 @@ function check_frames() {
 #     Checks if we need to copy the EER files locally
 #   
 #   Positional variable:
-#     1) output log file
+#     1) output log file (OPTIONAL) 
 #     
 #   Requires:
 #     IMOD's header program
 #   
+#   Calls functions:
+#     vprint
+#     copy_local
+#   
 #   Global variables:
 #     vars
-#     first_local
-#     fn
 #     warn_log
+#     num_sections (OUTPUT)
 #     temp_local_dir
 #     do_cp_note (PACE only)
-#     min_frames
-#     max_frames
 #     
 ###############################################################################
   
@@ -1757,21 +1796,15 @@ function check_frames() {
       exit
     
     else
-      local num_sections=$(echo "$hdr_out" | head -n 1 | rev | cut -d" " -f1 | rev)
+      num_sections=$(echo "$hdr_out" | head -n 1 | rev | cut -d" " -f1 | rev)
       local hdr_time=$(echo "$hdr_out" | tail -n 1)
       
-      vprint "    Micrograph $fn  \tnumber of frames: $num_sections (read in ${hdr_time} sec)\n" "1+" "=${outlog}"
+      vprint "    Micrograph $fn  \tnumber of frames: $num_sections (read in ${hdr_time} sec)" "3+" "=${outlog}"
       
       # Check read time
       if (( $( echo "${hdr_time} > ${vars[eer_latency]}" | bc -l ) )) && [[ "${vars[eer_local]}" != "true" ]] ; then
-        if [[ "${do_pace}" == false ]]; then
-          vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} =${warn_log}"
-          mkdir -pv "${temp_local_dir}"
-          
-          # Start copying locally
-          vars[eer_local]="true"
-          copy_local "${outlog}"
-        else
+        # Variable 'do_pace' might not be defined
+        if [[ "${do_pace}" == true ]]; then
           # Parallel process may have created temp file already
           if ! [[ -f "${do_cp_note}" ]]; then
             vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} =${warn_log}"
@@ -1782,8 +1815,18 @@ function check_frames() {
 # #             echo "1707 temp_local '${vars[temp_local]}/$$', temp_local_dir '$temp_local_dir', whoami '$(whoami)'"
           vars[eer_local]="true"
           copy_local "${outlog}"
+          
+          vprint "" "1+" "=${outlog}"
+        else
+          vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} =${warn_log}"
+          mkdir -pv "${temp_local_dir}" | sed 's/^/    /'  # (prepends spaces to output)
+          
+          # Start copying locally
+          vars[eer_local]="true"
+          copy_local "${outlog}"
         fi
         # End PACE IF-THEN
+        
 #         
 #       # TESTING
 #       else
@@ -1793,7 +1836,7 @@ function check_frames() {
       
       # Check if within range
       if [[ "$num_sections" -lt "${vars[min_frames]}" ]] || [[ "$num_sections" -gt "${vars[max_frames]}" ]] ; then
-        vprint "    WARNING! Micrograph $fn: number of frames ($num_sections) outside of range (${vars[min_frames]} to ${vars[max_frames]})" "0+" "${outlog} =${warn_log}"
+        vprint "    WARNING! Micrograph $fn: number of frames ($num_sections) outside of range (${vars[min_frames]} to ${vars[max_frames]})" "1+" "${outlog} =${warn_log}"
       fi
     fi
     # End success IF-THEN
@@ -1814,7 +1857,7 @@ function check_frames() {
   #     vprint
   #   
   #   Global variables:
-  #     fn
+  #     fn (UPDATED)
   #     temp_local_dir
   #     vars
   #     temp_dir
@@ -1828,8 +1871,6 @@ function check_frames() {
     
     # Sanity check
     if [[ -e "${temp_local_dir}/$(basename $fn)" ]]; then
-# #       vprint "    Copied '$fn'  \tto: ${temp_local_dir} (in ${cp_time} sec)" "0+" "${outlog}"
-      
       # Update EER name
       fn="${temp_local_dir}/$(basename $fn)"
       vprint "    Copied to '$fn' (in ${cp_time} sec)" "0+" "=${outlog}"
@@ -2068,10 +2109,11 @@ function remove_local() {
 ###############################################################################
 #   Function:
 #     Removes locally-copied EER
+#     Does nothing if not copying locally
 #   
 #   Positional variables:
 #     1) filename
-#     2) verbosity (boolean)
+#     2) verbosity (boolean, optional)
 #   
 #   Global variables:
 #     vars
@@ -4267,6 +4309,7 @@ function get_central_slice() {
 
   local trim_log="${vars[outdir]}/${tomo_dir}/trimvol.log"
   
+  # Get dimensions (TODO: Replace with getDimensions())
   local dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)
   IFS=' ' read -r -a dimension_array <<< ${dimension_string}
   
@@ -4276,13 +4319,6 @@ function get_central_slice() {
   
   # Get minimimum dimension & axis
   get_shortest_axis
-#   for idx in "${!dimension_array[@]}" ; do
-#     if (( $( echo "${dimension_array[$idx]} < $min_dim" | bc -l ) )) ; then
-#       min_dim=${dimension_array[$idx]}
-#       min_axis=${axis_array[$idx]}
-#     fi
-#   done
-#   
   min_axis=${axis_array[$min_idx]}
   
   # If short axis along y, then rotate (or else, there'll be N images of width 1)
@@ -4339,6 +4375,27 @@ function get_central_slice() {
   $norm_cmd && rm ${jpg_slice}
 }
 
+function getDimensions() {
+###############################################################################
+#   Function:
+#     Gets dimensions using IMOD's header program
+#     Returns array
+#   
+#   Positional variables:
+#     1) Volume to get dimensions of
+#   
+#   Global variables:
+#     vars
+#     dimension_array (OUTPUT)
+#   
+###############################################################################
+  
+  local fn=$1
+  
+  local dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)
+  IFS=' ' read -r -a dimension_array <<< ${dimension_string}
+}
+  
 function get_shortest_axis() {
 ###############################################################################
 #   Function:
@@ -4369,6 +4426,37 @@ function get_shortest_axis() {
       min_idx=$idx
     fi
   done
+}
+
+function quietCommand() {
+###############################################################################
+#   Function:
+#     Runs command with desired verbosities:
+#       0  Silent
+#       1  Command printed to screen
+#       6+ Program output also written
+#   
+#   Positional variables:
+#     1) command
+#     2) verbosity
+#     3) string before command (OPTIONAL)
+#   
+#   Calls functions:
+#     vprint
+#   
+###############################################################################
+  
+  local cmd=$1
+  local verbose=$2
+  local prestring=$3
+  
+  vprint "${prestring}Running: $cmd" "1+"
+  
+  if [[ $verbose -ge 6 ]] ; then
+    eval "$cmd"
+  else
+    eval "$cmd" > /dev/null 2>&1
+  fi
 }
 
 function DUMMY_FUNCTION() {
