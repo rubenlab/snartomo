@@ -35,7 +35,7 @@ Assumptions:
 
 """ % ((__file__,)*1)
 
-MODIFIED="Modified 2023 Mar 31"
+MODIFIED="Modified 2023 Sep 24"
 MAX_VERBOSITY=8
 
 def print_log_msg(mesg, cutoff, options):
@@ -59,12 +59,21 @@ def main():
   options= parse_command_line()
   print_log_msg("", 2, options)
   
-  # Will use this variable a lot
   ts_file= options.tilt_list
+  ctf_plot= options.ctf_by_ts_plot
   
   # Read file series (sorting from https://stackoverflow.com/a/23430865)
   tilt_ctfs= glob.glob(options.tilt_ctfs)
   tilt_ctfs.sort(key=os.path.getmtime)
+  
+  # Sanity check: Make sure plot extension is legal
+  plot_ext= os.path.splitext(ctf_plot)[1].lstrip('.')
+  allow_fmts="eps, jpeg, jpg, pdf, pgf, png, ps, raw, rgba, svg, svgz, tif, tiff"  # copied from error
+  if not any( plot_ext in s for s in allow_fmts.split(',') ):
+      print(f"\nERROR!! Plot extension '{plot_ext}' not recognized!")
+      print(f"\tAllowed formats: {allow_fmts}")
+      print("\tExiting...")
+      exit(4)
   
   # UPDATE TILT-SERIES LIST (TODO: Move to function)
   
@@ -149,19 +158,19 @@ def main():
     except ValueError:
       eprint(curr_ctf, ctf_lines, 2)
       eprint(curr_ctf, ctf_lines, 3)
-      exit()
+      exit(1)
     
     try:
       resoln+=[1/float(el[7]) for el in ctf_lines]
     except ValueError:
       eprint(curr_ctf, ctf_lines, 7)
-      exit()
+      exit(2)
     
     try:
       cccoef+=[float(el[6]) for el in ctf_lines]
     except ValueError:
       eprint(curr_ctf, ctf_lines, 6)
-      exit()
+      exit(3)
     
     # If points aren't at exact same x, you can see if they pile up
     slant=0.025
@@ -208,8 +217,8 @@ def main():
   plt.gcf().set_size_inches(6.5,6.5)
   
   # Save plot (need to write it before displaying it, or else it'll be blank)
-  plt.savefig(options.ctf_by_ts_plot)
-  print_log_msg(f"Wrote plot to {options.ctf_by_ts_plot}", 2, options)
+  plt.savefig(ctf_plot)
+  print_log_msg(f"Wrote plot to {ctf_plot}", 2, options)
   
   if options.gui : plt.show()
   
@@ -292,7 +301,7 @@ def parse_command_line():
     parser.add_argument(
         "tilt_list", 
         type=str, 
-        help="List of tilt series (appended if existing)")
+        help="Output list of tilt series (appended if existing)")
 
     parser.add_argument(
         "ctf_by_ts_plot", 

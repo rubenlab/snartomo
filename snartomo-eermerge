@@ -10,8 +10,8 @@
 
 function program_info() {
   echo 
-  echo "Running: SNARTomoMergEER"
-  echo "Modified 2023-09-13"
+  echo "Running: SNARTomoEERMerge"
+  echo "Modified 2023-09-25"
   date
   echo 
 }
@@ -23,7 +23,7 @@ frame_file=motioncor-frame.txt    # Frames file
 grouping=''                       # Number of EER frames to merge
 max_mic_dose=50                   # Maximum electron dose (e/A2) above which a warning will be printed
 verbosity=4                       # Verbosity level (Max: 6)
-outdir=EERMerge                   # Output top-level directory
+tifdir=EERMerge                   # Output top-level directory
 
 ################ END BATCH HEADER ################
 
@@ -33,7 +33,18 @@ main
   check_env
   parse_command_line
   validateEers
-    shared.check_exe
+  shared.check_exe
+  shared.check_dir
+  shared.check_mc2_frame
+  shared.validateDose
+  shared.createTempLocal
+  shared.check_frames
+    shared.copy_local
+  relion.convert_to_tiff
+  shared.validateTiff
+    shared.getDimensions
+  shared.remove_local
+  shared.clean_local_dir
 '
 
 function main() {
@@ -78,44 +89,25 @@ function main() {
   
   # Loop through EERs
   for fn in ${eer_array[@]} ; do
-    local merge_cmd="relion_convert_to_tiff --i $fn --eer_grouping ${vars[grouping]} --o ${vars[outdir]}"
-    
     if [[ "${vars[testing]}" == false ]] ; then
-      # Remember original path in case we copy it locally
-      local orig_eer=$fn
+      check_frames  # copies the EER files locally if necessary
+      # NOTE: Updates $fn if copying locally
       
-      check_frames
-      
-      if [[ $verbose -ge 6 ]] ; then
-        echo "    Running: $merge_cmd"
-        eval $merge_cmd 2> /dev/null | sed 's/^/    /'  # (prepends spaces to output)
-      elif [[ $verbose -ge 4 ]] ; then
-        echo "    Running: $merge_cmd"
-        
-        # (I couldn't save the time command output and suppress stdout at the same time)
-        echo "    Run time: $(TIMEFORMAT='%R' ; { time $merge_cmd > /dev/null 2>&1 ; } 2>&1) sec"
-      else
-        $merge_cmd > /dev/null 2>&1
-      fi
-      
-      out_tiff="${vars[outdir]}/$(echo $orig_eer | rev | cut -d. -f2- | rev).tif"
-      
-      # Make sure number of frames in the output is correct
-      validateTiff "$orig_eer" "$out_tiff" "${num_sections}"
+      compressEer "$num_sections"  # the actual compression
       
       # Remove locally-copied movie file (make sure it's in the temp directory and not the original)
       remove_local "$fn"
       vprint "" "3+"
     else
+      local merge_cmd="relion_convert_to_tiff --i $fn --eer_grouping ${vars[grouping]} --o ${vars[tifdir]}"
       echo "TESTING: $merge_cmd"
     fi
   done
   # End EER loop
   
   # If input is in a subdirectory (e.g., A/B/file.eer), then the output directory will have also contained that subdirectory (OutDir/A/B/file.tif)
-  local eer_dir=$(dirname $orig_eer)
+  local eer_dir=$(dirname $fn)
   if [[ "${eer_dir}" != "." ]] && [[ "${vars[testing]}" == false ]] ; then
-# #     echo "104 out_tiff '${out_tiff}'"
     rmdir -p $(dirname ${out_tiff}) 2> /dev/null
   fi
   
@@ -169,7 +161,7 @@ function parse_command_line() {
   add_argument "grouping" "${grouping}" "Number of EER frames to merge" "INT"
   add_argument "frame_file" "${frame_file}" "Input MotionCor2 frame file" "ANY"
   add_argument "max_mic_dose" "${max_mic_dose}" "Maximum electron dose (e/A2) above which a warning will be printed" "FLOAT"
-  add_argument "outdir" "${outdir}" "Output directory" "ANY"
+  add_argument "tifdir" "${tifdir}" "Output directory" "ANY"
   add_argument "verbosity" "${verbosity}" "Verbosity level (0..6)" "INT"
   add_argument "min_frames" "${SNARTOMO_MINFRAMES}" "Minimum number of frames before printing warning" "INT"
   add_argument "max_frames" "${SNARTOMO_MAXFRAMES}" "Maximum number of frames before printing warning" "INT"
@@ -213,13 +205,12 @@ function validateEers() {
 ###############################################################################
   
   IFS=' ' read -a eer_array <<< "${ARGS[@]}"
+# # #     printf "'%s'\n" "${eer_array[0]}"
+
   if [[ "${#eer_array[@]}" -eq 0 ]] ; then
     echo -e "  ERROR!! Need at least one file as input!"
     validated=false
   else
-# #     printf "'%s'\n" "${eer_array[0]}"
-# #     exit
-    
     # If expanded array is a pattern that doesn't exist, then array will be simply that pattern, and not a file
     if ! [[ -e "${eer_array[0]}" ]] ; then
       echo -e "  ERROR!! No files match the pattern '${eer_array[0]}'!"
@@ -227,88 +218,6 @@ function validateEers() {
     else
       vprint "  Found ${#eer_array[@]} input EERs" "1+"
     fi
-  fi
-}
-
-function validateDose() {
-###############################################################################
-#   Function:
-#     Make sure the dose settings make sense
-#   
-#   Positional variables:
-#   
-#   Calls functions:
-#   
-#   Global variables:
-#     frame_array
-#     vars
-#     validated
-#   
-###############################################################################
-  
-  local frames2merge_mc2="${frame_array[1]}"
-  local dose_per_frame="${frame_array[2]}"
-  
-  # If no frames file, there will be an error printed elsewhere
-  if [[ -e "${vars[frame_file]}" ]] ; then
-    if [[ "${vars[grouping]}" -gt $frames2merge_mc2 ]] ; then
-      echo "  ERROR!! Number of frames to merge (${vars[grouping]}, ${grouping} is default) is more than in MotionCor2 ($frames2merge_mc2)!"
-      echo "    (The resulting TIFF file would have worse sampling than the merged frames internal to MotionCor2.)"
-      validated=false
-    else
-      echo "  Number of frames to merge here: ${vars[grouping]}, in MotionCor2: $frames2merge_mc2"
-      
-      local frame_dose_tiff=$(printf "%.4f" $(echo "${vars[grouping]} * $dose_per_frame" | bc))
-      local frame_dose_mc2=$(printf "%.4f" $(echo "$frames2merge_mc2 * $dose_per_frame" | bc))
-      echo "  Dose per merged frame here: $frame_dose_tiff, in MotionCor2: $frame_dose_mc2 (e-/A2)"
-    fi
-  fi
-}
-
-function validateTiff() {
-###############################################################################
-#   Function:
-#     Make sure the output TIFF file has the correct number of frames
-#   
-#   Positional variables:
-#     1) input filename
-#     2) output filename
-#     3) number of EER frames
-#   
-#   Calls functions:
-#     getDimensions
-#   
-#   Global variables:
-#     vars
-#     dimension_array
-#   
-###############################################################################
-  
-  local fn=$1
-  local curr_tiff=$2
-  local num_eer_frames=$3
-  
-  getDimensions "$curr_tiff"
-  
-  # Sanity check
-  local num_tiff_frames="${dimension_array[2]}"
-  local num_calc_frames=$(($num_eer_frames/"${vars[grouping]}"))
-  if [[ ${num_tiff_frames} -ne ${num_calc_frames} ]] ; then
-    vprint "    WARNING! Number of frames in TIFF file (${num_tiff_frames}) differs from calculated ($num_eer_frames/${vars[grouping]}=$num_calc_frames)" "1+"
-  else
-    vprint "    OK: Number of frames in TIFF file (${num_tiff_frames}) equals calculated ($num_eer_frames/${vars[grouping]}=$num_calc_frames)" "4+"
-  fi
-  
-# #   echo "270 directory : '$(dirname $fn)'"
-# #   exit
-  
-  # If input is in a subdirectory (e.g., A/B/file.eer), then the output directory will also contain that subdirectory (OutDir/A/B/file.tif)
-  local eer_dir=$(dirname $fn)
-  if [[ "${eer_dir}" != "." ]] ; then
-# # #     echo "298 curr_tiff : '$curr_tiff'"
-    \mv $curr_tiff "${vars[outdir]}"
-# #   else
-# #     echo "273 $fn is in current directory"
   fi
 }
 

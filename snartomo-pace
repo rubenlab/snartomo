@@ -18,7 +18,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-09-14"
+  echo "Modified 2023-09-25"
   date
   echo 
 }
@@ -51,6 +51,7 @@ verbosity=4                                       # Verbosity level
 dosefit_verbose=6                                 # Verbosity level for dose-fitting log file (0..8)
 
 # MotionCor2
+# # # grouping=-1                                       # Number of EER frames to merge during compression
 max_mic_dose=10                                   # Maximum electron dose (e/A2) above which a warning will be printed
 reffrm=1                                          # (boolean) Reference frame (0: first, 1: middle)
 SplitSum=0                                        # (boolean) Split frames into even & odd half-sets (1: yes)
@@ -66,16 +67,17 @@ cmd_file=commands.txt                             # Output commands file (in ${o
 set_file=settings.txt                             # Output settings file (in ${outdir})
 status_file=status.txt                            # Current status
 log_dir=Logs                                      # Log file directory
-rawdir=1-Movies                                   # Directory where raw movie files will go
+rawdir=0-Movies                                   # Directory where raw movie files will go
+tifdir=1-Compressed                               # Directory where optional compressed TIFFs will go
 micdir=2-MotionCor2                               # MotionCor directory
 mc2_logs=Logs                                     # Directory for MotionCor log files, relative to $MICDIR
 ctfdir=3-CTFFIND4                                 # CTFFIND directory
 ctf_summary=SUMMARY_CTF.txt                       # CTFFIND summary
-ctf_plot=ctfbyts.png                              # Plot of CTF data by tilt series
 denoisedir=4-Denoise                              # Denoised micrograph directory
 recdir=5-Tomo                                     # Reconstruction directory
 imgdir=Images                                     # Image directory
-ts_list=ts_list.txt                               # List of tilt series
+ts_list=ts_list                                   # Prefix for list of tilt-series text files
+ctf_plot=ctfbyts                                  # Prefix for ONG plots of CTF data by tilt series
 thumbdir=Thumbnails                               # Central sections of tomograms
 dose_imgdir=DoseFit                               # Dose fitting plot directory
 resid_imgdir=Residuals                            # Micrograph removal plot directory
@@ -132,42 +134,46 @@ main
   print_usage
   shared.check_args
   argparser.print_arguments
-  shared.validate_inputs 
+  shared.validate_inputs
     read_mdoc
     check_dir {movies, IMOD, CTFFIND}
-    check_exe {MotionCor2, JANNI, Topaz, AreTomo, convert}
+    check_exe {MotionCor2, JANNI, Topaz, AreTomo, convert, RELION}
     check_mc2_frame
     check_file {gain reference, frame file, IMOD batch directive}
     check_python
-  initialize_vars
-  shared.check_gain_format 
-  shared.update_adoc
-  targets_init
-  movies_init
-  read_init {MotionCor2, CTFFIND4}
-  resources.gpu_plot
-  resources.ram_plot
-  resources.power_plot
-  resources.temperature_plot
-  parse_targets
-    detect_new_movies
-    distribute_motioncor
-      motioncor_parallel
-        shared.run_motioncor
-        shared.check_frames
-  distribute_ctffind 
-    ctffind_parallel
-    check_ctf_subprocesses
-  compute_tomograms
-    tomogram_parallel
-      shared.dose_fit
-      shared.write_angles_lists
-      shared.denoise_wrapper
-      shared.imod_restack
-      shared.wrapper_aretomo
-      shared.wrapper_etomo
-      shared.ruotnocon_wrapper
-  shared.backup_file {movies_done, mcor_done, ctf_done, rec_done}
+  
+  # Loop through target files
+      initialize_vars
+      shared.check_gain_format 
+      shared.update_adoc
+      targets_init
+      movies_init
+      read_init {MotionCor2, CTFFIND4}
+      resources.gpu_plot
+      resources.ram_plot
+      resources.power_plot
+      resources.temperature_plot
+      parse_targets
+        detect_new_movies
+        distribute_motioncor
+          motioncor_parallel
+            shared.run_motioncor
+            shared.check_frames
+      distribute_ctffind 
+        ctffind_parallel
+        check_ctf_subprocesses
+      compute_tomograms
+        tomogram_parallel
+          shared.dose_fit
+          shared.write_angles_lists
+          shared.denoise_wrapper
+          shared.imod_restack
+          shared.wrapper_aretomo
+          shared.wrapper_etomo
+          shared.ruotnocon_wrapper
+      shared.backup_file {movies_done, mcor_done, ctf_done, rec_done}
+  # End target-file loop
+  
   shared.clean_local_dir
 '
 
@@ -373,6 +379,11 @@ function parse_command_line() {
   add_argument "temp_wait" "${SNARTOMO_WAIT_TIME}" "How long to wait (seconds) for MotionCor2 or CTFFIND4 /tmp files to be removed" "FLOAT"
   add_argument "debug" "false" "Flag for debugging" "BOOL"
 
+  # EERMerge
+  add_section "EERMERGE SETTINGS" "Settings if compressing EERs."
+# # #   add_argument "do_compress" "false" "Flag to compress EERs" "BOOL"
+  add_argument "grouping" "-1" "Number of EER frames to merge" "INT"
+  
   # MotionCor2
   add_section "MOTIONCOR2 SETTINGS" "Settings for motion-correction."
   add_argument "frame_file" "${frame_file}" "Input MotionCor2 frame file" "ANY"
@@ -449,11 +460,12 @@ function parse_command_line() {
   add_argument "vol_zdim" "${SNARTOMO_VOL_ZDIM}" "z-dimension for volume" "INT"
   add_argument "rec_zdim" "${SNARTOMO_REC_ZDIM}" "z-dimension for 3D reconstruction" "INT"
   add_argument "tilt_cor" "${SNARTOMO_TILTCOR}" "Tilt-correction flag (1: yes, 0: no)" "INT"
+  add_argument "tilt_axis" "${SNARTOMO_TILT_AXIS}" "Estimate for tilt-axis direction, degrees" "FLOAT"
   add_argument "bp_method" "${SNARTOMO_BP_METHOD}" "Reconstruction method (1: weighted backprojection, 0: SART)" "INT"
   add_argument "flip_vol" "${SNARTOMO_FLIPVOL}" "Flag to flip coordinates axes (1: yes, 0: no)" "INT"
   add_argument "transfile" "${SNARTOMO_TRANSFILE}" "Flag to generate IMOD XF files (1: yes, 0: no)" "INT"
+  add_argument "out_imod" "0" "OutImod options for subtomogram averaging" "INT"
   add_argument "are_time" "${SNARTOMO_ARETOMO_TIME}" "Maximum duration (AreTomo sometimes hangs)" "ANY"
-  add_argument "tilt_axis" "${SNARTOMO_TILT_AXIS}" "Estimate for tilt-axis direction, degrees" "FLOAT"
   add_argument "aretomo_exe" "${ARETOMO_EXE}" "AreTomo executable" "ANY"
 
   # IsoNet
@@ -1381,6 +1393,7 @@ function distribute_motioncor() {
   #     mc2_out
   #     time_format
   #     verbose
+  #     num_sections (from check_frames)
   #     mc2_time (OUTPUT)
   #     mc2_movies
   #     do_parallel
@@ -1393,6 +1406,7 @@ function distribute_motioncor() {
     
     local remaining_movies=$3
     local mc2_pid=-1
+    local orig_eer=$fn  # needed only if compressing
     
     # Filenames
     local stem_movie=$(basename ${fn} | rev | cut -d. -f2- | rev)
@@ -1438,6 +1452,13 @@ function distribute_motioncor() {
       # Remove temp file
       \rm -r ${mc2_tempfile} 2> /dev/null
       
+      
+      # Optionally compress EER
+# # #       if [[ "${vars[do_compress]}" == true ]] ; then
+      if [[ "${vars[grouping]}" -gt 0 ]] ; then
+        compressEer "$num_sections" "${mc2_out}"
+      fi
+      
       # Remove locally-copied movie file (make sure it's in the temp directory and not the original)
       remove_local "$fn"
           
@@ -1453,12 +1474,7 @@ function distribute_motioncor() {
 
       # Delay in slow mode
       if [[ "${vars[slow]}" == true ]]; then
-#         local sleep_time=$(( (RANDOM % 5) + 3 ))
-#         echo "1464 sleep_time '$sleep_time'"
-#         sleep $sleep_time
         sleep $(( (RANDOM % 6) + 3 ))
-  #     else
-  #       sleep 0.1
       fi
       
       touch "${cor_mic}"

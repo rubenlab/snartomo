@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2023-07-05"
+  echo "Modified 2023-09-25"
   date
   echo 
 }
@@ -59,9 +59,10 @@ function howto_stop() {
 #################### Filenames ####################
 
 # Inputs
-shared_libs=snartomo-shared.bash                   # Shared libraries
-log_file=log-snartomo.txt                          # Log file
-outdir=SNARTomo                                    # Output top-level directory
+shared_libs=snartomo-shared.bash                  # Shared libraries
+frame_file=motioncor-frame.txt                    # Frames file
+log_file=log-snartomo.txt                         # Log file
+outdir=SNARTomo                                   # Output top-level directory
 
 #################### Parameters ###################
 
@@ -82,9 +83,11 @@ verbosity=4                                       # verbosity level
 dosefit_verbose=6                                 # Verbosity level for dose-fitting log file (0..8)
 
 # MotionCor2
-frame_file=motioncor-frame.txt                    # Frames file
+# # # grouping=-1                                       # Number of EER frames to merge during compression
+max_mic_dose=10                                   # Maximum electron dose (e/A2) above which a warning will be printed
 reffrm=1                                          # (boolean) reference frame (0: first, 1: middle)
 SplitSum=0                                        # (boolean) split frames into even & odd half-sets (1: yes)
+thumb_bin=16                                      # Downsampling factor for JPEG thumbnails of micrographs
 
 # CTFFIND
 ctf1d_dpi=250                                     # Resolution (dpi) of PNG of 1D CTF profile
@@ -94,16 +97,17 @@ ctfplot_first=-1                                  # Plots first CTF data for fir
 
 cmd_file=commands.txt                             # Output commands file (in ${outdir})
 set_file=settings.txt                             # Output settings file (in ${outdir})
-rawdir=1-Movies                                   # directory where raw movie files will go
+rawdir=0-Movies                                   # directory where raw movie files will go
+tifdir=1-Compressed                               # Directory where optional compressed TIFFs will go
 micdir=2-MotionCor2                               # MotionCor directory
 mc2_logs=Logs                                     # directory for resource and MotionCor log files
 ctfdir=3-CTFFIND4                                 # CTFFIND directory
 ctf_summary=SUMMARY_CTF.txt                       # CTFFIND summary
-ctf_plot=ctfbyts.png                              # Plot of CTF data by tilt series
 denoisedir=4-Denoise                              # Denoised micrograph directory
 recdir=5-Tomo                                     # Reconstruction directory
 imgdir=Images                                     # Image directory
-ts_list=ts_list.txt                               # List of tilt series
+ts_list=ts_list                                   # Prefix for list of tilt-series text files
+ctf_plot=ctfbyts                                  # Prefix for ONG plots of CTF data by tilt series
 thumbdir=Thumbnails                               # Central sections of tomograms
 dose_imgdir=DoseFit                               # Dose fitting plot directory
 resid_imgdir=Residuals                            # Micrograph removal plot directory
@@ -236,7 +240,8 @@ function do_real_work() {
 #       # TESTING
 #       else
 #         echo "$fn : doesn't end in '.${movie_ext}'"
-#         exit
+#         exit  add_argument "thumb_bin" "${thumb_bin}" "Downsampling factor for JPEG thumbnails of micrographs" "INT"
+
       fi
       # End movie IF-THEN
     done
@@ -309,18 +314,25 @@ function parse_command_line() {
   add_argument "temp_wait" "${SNARTOMO_WAIT_TIME}" "How long to wait (seconds) for MotionCor2 or CTFFIND4 /tmp files to be removed" "FLOAT"
   add_argument "debug" "false" "Flag for debugging" "BOOL"
   
+  # EERMerge
+  add_section "EERMERGE SETTINGS" "Settings if compressing EERs."
+# # #   add_argument "do_compress" "false" "Flag to compress EERs" "BOOL"
+  add_argument "grouping" "-1" "Number of EER frames to merge" "INT"
+  
   # MotionCor2
   add_section "MOTIONCOR2 SETTINGS" "Settings for motion-correction."
   add_argument "frame_file" "${frame_file}" "Input MotionCor2 frame file" "ANY"
   add_argument "gain_file" "" "Input gain file" "ANY"
   add_argument "no_gain" "false" "Flag when no gain file is to be used" "BOOL"
   add_argument "motioncor_exe" "${MOTIONCOR2_EXE}" "MotionCor2 executable" "ANY"
+  add_argument "max_mic_dose" "${max_mic_dose}" "Maximum electron dose (e/A2) above which a warning will be printed" "FLOAT"
   add_argument "do_dosewt" "false" "Flag to perform dose-weighting" "BOOL"
   add_argument "mcor_patches" "${SNARTOMO_MC2_PATCH}" "Number of patches in x y, delimited by spaces" "ANY"
   add_argument "do_outstack" "false" "Flag to write aligned stacks" "BOOL"
   add_argument "do_splitsum" "false" "Flag to split frames into even & odd half-sets" "BOOL"
   add_argument "split_sum" "${SplitSum}" "(DEPRECATED) Split frames into even & odd half-sets (0: no, 1: yes)" "INT"
   add_argument "reffrm" "${reffrm}" "Reference frame (0: first, 1: middle)" "INT"
+  add_argument "thumb_bin" "${thumb_bin}" "Downsampling factor for JPEG thumbnails of micrographs" "INT"
 
   # CTFFIND
   add_section "CTFFIND4 SETTINGS" "Settings for CTF estimation."
@@ -375,18 +387,19 @@ function parse_command_line() {
 
   # AreTomo parameters
   add_section "ARETOMO SETTINGS" "Reconstruction will be computed either with AreTomo (default) or IMOD."
-  add_argument "aretomo_exe" "${ARETOMO_EXE}" "AreTomo executable" "ANY"
   add_argument "are_bin" "${SNARTOMO_BINNING}" "Binning factor for reconstruction" "INT"
+  add_argument "are_patches" "${SNARTOMO_ARETOMO_PATCH}" "Number of patches in x & y (delimited by spaces)" "ANY"
+  add_argument "dark_tol" "${SNARTOMO_DARKTOL}" "Tolerance for dark images (0.0-1.0)" "FLOAT"
   add_argument "vol_zdim" "${SNARTOMO_VOL_ZDIM}" "z-dimension for volume" "INT"
   add_argument "rec_zdim" "${SNARTOMO_REC_ZDIM}" "z-dimension for 3D reconstruction" "INT"
-  add_argument "tilt_axis" "${SNARTOMO_TILT_AXIS}" "Estimate for tilt-axis direction, degrees" "FLOAT"
-  add_argument "dark_tol" "${SNARTOMO_DARKTOL}" "Tolerance for dark images (0.0-1.0)" "FLOAT"
   add_argument "tilt_cor" "${SNARTOMO_TILTCOR}" "Tilt-correction flag (1: yes, 0: no)" "INT"
+  add_argument "tilt_axis" "${SNARTOMO_TILT_AXIS}" "Estimate for tilt-axis direction, degrees" "FLOAT"
   add_argument "bp_method" "${SNARTOMO_BP_METHOD}" "Reconstruction method (1: weighted backprojection, 0: SART)" "INT"
   add_argument "flip_vol" "${SNARTOMO_FLIPVOL}" "Flag to flip coordinates axes (1: yes, 0: no)" "INT"
   add_argument "transfile" "${SNARTOMO_TRANSFILE}" "Flag to generate IMOD XF files (1: yes, 0: no)" "INT"
-  add_argument "are_patches" "${SNARTOMO_ARETOMO_PATCH}" "Number of patches in x & y (delimited by spaces)" "ANY"
+  add_argument "out_imod" "0" "OutImod options for subtomogram averaging" "INT"
   add_argument "are_time" "${SNARTOMO_ARETOMO_TIME}" "Maximum duration (AreTomo sometimes hangs)" "ANY"
+  add_argument "aretomo_exe" "${ARETOMO_EXE}" "AreTomo executable" "ANY"
 
   # IsoNet
   add_section "ISONET SETTINGS" "Settings for IsoNet deconvolution."
@@ -807,6 +820,7 @@ function motioncor2_serial() {
 #     ali_out
 #     fn (OUTPUT)
 #     gpu_num
+#     num_sections (from check_frames)
 #     
 ###############################################################################
   
@@ -820,6 +834,7 @@ function motioncor2_serial() {
         # Check number of frames
         if [[ "${movie_ext}" == "eer" ]] ; then
           check_frames
+          vprint "" "1+"
         fi
         
         # If someone else owns /tmp/MotionCor2_FreeGpus.txt, MotionCor will be unhappy
@@ -864,6 +879,10 @@ function motioncor2_serial() {
             echo "    Finished MotionCor2 on micrograph $fn"
             echo "    $(grep 'Total time' $ali_out)"
             echo ""
+          fi
+          
+          if [[ "${vars[grouping]}" -gt 0 ]] && [[ "${movie_ext}" == "eer" ]] ; then
+            compressEer "$num_sections"
           fi
           
           move_micrograph "${fn}"
@@ -974,7 +993,7 @@ function compute_tomogram() {
 #   Global variables:
 #     vars
 #     mcorr_mic_array
-#     tomo_dir
+#     tomo_dir (OUTPUT)
 #     new_mdoc (OUTPUT)
 #     good_angles_file
 #     recdir
@@ -1157,7 +1176,7 @@ function summary_info() {
 ###############################################################################
   
   # Remove temp directory if copying EERs locally
-  clean_local_dir "temp_local"
+  clean_local_dir
   
   if [[ "$verbose" -ge 1 ]]; then
     echo

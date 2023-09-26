@@ -214,14 +214,14 @@ function create_directories() {
 #     dose_imgdir
 #     contour_imgdir
 #     resid_imgdir
-# # #     temp_local_dir (OUTPUT)
 #     temp_share_dir (OUTPUT)
 #     cmd_file
 #     set_file
+#     tifdir
 #
 ###############################################################################
   
-  local movie_template="${vars[outdir]}/${rawdir}/*.${movie_ext}"
+  local movie_template="${vars[outdir]}/${rawdir}/*.${movie_ext}"  # needed for SNARTomoClassic only
   
   # In Classic mode, move movies back to input directory 
   if [[ "${do_pace}" == false ]] && [[ "${vars[restore_movies]}" == true ]] ; then
@@ -367,17 +367,15 @@ function create_directories() {
   # Create temp_local_dir, or at least determine the path
   createTempLocal
   
-#   # In case we need to copy EERs locally, remember the PID ($$)
-#   temp_local_dir="${vars[temp_local]}/$$"
-#   
-#   if [[ "${vars[eer_local]}" == "true" ]] ; then
-#     if [[ "$verbose" -ge 1 ]]; then
-#       mkdir -pv "${temp_local_dir}" 2> /dev/null
-#     else
-#       mkdir -p "${temp_local_dir}" 2> /dev/null
-#     fi
-#   fi
-  
+  # EERMerge
+# # #   if [[ "${vars[do_compress]}" == true ]] && [[ "${vars[testing]}" == false ]] ; then
+  if [[ "${vars[grouping]}" -gt 0 ]] && [[ "${vars[testing]}" == false ]] ; then
+    mkdir "${vars[outdir]}/$tifdir" 2> /dev/null
+    
+    # Remember TIFDIR
+    vars[tifdir]="${vars[outdir]}/$tifdir"
+  fi
+
   # Write command line to output directory
   echo -e "$0 ${@}\n" >> "${vars[outdir]}/${cmd_file}"
   print_arguments > "${vars[outdir]}/${set_file}"
@@ -685,7 +683,7 @@ function validate_inputs() {
   # Check old MotionCor syntax
   if [[ "${vars[split_sum]}" == 1 ]] ; then
     vprint "  WARNING! Syntax '--split_sum=1' is deprecated." "1+" "${outlog}"
-    vprint "    Use 'do_splitsum' instead. Continuing..." "1+" "${outlog}"
+    vprint "    Use '--do_splitsum' instead. Continuing..." "1+" "${outlog}"
   fi
   
   if [[ "${vars[gain_file]}" != "" ]]; then
@@ -704,6 +702,16 @@ function validate_inputs() {
   elif [[ "${movie_ext}" != "mrc" ]] && [[ "${movie_ext}" != "tif" ]]; then
     vprint "  ERROR!! Unrecognized movie format: '${movie_ext}'" "0+" "${outlog}"
     validated=false
+  fi
+  
+# # #   if [[ "${vars[do_compress]}" == true ]] ; then
+  if [[ "${vars[grouping]}" -gt 0 ]] ; then
+    if [[ "${movie_ext}" == "eer" ]] ; then
+      check_exe "$(which relion_convert_to_tiff)" "RELION executable" "${outlog}"
+      validateDose
+    else
+      vprint "  WARNING! Compression ('--grouping=X') only work with EER files, not ${movie_ext^^}." "1+" "${outlog}"
+    fi
   fi
   
   ctffind_descr="CTFFIND executables directory"
@@ -1088,7 +1096,10 @@ function validate_inputs() {
   #     debug_cuda (NOT WORKING)
   #
   #   Global variables:
+  #     vars
   #     validated
+  #     two_decimals
+  #     third_decimal
   #     
   ###############################################################################
     
@@ -1131,9 +1142,19 @@ function validate_inputs() {
         
   #       # Run program without any arguments, and check exit status (TODO: not working)
   #       debug_cuda "${search_exe}" "${exe_descr}"
-  #       # (TODO: Might work with AreTomo with minimal changes)
+      
+      # If AreTomo's OutImod option selected, make sure version is 1.1 or later
+      elif [[ "${exe_descr}" == "AreTomo executable" ]] && [[ "${vars[out_imod]}" -ne 0 ]] ; then
+        get_version_number "$search_exe"
+        
+        if (( $(echo "${two_decimals} < 1.1" |bc -l) )); then
+          vprint "    WARNING! AreTomo version (${two_decimals}.${third_decimal}) does not support '--out_imod' option. Disabling..." "1+" "${outlog}"
+          vars[out_imod]=0
+        else
+          vprint "    AreTomo version (${two_decimals}.${third_decimal}), using '-OutImod ${vars[out_imod]}'" "1+" "${outlog}"
+        fi
       fi
-      # End MotionCor case
+      # End special cases: MotionCor, AreTomo
     
     else
       if [[ "${exe_descr}" == "PDF converter" ]] ; then
@@ -1494,17 +1515,13 @@ function validate_inputs() {
         IFS=' ' read -r -a frame_array <<< "$(cat ${vars[frame_file]})"
         local mic_dose=$(printf "%.3f" $(echo "${frame_array[0]} * ${frame_array[2]}" | bc 2> /dev/null) )
         
-  # # #       echo "1470 max_mic_dose '${vars[max_mic_dose]}'" ; exit
-       
         if [[ "${vars[max_mic_dose]}" == "" ]] ; then
           echo -e "ERROR!! Parameter 'max_mic_dose' must be defined! Exiting...\n"
           exit
         fi
         
-        # If the dose is less than 10, show a warning and perform a sanity check on the frames file
-        if (( $( echo "$mic_dose < ${vars[max_mic_dose]}" | bc -l) )) ; then
-          vprint "  Dose per micrograph : $mic_dose e-/A2" "1+" "${outlog}"
-        else
+        # If the dose is greater than threshold, show a warning and perform a sanity check on the frames file
+        if (( $( echo "$mic_dose > ${vars[max_mic_dose]}" | bc -l) )) ; then
           vprint "  WARNING! Dose per micrograph $mic_dose is greater than maximum expected dose ${vars[max_mic_dose]} (e-/A2)" "1+" "${outlog}"
           
           # Sanity check on frames file
@@ -1516,8 +1533,10 @@ function validate_inputs() {
   #         if [[ "$validated" == false ]]; then
   #           vprint "  ERROR!! Frame file '${vars[frame_file]}' has the wrong format!" "0+" "${outlog}"
   #         fi
+        else
+          vprint "  Dose per micrograph : $mic_dose e-/A2" "1+" "${outlog}"
         fi
-        # End dose IF-THEN
+        # End max-dose IF-THEN
       fi
       # End frame-file-exists IF-THEN
     }
@@ -1606,15 +1625,17 @@ function get_version_number() {
 #   Positional argument:
 #     1) filename (can be soft link)
 #   
-#   Returns:
-#     version number (as an echo statement)
+#   Global variables:
+#     two_decimals -- (OUTPUT) version number to two decimal places
+#     third_decimal -- (OUTPUT) third and fourth decimal places of version number (won't cause problems if none)
 #     
 ###############################################################################
   
   local exe2check=$1
   
   local version_number=$(basename $(realpath $exe2check) | cut -d_ -f2)
-  echo $version_number  | cut -d. -f1-2
+  two_decimals=$(echo $version_number  | cut -d. -f1-2)
+  third_decimal=$(echo $version_number  | cut -d. -f3-4)
 }
 
 function check_gain_format() {
@@ -1646,44 +1667,37 @@ function check_gain_format() {
     vprint "Gain file format: $ext" "1+" "${main_log}"
     
     if [[ ! "$ext" == "mrc" ]]; then
-#       # Late versions of MotionCor2 v1.5+ allows GAIN format natively (FALSE)
-#       if (( $( $(get_version_number ${vars[motioncor_exe]}) >= 1.5" | bc -l) )) ; then
-#         vprint "  TIFF-format gain file allowed with MotionCor2 v${version_number}" "1+" "${main_log}"
-#       else
-        # Remove extension (last period-delimited string)
-        local stem_gain="$(file_stem ${vars[gain_file]})"
-        local mrc_gain="${vars[outdir]}/${stem_gain}.mrc"
-        
-        # Build command
-        local convert_cmd="${vars[imod_dir]}/tif2mrc ${vars[gain_file]} ${mrc_gain}"
-        
-        # Assume it's a TIFF, and try to convert it
-# #         vprint "  MRC-format gain file required with MotionCor2 v${version_number}" "1+" "${main_log}"
-        vprint "  Attempting conversion..." "1+" "${main_log}"
-        vprint "    Running: $convert_cmd\n" "1+" "${main_log}"
+      # Remove extension (last period-delimited string)
+      local stem_gain="$(file_stem ${vars[gain_file]})"
+      local mrc_gain="${vars[outdir]}/${stem_gain}.mrc"
       
-        if [[ "${vars[testing]}" == false ]]; then
-          if [[ "$verbose" -ge 1 ]]; then
-            $convert_cmd | sed 's/^/    /'
-          else
-            $convert_cmd > /dev/null
-          fi
-          
-          # Check exit status
-          local status_code=$?
-          # (0=successful, 1=fail)
-          
-          if [[ ! "$status_code" == 0 ]]; then
-            echo -e "ERROR!! tif2mrc failed with exit status $status_code\n"
-            exit 9
-          fi
-          
-          # Update gain file
-          vars[gain_file]="${mrc_gain}"
+      # Build command
+      local convert_cmd="${vars[imod_dir]}/tif2mrc ${vars[gain_file]} ${mrc_gain}"
+      
+      # Assume it's a TIFF, and try to convert it
+      vprint "  Attempting conversion..." "1+" "${main_log}"
+      vprint "    Running: $convert_cmd\n" "1+" "${main_log}"
+    
+      if [[ "${vars[testing]}" == false ]]; then
+        if [[ "$verbose" -ge 1 ]]; then
+          $convert_cmd | sed 's/^/    /'
+        else
+          $convert_cmd > /dev/null
         fi
-        # End testing IF-THEN
-#       fi
-#       # End new-version IF-THEN
+        
+        # Check exit status
+        local status_code=$?
+        # (0=successful, 1=fail)
+        
+        if [[ ! "$status_code" == 0 ]]; then
+          echo -e "ERROR!! tif2mrc failed with exit status $status_code\n"
+          exit 9
+        fi
+        
+        # Update gain file
+        vars[gain_file]="${mrc_gain}"
+      fi
+      # End testing IF-THEN
     fi
     # End MRC IF-THEN
   fi
@@ -1769,6 +1783,7 @@ function check_frames() {
 #   
 #   Global variables:
 #     vars
+#     fn
 #     warn_log
 #     num_sections (OUTPUT)
 #     temp_local_dir
@@ -1812,7 +1827,6 @@ function check_frames() {
             touch "${do_cp_note}"
           fi
           
-# #             echo "1707 temp_local '${vars[temp_local]}/$$', temp_local_dir '$temp_local_dir', whoami '$(whoami)'"
           vars[eer_local]="true"
           copy_local "${outlog}"
           
@@ -2598,7 +2612,7 @@ function plot_tomo_ctfs() {
 #     vars
 #     tomo_dir
 #     ctf_summary
-#     found_mdoc
+#     do_pace
 #     new_subframe_array
 #     mcorr_mic_array
 #     imgdir
@@ -2611,6 +2625,14 @@ function plot_tomo_ctfs() {
   local found_mdoc=$1
   
   local tomo_ctfs="${vars[outdir]}/${tomo_dir}/${ctf_summary}"
+  
+  if [[ "${do_pace}" == true ]]; then
+    local tgt_ts_list="${vars[outdir]}/${imgdir}/${ts_list}-${vars[target_file]}"
+    local tgt_ctf_plot="${vars[outdir]}/${imgdir}/${ctf_plot}-${vars[target_file]%.txt}.png"
+  else
+    local tgt_ts_list="${vars[outdir]}/${imgdir}/${ts_list}.txt"
+    local tgt_ctf_plot="${vars[outdir]}/${imgdir}/${ctf_plot}.png"
+  fi
   
   if [[ "${vars[testing]}" == false ]] ; then
     if [[ $found_mdoc != "" ]] ; then
@@ -2665,8 +2687,8 @@ function plot_tomo_ctfs() {
     # Plot CTF summary
     local ctfbyts_cmd=$(echo ctfbyts.py \
       ${tomo_ctfs} \
-      ${vars[outdir]}/${imgdir}/${ts_list} \
-      ${vars[outdir]}/${imgdir}/${ctf_plot} \
+      ${tgt_ts_list} \
+      ${tgt_ctf_plot} \
       --first=${vars[ctfplot_first]} \
       --verbosity=$verbose | xargs)
     
@@ -3199,7 +3221,6 @@ function wrapper_aretomo() {
 #     
 #   Calls functions:
 #     run_aretomo
-#     get_central_slice
 #   
 #   Global variables:
 #     tomo_root
@@ -3332,7 +3353,8 @@ function wrapper_aretomo() {
       fi
     else
       if [[ "$verbose" -ge 3 ]]; then
-        echo      "  TESTING: tomogram reconstruction '`basename $tomogram_3d`' from $num_mics micrographs"
+        echo "  TESTING: Tomographic reconstruction '`basename $tomogram_3d`' from $num_mics micrographs"
+        echo "  TESTING: ${aretomo_cmd}"
       fi
       
       touch "$tomogram_3d"
@@ -3366,7 +3388,7 @@ function wrapper_aretomo() {
     # Get single GPU number if there are more than one
     get_gpu
     
-    echo "${vars[aretomo_exe]} \
+    local are_cmd=$(echo "${vars[aretomo_exe]} \
       -InMrc $reordered_stack \
       -OutMrc $tomogram_3d \
       -AngFile $angles_list \
@@ -3382,8 +3404,14 @@ function wrapper_aretomo() {
       -Patch ${vars[are_patches]} \
       -OutXF ${vars[transfile]} \
       -DarkTol ${vars[dark_tol]} \
-      " | xargs
+      " | xargs)
       # (xargs removes whitespace)
+      
+      if [[ "${vars[out_imod]}" -gt 0 ]] ; then
+        are_cmd+=" -OutImod ${vars[out_imod]}"
+      fi
+      
+      echo $are_cmd
   }
 
 function mdoc2tomo() {
@@ -3531,7 +3559,6 @@ function wrapper_etomo() {
           vprint   "Finished reconstructing '$tomogram_3d'\n" "1+"
           
           \rm ${etomo_out} 2> /dev/null
-# #           get_central_slice ${tomogram_3d}
         fi
         # End sanity IF-THEN
       fi
@@ -4092,13 +4119,10 @@ function deconvolute_wrapper() {
 #     3) Log file (optional)
 #   
 #   Global variables:
-# #     stripped_angle_array
-# #     mcorr_mic_array
 #     df_angstroms
 #     vars
 #       isonet_env
 #       apix
-# #     chunk_prefix
 #     isonet_star
 #     tomogram_3d
 #   
@@ -4140,12 +4164,9 @@ function deconvolute_wrapper() {
       pushd 1> /dev/null
       local bin_factor=$(grep "runtime.AlignedStack.any.binByFactor" ${vars[batch_directive]} | cut -d '=' -f 2 | sed 's/\r//')
       pushd 1> /dev/null
-# #       echo "4027 bin_factor '$bin_factor', apix '${vars[apix]}'" ; exit
       local bin_apix=$(echo ${bin_factor}* ${vars[apix]} | bc)
     fi
     # End eTomo IF-THEN
-#     
-#     echo "4031 bin_apix '$bin_apix'" ; exit
   fi
   # End testing IF-THEN
   
@@ -4263,12 +4284,6 @@ function deconvolute_wrapper() {
       if [[ "${vars[testing]}" == true ]]; then
         local min_chunk=$(grep -l $min_mic_stem ${chunk_prefix}*)
         local df_microns=$(grep "CtfFind =" $min_chunk | awk '{print $3}' )
-        
-  #       ### TESTING
-  #       grep "CtfFind =" $min_chunk
-  #       echo "2979 df_microns '$df_microns'"
-  #       exit
-
         df_angstroms=$(echo -10000*${df_microns} | bc)
       else
         # Get data from CTFFIND
@@ -4309,7 +4324,7 @@ function get_central_slice() {
 
   local trim_log="${vars[outdir]}/${tomo_dir}/trimvol.log"
   
-  # Get dimensions (TODO: Replace with getDimensions())
+  # Get dimensions (TODO: Replace with getDimensions)
   local dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)
   IFS=' ' read -r -a dimension_array <<< ${dimension_string}
   
@@ -4363,16 +4378,18 @@ function get_central_slice() {
   
   # Suppress "Writing JPEG images"
   if [[ "$verbose" -le 6 ]]; then
-#     ${vars[imod_dir]}/$jpg_cmd #&& rm ${mrc_slice} 2> /dev/null
     ${vars[imod_dir]}/$jpg_cmd 1> /dev/null
+# #     ${vars[imod_dir]}/$jpg_cmd 1> /dev/null && rm ${mrc_slice} 2> /dev/null
   else
-    ${vars[imod_dir]}/$jpg_cmd #&& rm mrc_slice${}
+    ${vars[imod_dir]}/$jpg_cmd
+# #     ${vars[imod_dir]}/$jpg_cmd && rm ${mrc_slice} 2> /dev/null
   fi
   
-  central_slice_jpg="${vars[outdir]}/${imgdir}/${thumbdir}/$(basename ${tomo_stem})_slice_norm.jpg"
+  central_slice_jpg="${tomo_stem}_slice_norm.jpg"
   norm_cmd="convert ${jpg_slice} -normalize $central_slice_jpg "
   vprint "    $norm_cmd" "3+"
   $norm_cmd && rm ${jpg_slice}
+  \cp -a $central_slice_jpg "${vars[outdir]}/${imgdir}/${thumbdir}/"
 }
 
 function getDimensions() {
@@ -4456,6 +4473,148 @@ function quietCommand() {
     eval "$cmd"
   else
     eval "$cmd" > /dev/null 2>&1
+  fi
+}
+
+function validateDose() {
+###############################################################################
+#   Function:
+#     Make sure the dose settings make sense
+#   
+#   Positional variables:
+#   
+#   Calls functions:
+#   
+#   Global variables:
+#     frame_array
+#     vars
+#     validated
+#   
+###############################################################################
+  
+  # Sanity check that frame_array exists
+  if [[ "${#frame_array[@]}" -lt 3 ]]; then
+    echo -e "  ERROR!! Array 'frame_array' is undefined! Exiting...\n"
+    exit
+  fi
+  
+  local frames2merge_mc2="${frame_array[1]}"
+  local dose_per_frame="${frame_array[2]}"
+  
+  # If no frames file, there will be an error printed elsewhere
+  if [[ -e "${vars[frame_file]}" ]] ; then
+    if [[ "${vars[grouping]}" -gt $frames2merge_mc2 ]] ; then
+      echo "  ERROR!! Number of frames to merge (${vars[grouping]}, ${grouping} is default) is more than in MotionCor2 ($frames2merge_mc2)!"
+      echo "    (The resulting TIFF file would have worse sampling than the merged frames during MotionCor2.)"
+      validated=false
+#     elif [[ "${vars[grouping]}" -lt 0 ]] ; then
+#       echo "  ERROR!! Number of frames to merge ('--grouping') is required for EER compression ('--do_compress')!"
+#       validated=false
+    else
+      echo "  Number of frames to merge during compression ${vars[grouping]}, in MotionCor2: $frames2merge_mc2"
+      
+      local frame_dose_tiff=$(printf "%.4f" $(echo "${vars[grouping]} * $dose_per_frame" | bc))
+      local frame_dose_mc2=$(printf "%.4f" $(echo "$frames2merge_mc2 * $dose_per_frame" | bc))
+      echo "  Dose per merged frame here: $frame_dose_tiff, in MotionCor2: $frame_dose_mc2 (e-/A2)"
+    fi
+  fi
+}
+
+function compressEer() {
+###############################################################################
+#   Function:
+#     FUNCTION
+#   
+#   Positional variables:
+#     1) number of frames in EER file
+#     2) (optional) log file
+#   
+#   Calls functions:
+#     validateTiff
+#   
+#   Global variables:
+#     fn
+#     vars
+#     out_tiff (OUTPUT)
+#   
+###############################################################################
+  
+  local num_sections=$1
+  local outlog=$2
+  
+  local merge_cmd="relion_convert_to_tiff --i $fn --eer_grouping ${vars[grouping]} --o ${vars[tifdir]}"
+  
+  if [[ $verbose -ge 6 ]] ; then
+    if [[ -f "${outlog}" ]]; then
+      echo "    Running: $merge_cmd"                 >> $outlog
+      eval $merge_cmd 2> /dev/null | sed 's/^/    /' >> $outlog
+    else
+      echo "    Running: $merge_cmd"
+      eval $merge_cmd 2> /dev/null | sed 's/^/    /'  # (prepends spaces to output)
+    fi
+  elif [[ $verbose -ge 4 ]] ; then
+    if [[ -f "${outlog}" ]]; then
+      echo "    Running: $merge_cmd" >> $outlog
+      
+      # (I couldn't save the time command output and suppress stdout at the same time)
+      echo "    Run time: $(TIMEFORMAT='%R' ; { time $merge_cmd > /dev/null 2>&1 ; } 2>&1) sec" >> $outlog
+    else
+      echo "    Running: $merge_cmd"
+      echo "    Run time: $(TIMEFORMAT='%R' ; { time $merge_cmd > /dev/null 2>&1 ; } 2>&1) sec"
+    fi
+  else
+    $merge_cmd > /dev/null 2>&1
+  fi
+  
+  out_tiff="${vars[tifdir]}/$(echo $fn | rev | cut -d. -f2- | rev).tif"
+  
+  # Make sure number of frames in the output is correct
+  validateTiff "$fn" "$out_tiff" "${num_sections}" "${outlog}"
+}
+
+function validateTiff() {
+###############################################################################
+#   Function:
+#     Make sure the output TIFF file has the correct number of frames
+#   
+#   Positional variables:
+#     1) input filename
+#     2) output filename
+#     3) number of EER frames
+#     4) (optional) output log
+#   
+#   Calls functions:
+#     getDimensions
+#   
+#   Global variables:
+#     vars
+#     dimension_array
+#   
+###############################################################################
+  
+  local fn=$1
+  local curr_tiff=$2
+  local num_eer_frames=$3
+  local outlog=$4
+  
+  getDimensions "$curr_tiff"
+  
+  # Sanity check
+  local num_tiff_frames="${dimension_array[2]}"
+  local num_calc_frames=$(($num_eer_frames/"${vars[grouping]}"))
+  
+  if [[ ${num_tiff_frames} -ne ${num_calc_frames} ]] ; then
+    vprint "    WARNING! Number of frames in TIFF file (${num_tiff_frames}) differs from calculated ($num_eer_frames/${vars[grouping]}=$num_calc_frames)" "1+" "=$outlog"
+  else
+    vprint "    OK: Number of frames in TIFF file (${num_tiff_frames}) equals calculated ($num_eer_frames/${vars[grouping]}=$num_calc_frames)" "4+" "=$outlog"
+  fi
+  
+  # If input is in a subdirectory (e.g., A/B/file.eer), then the output directory will also contain that subdirectory (TifDir/A/B/file.tif)
+  local eer_dir=$(dirname $fn)
+  if [[ "${eer_dir}" != "." ]] ; then
+    \mv $curr_tiff "${vars[tifdir]}"
+# #   else
+# #     echo "273 $fn is in current directory"
   fi
 }
 
