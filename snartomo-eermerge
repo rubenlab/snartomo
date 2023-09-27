@@ -11,7 +11,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoEERMerge"
-  echo "Modified 2023-09-25"
+  echo "Modified 2023-09-27"
   date
   echo 
 }
@@ -69,6 +69,7 @@ function main() {
   vprint "Validating..." "1+"
   validated=true
   
+  check_args 0  # make sure of no unfamiliar arguments
   check_vars
   validateEers
   check_file "${vars[frame_file]}" "MotionCor2 frame file"
@@ -100,7 +101,7 @@ function main() {
       vprint "" "3+"
     else
       local merge_cmd="relion_convert_to_tiff --i $fn --eer_grouping ${vars[grouping]} --o ${vars[tifdir]}"
-      echo "TESTING: $merge_cmd"
+      vprint "  TESTING: $merge_cmd" "2+"
     fi
   done
   # End EER loop
@@ -156,10 +157,12 @@ function parse_command_line() {
 #   
 ###############################################################################
   
-# #   add_section "REQUIRED SETTINGS" "These settings must be supplied for each run."
-# #   add_argument "eers" "" "EER files (more than one -> must be enclosed in quotes)" "ANY"
+  add_section "REQUIRED SETTINGS" "These settings must be supplied for each run."
+  add_argument "eers" "" "EER files (more than one -> must be enclosed in quotes)" "ANY"
   add_argument "grouping" "${grouping}" "Number of EER frames to merge" "INT"
   add_argument "frame_file" "${frame_file}" "Input MotionCor2 frame file" "ANY"
+  
+  add_section "OTHER SETTINGS" "These settings have default settings that can be overridden."
   add_argument "max_mic_dose" "${max_mic_dose}" "Maximum electron dose (e/A2) above which a warning will be printed" "FLOAT"
   add_argument "tifdir" "${tifdir}" "Output directory" "ANY"
   add_argument "verbosity" "${verbosity}" "Verbosity level (0..6)" "INT"
@@ -176,9 +179,7 @@ function parse_command_line() {
 #   print_vars
 #   printf "'%s'\n" "${ARGS[@]}" ; exit
 
-  if [[ "${vars[verbosity]}" -ge 2 ]] ; then
-    verbose="${vars[verbosity]}"
-  fi
+  verbose="${vars[verbosity]}"
 }
 
 function print_usage() {
@@ -204,8 +205,9 @@ function validateEers() {
 #   
 ###############################################################################
   
-  IFS=' ' read -a eer_array <<< "${ARGS[@]}"
-# # #     printf "'%s'\n" "${eer_array[0]}"
+# # #   IFS=' ' read -a eer_array <<< "${ARGS[@]}"
+  mapfile -t eer_array < <(ls -tr ${vars[eers]})
+# # #   printf "213 '%s'\n" "${eer_array[@]}"
 
   if [[ "${#eer_array[@]}" -eq 0 ]] ; then
     echo -e "  ERROR!! Need at least one file as input!"
