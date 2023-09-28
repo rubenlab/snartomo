@@ -9,11 +9,13 @@
 ###############################################################################
 
 function program_info() {
-  echo 
-  echo "Running: SNARTomoEERMerge"
-  echo "Modified 2023-09-27"
-  date
-  echo 
+  if [[ "${verbose}" -ge 1 ]]; then
+    echo 
+    echo "Running: SNARTomoEERMerge"
+    echo "Modified 2023-09-28"
+    date
+    echo 
+  fi
 }
 
 #################### Filenames and Parameters ####################
@@ -23,7 +25,10 @@ frame_file=motioncor-frame.txt    # Frames file
 grouping=''                       # Number of EER frames to merge
 max_mic_dose=50                   # Maximum electron dose (e/A2) above which a warning will be printed
 verbosity=4                       # Verbosity level (Max: 6)
+progress_verbosity=2              # Verbosity level for progress bar
 tifdir=EERMerge                   # Output top-level directory
+log_file=log-eermerge.txt         # Log file
+cmd_file=commands.txt             # Output commands file (in ${tifdir})
 
 ################ END BATCH HEADER ################
 
@@ -32,6 +37,7 @@ tifdir=EERMerge                   # Output top-level directory
 main
   check_env
   parse_command_line
+  shared.check_vars
   validateEers
   shared.check_exe
   shared.check_dir
@@ -61,48 +67,102 @@ function main() {
   
   check_env
   parse_command_line "${@}"
-  
-  if [[ "${verbose}" -ge 1 ]]; then
-    program_info
-  fi
-  
-  vprint "Validating..." "1+"
-  validated=true
+  program_info
   
   check_args 0  # make sure of no unfamiliar arguments
   check_vars
+  
+  if [[ "${vars[testing]}" == true ]] || [[ "${vars[log]}" == "" ]] || [[ "${verbose}" -eq 0 ]]; then
+    if [[ "${verbose}" -ge 1 ]]; then
+      echo "Not writing log file"
+    fi
+    
+    do_real_work "${@}"
+  else
+    if [[ "${verbose}" -ge 1 ]]; then
+      echo "Writing to log file: ${vars[log]}"
+      do_real_work "${@}" | tee -a "${vars[log]}"
+    fi
+  fi
+  
+  clean_local_dir "temp_local"
+  
+  # Write command line to output directory
+  if [[ "${vars[testing]}" == false ]] ; then
+    echo -e "$0 ${@}\n" >> "${vars[tifdir]}/${cmd_file}"
+  fi
+  
+  vprint "Done!\n" "1+"
+}
+
+function do_real_work() {
+###############################################################################
+#   Function:
+#     Does the "real" work
+#   
+#   Passed arguments:
+#     ${@} : command-line arguments
+###############################################################################
+
+  vprint "Validating..." "1+"
+  validated=true
+  
   validateEers
   check_file "${vars[frame_file]}" "MotionCor2 frame file"
   check_exe "$(which relion_convert_to_tiff)" "RELION executable"
   check_dir "${vars[imod_dir]}" "IMOD executables directory"
   check_mc2_frame
+  
   validateDose
   createTempLocal
 
   # Validation summary
   if [[ "$validated" == false ]]; then
-    vprint "Missing required inputs, exiting...\n" "0+" "${outlog}"
+    vprint "Missing required inputs, exiting...\n" "0+"
     exit 4
   else
-    vprint "Found required inputs. Continuing...\n" "1+" "${outlog}"
-    vprint "Looping through ${#eer_array[@]} EERs..." "1+" "${outlog}"
+    vprint "Found required inputs. Continuing...\n" "1+"
+    vprint "Looping through ${#eer_array[@]} EERs..." "1+"
   fi
   
   # Loop through EERs
-  for fn in ${eer_array[@]} ; do
+# # #   for fn in ${eer_array[@]} ; do
+  for eer_idx in ${!eer_array[@]} ; do
+    fn="${eer_array[$eer_idx]}"
+    
     if [[ "${vars[testing]}" == false ]] ; then
       check_frames  # copies the EER files locally if necessary
       # NOTE: Updates $fn if copying locally
       
-      compressEer "$num_sections"  # the actual compression
+      # If using the progress bar, then only direct output to the log file
+      if [[ "${verbose}" -ge 2 ]] && [[ "${verbose}" -le 3 ]] ; then
+        compressEer "$num_sections" "${vars[log]}"  
+      
+      # If not using the progress bar, then screen output will be written to the screen and the log file
+      else
+        compressEer "$num_sections"
+      fi
       
       # Remove locally-copied movie file (make sure it's in the temp directory and not the original)
       remove_local "$fn"
-      vprint "" "3+"
+      
+      if [[ "${verbose}" -eq "${progress_verbosity}" ]] ; then
+        progressBar $((${eer_idx}+1)) ${#eer_array[@]}
+      elif [[ "${verbose}" -ge 4 ]]; then
+        echo
+      fi
+    
+    # Testing
     else
-      local merge_cmd="relion_convert_to_tiff --i $fn --eer_grouping ${vars[grouping]} --o ${vars[tifdir]}"
-      vprint "  TESTING: $merge_cmd" "2+"
+      if [[ "${verbose}" -ge 3 ]]; then
+        local merge_cmd="relion_convert_to_tiff --i $fn --eer_grouping ${vars[grouping]} --o ${vars[tifdir]}"
+        echo "  TESTING: $merge_cmd"
+      elif [[ "${verbose}" -eq "${progress_verbosity}" ]] ; then
+        progressBar $((${eer_idx}+1)) ${#eer_array[@]}
+        sleep ${vars[delay]}
+      fi
     fi
+    # End testing IF-THEN
   done
   # End EER loop
   
@@ -112,8 +172,9 @@ function main() {
     rmdir -p $(dirname ${out_tiff}) 2> /dev/null
   fi
   
-  clean_local_dir "temp_local"
-  vprint "Done!\n" "1+"
+  if [[ "${verbose}" -ge 2 ]] && [[ "${verbose}" -le 3 ]] ; then
+    echo
+  fi
 }
 
 function check_env() {
@@ -122,9 +183,6 @@ function check_env() {
 #     Checks whether environmental variable SNARTOMO_DIR is set
 #     Sources shared functions from central SNARTomo directory
 #     
-#   Calls functions:
-#     check_vars
-#   
 #   Global variables:
 #     do_pace
 #     shared_libs
@@ -163,9 +221,11 @@ function parse_command_line() {
   add_argument "frame_file" "${frame_file}" "Input MotionCor2 frame file" "ANY"
   
   add_section "OTHER SETTINGS" "These settings have default settings that can be overridden."
-  add_argument "max_mic_dose" "${max_mic_dose}" "Maximum electron dose (e/A2) above which a warning will be printed" "FLOAT"
   add_argument "tifdir" "${tifdir}" "Output directory" "ANY"
   add_argument "verbosity" "${verbosity}" "Verbosity level (0..6)" "INT"
+  add_argument "progress" "false" "Flag show progress bar (equivalent to '--verbosity=2')" "BOOL"
+  add_argument "log" "${log_file}" "Output log file (not used in testing mode)" "ANY"
+  add_argument "max_mic_dose" "${max_mic_dose}" "Maximum electron dose (e/A2) above which a warning will be printed" "FLOAT"
   add_argument "min_frames" "${SNARTOMO_MINFRAMES}" "Minimum number of frames before printing warning" "INT"
   add_argument "max_frames" "${SNARTOMO_MAXFRAMES}" "Maximum number of frames before printing warning" "INT"
   add_argument "eer_local" "${CP_EER_LOCAL}" "Flag to copy EER files locally temporarily" "BOOL"
@@ -173,12 +233,23 @@ function parse_command_line() {
   add_argument "temp_local" "${SNARTOMO_LOCAL}" "Directory to copy EER files locally" "ANY"
   add_argument "imod_dir" "${IMOD_BIN}" "IMOD executable directory" "ANY"
   add_argument "testing" "false" "Testing flag" "BOOL"
+  add_argument "delay" "0.0" "Delay between files during testing (seconds)" "FLOAT"
   add_argument "debug" "false" "Flag for debugging" "BOOL"
 
   dynamic_parser "${@}"
 #   print_vars
 #   printf "'%s'\n" "${ARGS[@]}" ; exit
 
+  if [[ "${vars[progress]}" == true ]] ; then
+    # If you used a non-default verbosity, then print a warning
+    if [[ "${vars[verbosity]}" != "${verbosity}" ]] ; then
+      echo -e "\n  WARNING! Flag '--progress' overrides 'verbosity flag'"
+      echo -e   "    Using '--verbosity=${progress_verbosity}'...\n"
+    fi
+    
+    vars[verbosity]="${progress_verbosity}"
+  fi
+  
   verbose="${vars[verbosity]}"
 }
 
@@ -221,6 +292,35 @@ function validateEers() {
       vprint "  Found ${#eer_array[@]} input EERs" "1+"
     fi
   fi
+}
+
+function progressBar {
+###############################################################################
+#   Function:
+#     Show progress bar
+#     Adapted from https://stackoverflow.com/a/28044986
+#   
+#   Positional variables:
+#     1. current index (should start from 1)
+#     2. last index
+#     
+###############################################################################
+
+  local curr_idx=$1
+  local end=$2
+  
+  # Process data
+  let _progress=(${curr_idx}*100/${end}*100)/100
+  let _done=(${_progress}*6)/10
+  let _left=60-$_done
+  
+  # Build progressbar string lengths
+  _fill=$(printf "%${_done}s")
+  _empty=$(printf "%${_left}s")
+
+  # Build progressbar strings and print the ProgressBar line
+  printf "\rProgress : [${_fill// /#}${_empty// /-}] ${_progress}%%" >&2
+# # #   echo "curr_idx ${curr_idx}, _done ${_done}, _left ${_left} _progress ${_progress}"
 }
 
 function DUMMY_FUNCTION() {

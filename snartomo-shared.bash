@@ -506,8 +506,8 @@ function vprint() {
   
   # Split list of log files into array
   IFS=' ' read -r -a log_array <<< "${outlog}"
-#   printf "'%s'\n" "${log_array[@]}"
-#   echo "length log_array: '${#log_array[@]}'"
+# #   printf "log_array '%s'\n" "${log_array[@]}"
+# #   echo "length log_array: '${#log_array[@]}'"
   
   # Decide whether to print
   if [[ "${lastchar}" == "+" ]]; then
@@ -4544,6 +4544,28 @@ function compressEer() {
   
   local merge_cmd="relion_convert_to_tiff --i $fn --eer_grouping ${vars[grouping]} --o ${vars[tifdir]}"
   
+#   if [[ $verbose -ge 6 ]] ; then
+#     if [[ -f "${outlog}" ]]; then
+#       echo "    Running: $merge_cmd"                 >> $outlog
+#       eval $merge_cmd 2> /dev/null | sed 's/^/    /' >> $outlog
+#     else
+#       echo "    Running: $merge_cmd"
+#       eval $merge_cmd 2> /dev/null | sed 's/^/    /'  # (prepends spaces to output)
+#     fi
+#   elif [[ $verbose -ge 4 ]] ; then
+#     if [[ -f "${outlog}" ]]; then
+#       echo "    Running: $merge_cmd" >> $outlog
+#       
+#       # (I couldn't save the time command output and suppress stdout at the same time)
+#       echo "    Run time: $(TIMEFORMAT='%R' ; { time $merge_cmd > /dev/null 2>&1 ; } 2>&1) sec" >> $outlog
+#     else
+#       echo "    Running: $merge_cmd"
+#       echo "    Run time: $(TIMEFORMAT='%R' ; { time $merge_cmd > /dev/null 2>&1 ; } 2>&1) sec"
+#     fi
+#   else
+#     $merge_cmd > /dev/null 2>&1
+#   fi
+#   
   if [[ $verbose -ge 6 ]] ; then
     if [[ -f "${outlog}" ]]; then
       echo "    Running: $merge_cmd"                 >> $outlog
@@ -4561,6 +4583,15 @@ function compressEer() {
     else
       echo "    Running: $merge_cmd"
       echo "    Run time: $(TIMEFORMAT='%R' ; { time $merge_cmd > /dev/null 2>&1 ; } 2>&1) sec"
+    fi
+  elif [[ $verbose -ge 2 ]] ; then
+    if [[ -f "${outlog}" ]]; then
+      echo "    Running: $merge_cmd" >> $outlog
+      
+      # (I couldn't save the time command output and suppress stdout at the same time)
+      echo "    Run time: $(TIMEFORMAT='%R' ; { time $merge_cmd > /dev/null 2>&1 ; } 2>&1) sec" >> $outlog
+    else
+      $merge_cmd > /dev/null 2>&1
     fi
   else
     $merge_cmd > /dev/null 2>&1
