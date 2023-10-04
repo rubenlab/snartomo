@@ -635,14 +635,15 @@ function validate_inputs() {
 #     check_python
 #     
 #   Global variables:
+#     validated (OUTPUT)
 #     init_conda (OUTPUT)
+#     single_target (OUTPUT)
 #     vars
 #     do_pace
 #     do_cp_note (PACE only)
 #     imod_descr
 #     movie_ext
 #     ctffind_descr
-#     validated
 #     
 ###############################################################################
   
@@ -651,9 +652,9 @@ function validate_inputs() {
 
   vprint "\nValidating..." "1+" "${outlog}"
   
-  # Note initial conda directory
+  # Remember for later
   init_conda="$CONDA_DEFAULT_ENV"
-
+  single_target="single_tgts.txt"
   
   if [[ "${do_pace}" == true ]]; then
     check_targets "${outlog}"
@@ -1347,6 +1348,7 @@ function validate_inputs() {
   #     vprint
   #     
   #   Global variables:
+  #     single_target
   #     validated
   #     vars
   #     temp_dir
@@ -1364,7 +1366,7 @@ function validate_inputs() {
         # Read MDOC list as array
         mapfile -t mdoc_array < <(ls ${vars[mdoc_files]} 2> /dev/null)
         
-        local fake_targets="${vars[outdir]}/${temp_dir}/single_tgts.txt"
+        local fake_targets="${vars[outdir]}/${temp_dir}/${single_target}"
         rm ${fake_targets} 2> /dev/null
         vprint "  Creating target file: ${fake_targets} with ${#mdoc_array[@]} MDOCs" "1+" "${outlog}"
         
@@ -2100,19 +2102,19 @@ function run_motioncor() {
   -Serial 0 \
   -SumRange 0 0 \
   -Gpu ${gpu_local} \
-  -LogFile ${vars[outdir]}/$micdir/${mc2_logs}/${stem_movie}_mic.log"
+  -LogFile ${vars[outdir]}/$micdir/${mc2_logs}/${stem_movie}_mic.log "
   
   if [[ "${vars[split_sum]}" == 1 || "${vars[do_splitsum]}" == true ]]; then
-    mc_command+="-SplitSum 1 "
+    mc_command+=" -SplitSum 1 "
   fi
 
   if [[ "${vars[do_dosewt]}" == true ]]; then
-    mc_command+="-Kv ${vars[kv]} \
+    mc_command+=" -Kv ${vars[kv]} \
     -PixSize ${vars[apix]} "
   fi
 
   if [[ "${vars[do_outstack]}" == true ]]; then
-    mc_command+="-Outstack 1 "
+    mc_command+=" -Outstack 1 "
   fi
 
   # Remove whitespace
@@ -2613,6 +2615,7 @@ function plot_tomo_ctfs() {
 #     tomo_dir
 #     ctf_summary
 #     do_pace
+#     single_target
 #     new_subframe_array
 #     mcorr_mic_array
 #     imgdir
@@ -2626,13 +2629,18 @@ function plot_tomo_ctfs() {
   
   local tomo_ctfs="${vars[outdir]}/${tomo_dir}/${ctf_summary}"
   
-  if [[ "${do_pace}" == true ]]; then
+  # (TODO: Make sure Classic doesn't err out if target_file is blank)
+  if [[ "${do_pace}" == true ]] && [[ "$(basename ${vars[target_file]})" != "${single_target}" ]] ; then
     local tgt_ts_list="${vars[outdir]}/${imgdir}/${ts_list}-${vars[target_file]}"
     local tgt_ctf_plot="${vars[outdir]}/${imgdir}/${ctf_plot}-${vars[target_file]%.txt}.png"
   else
     local tgt_ts_list="${vars[outdir]}/${imgdir}/${ts_list}.txt"
     local tgt_ctf_plot="${vars[outdir]}/${imgdir}/${ctf_plot}.png"
   fi
+  
+  # Plot for single tilt series
+  local single_ts_list="${vars[outdir]}/${tomo_dir}/${ts_list}.txt"
+  local single_ts_plot="${vars[outdir]}/${tomo_dir}/${ctf_plot}.png"
   
   if [[ "${vars[testing]}" == false ]] ; then
     if [[ $found_mdoc != "" ]] ; then
@@ -2676,7 +2684,7 @@ function plot_tomo_ctfs() {
     local len_before=$(wc -l < $tomo_ctfs)  
     
     # Look for duplicates (Might be able to do this without intermediate file)
-    awk '!seen[$0]++' $tomo_ctfs > ${tomo_ctfs}.tmp 
+    awk '!seen[$0]++' $tomo_ctfs > ${tomo_ctfs}.tmp
     local len_after=$(wc -l < ${tomo_ctfs}.tmp)
     mv ${tomo_ctfs}.tmp ${tomo_ctfs}
     
@@ -2684,7 +2692,22 @@ function plot_tomo_ctfs() {
       echo -e "\n  Removed $(( ${len_before} - ${len_after} )) duplicates from ${tomo_ctfs}"
     fi
     
-    # Plot CTF summary
+    # Plot single-tilt-series CTF summary
+    local ctfbyts_cmd=$(echo ctfbyts.py \
+      ${tomo_ctfs} \
+      ${single_ts_list} \
+      ${single_ts_plot} \
+      --first=${vars[ctfplot_first]} \
+      --verbosity=$verbose | xargs)
+    \rm ${single_ts_list} 2> /dev/null
+    
+    
+    if [[ "$verbose" -ge 2 ]]; then
+      echo -e "\n  Running: $ctfbyts_cmd"
+    fi
+    $ctfbyts_cmd
+    
+    # Plot cumulative CTF summary
     local ctfbyts_cmd=$(echo ctfbyts.py \
       ${tomo_ctfs} \
       ${tgt_ts_list} \
@@ -2695,7 +2718,6 @@ function plot_tomo_ctfs() {
     if [[ "$verbose" -ge 2 ]]; then
       echo -e "\n  Running: $ctfbyts_cmd"
     fi
-    
     $ctfbyts_cmd
   fi
   # End testing IF-THEN

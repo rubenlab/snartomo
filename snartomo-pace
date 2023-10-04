@@ -18,7 +18,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-09-25"
+  echo "Modified 2023-10-04"
   date
   echo 
 }
@@ -142,37 +142,37 @@ main
     check_file {gain reference, frame file, IMOD batch directive}
     check_python
   
-  # Loop through target files
-      initialize_vars
-      shared.check_gain_format 
-      shared.update_adoc
-      targets_init
-      movies_init
-      read_init {MotionCor2, CTFFIND4}
-      resources.gpu_plot
-      resources.ram_plot
-      resources.power_plot
-      resources.temperature_plot
-      parse_targets
-        detect_new_movies
-        distribute_motioncor
-          motioncor_parallel
-            shared.run_motioncor
-            shared.check_frames
-      distribute_ctffind 
-        ctffind_parallel
-        check_ctf_subprocesses
-      compute_tomograms
-        tomogram_parallel
-          shared.dose_fit
-          shared.write_angles_lists
-          shared.denoise_wrapper
-          shared.imod_restack
-          shared.wrapper_aretomo
-          shared.wrapper_etomo
-          shared.ruotnocon_wrapper
-      shared.backup_file {movies_done, mcor_done, ctf_done, rec_done}
-  # End target-file loop
+  Loop through target files
+    initialize_vars
+    shared.check_gain_format 
+    shared.update_adoc
+    targets_init
+    movies_init
+    read_init {MotionCor2, CTFFIND4}
+    resources.gpu_plot
+    resources.ram_plot
+    resources.power_plot
+    resources.temperature_plot
+    parse_targets
+    detect_new_movies
+    distribute_motioncor
+      motioncor_parallel
+      shared.run_motioncor
+      shared.check_frames
+    distribute_ctffind 
+    ctffind_parallel
+    check_ctf_subprocesses
+    compute_tomograms
+    tomogram_parallel
+      shared.dose_fit
+      shared.write_angles_lists
+      shared.denoise_wrapper
+      shared.imod_restack
+      shared.wrapper_aretomo
+      shared.wrapper_etomo
+      shared.ruotnocon_wrapper
+    shared.backup_file {movies_done, mcor_done, ctf_done, rec_done}
+  End target-file loop
   
   shared.clean_local_dir
 '
@@ -1913,6 +1913,7 @@ function distribute_ctffind() {
 #     Looks for motion-corected micrographs and sends to CTFFIND4
 #   
 #   Calls functions:
+#     wait4motioncor
 #     ctffind_parallel
 #     file_lock
 #     mic_to_ctf
@@ -1925,9 +1926,10 @@ function distribute_ctffind() {
 #     ctf_mics
 #     cpu_status
 #     ctf_list
+#     mics_found
 #     max_seconds
 #     mcor_done
-#     cor_ext
+#     num_ctfs
 #     
 ###############################################################################
 
@@ -1954,44 +1956,49 @@ function distribute_ctffind() {
   declare -A new_ctfs
   
   # If CTFs missing, only warn once
-  local already_warned=false
-  local mics_found=""
+  already_warned=false
+  mics_found=""
+  do_break=false
   
   # TODO: Split into smaller functions
   local start_time=$SECONDS
   while (( $(( $SECONDS - $start_time )) < $max_seconds )) ; do
     # Check whether MotionCor is finished
-    if [[ -f "${mcor_done}" ]]; then
-      # Read number of motion-corrected micrographs (once)
-      if [[ "${mics_found}" == "" ]]; then
-        local mics_found=$(cat ${mcor_done})
-        vprint "\n$(date +"$time_format"): MotionCor2 completed on ${mics_found} files, waiting for CTFFIND4...\n" "1+" "${main_log}"
-      else
-        if [[ "${mics_found}" -eq "${num_ctfs}" ]]; then
-          break
-        else
-          if [[ "${do_parallel}" == true ]] ; then
-            
-            if (( "$(($num_ctfs + ${#new_ctfs[@]}))" < "${mics_found}" )); then
-              if [[ "${already_warned}" == false ]] ; then
-                # Only warn once
-                already_warned=true
-                vprint "\n$(date +"$time_format"): WARNING! $(($mics_found - $num_ctfs)) CTFs missing" "0+" "${main_log} =${warn_log}"
-              fi
-              
-              rescue_ctfs >> ${warn_log}
-            fi
-            # End missing-CTFs IF-THEN
-            
-            sleep "${vars[search_interval]}"
-          fi
-          # End do-parallel IF-THEN
-        fi
-        # End correct-number IF-THEN
-      fi
-      # End non-empty IF-THEN
+#     if [[ -f "${mcor_done}" ]]; then
+#       # Read number of motion-corrected micrographs (once)
+#       if [[ "${mics_found}" == "" ]]; then
+#         local mics_found=$(cat ${mcor_done})
+#         vprint "\n$(date +"$time_format"): MotionCor2 completed on ${mics_found} files, waiting for CTFFIND4...\n" "1+" "${main_log}"
+#       else
+#         if [[ "${mics_found}" -eq "${num_ctfs}" ]]; then
+#           break
+#         else
+#           if [[ "${do_parallel}" == true ]] ; then
+#             
+#             if (( "$(($num_ctfs + ${#new_ctfs[@]}))" < "${mics_found}" )); then
+#               if [[ "${already_warned}" == false ]] ; then
+#                 # Only warn once
+#                 already_warned=true
+#                 vprint "\n$(date +"$time_format"): WARNING! $(($mics_found - $num_ctfs)) CTFs missing" "0+" "${main_log} =${warn_log}"
+#               fi
+#               
+#               rescue_ctfs >> ${warn_log}
+#             fi
+#             # End missing-CTFs IF-THEN
+#             
+#             sleep "${vars[search_interval]}"
+#           fi
+#           # End do-parallel IF-THEN
+#         fi
+#         # End correct-number IF-THEN
+#       fi
+#       # End non-empty IF-THEN
+#     fi
+#     # End file-exists IF-THEN
+    wait4motioncor
+    if [[ "${do_break}" == true ]] ; then
+      break
     fi
-    # End file-exists IF-THEN
     
     # Read CPU state
     source ${cpu_status}
@@ -2027,7 +2034,6 @@ function distribute_ctffind() {
             vprint "$(date +"$time_format"): Found motion-corrected micrograph: '${current_mic}'" "0+" "=${file_log}"
             
             local ctf_mrc="$(mic_to_ctf ${current_mic})"
-# #             echo "2023 ctf_mrc '$ctf_mrc'" ; exit
             local temp_ctf="$(to_tempname ${ctf_mrc})"
             
             # If no pre-existing output
@@ -2083,7 +2089,7 @@ function distribute_ctffind() {
     check_ctf_subprocesses
     
     # Get number of CTFs
-    local num_ctfs="${#ctf_array[@]}"
+    num_ctfs="${#ctf_array[@]}"
 
     if [[ "$verbose" -ge 1 ]]; then
       echo -ne "Accumulated\t\t\t\t\t${num_ctfs} CTFs\r"
@@ -2097,6 +2103,60 @@ function distribute_ctffind() {
   # While loop will finish either when last image has been processed or when time limit reached
   check_completion "${num_ctfs}" "${mics_found}" "CTFFIND4" "${ctf_done}" "$start_time"
 }
+
+  function wait4motioncor() {
+  ###############################################################################
+  #   Function:
+  #     Checks whether MotionCor is finished
+  #   
+  #   Positional variables:
+  #   
+  #   Calls functions:
+  #     vprint
+  #     rescue_ctfs
+  #   
+  #   Global variables:
+  #     mcor_done
+  #     mics_found
+  #     main_log
+  #     num_ctfs
+  #     do_break (OUTPUT)
+  #     warn_log
+  #   
+  ###############################################################################
+    
+    if [[ -f "${mcor_done}" ]]; then
+      # Read number of motion-corrected micrographs (once)
+      if [[ "${mics_found}" == "" ]]; then
+        mics_found=$(cat ${mcor_done})
+        vprint "\n$(date +"$time_format"): MotionCor2 completed on ${mics_found} files, waiting for CTFFIND4...\n" "1+" "${main_log}"
+      else
+        if [[ "${mics_found}" -eq "${num_ctfs}" ]]; then
+          do_break=true
+        else
+          if [[ "${do_parallel}" == true ]] ; then
+            
+            if (( "$(($num_ctfs + ${#new_ctfs[@]}))" < "${mics_found}" )); then
+              if [[ "${already_warned}" == false ]] ; then
+                # Only warn once
+                already_warned=true
+                vprint "\n$(date +"$time_format"): WARNING! $(($mics_found - $num_ctfs)) CTFs missing" "0+" "${main_log} =${warn_log}"
+              fi
+              
+              rescue_ctfs >> ${warn_log}
+            fi
+            # End missing-CTFs IF-THEN
+            
+            sleep "${vars[search_interval]}"
+          fi
+          # End do-parallel IF-THEN
+        fi
+        # End correct-number IF-THEN
+      fi
+      # End non-empty IF-THEN
+    fi
+    # End file-exists IF-THEN
+  }
 
   function rescue_ctfs() {
   ###############################################################################
@@ -2723,42 +2783,6 @@ function tomogram_parallel() {
   fi
   
   update_arrays
-#   # Loop through angles (TODO: Move to function)
-#   for subfm_idx in "${!new_subframe_array[@]}"; do 
-#     # Get movie filename
-#     local movie_file=$(echo ${new_subframe_array[${subfm_idx}]##*[/\\]} )
-#     
-#     # Get motion-corrected micrograph name
-#     local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
-#     local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
-#     
-#     # Create micrograph directory (only used if denoising)
-#     if [[ "${subfm_idx}" -eq 0 ]] ; then
-#       local tomo_mic_dir="${vars[outdir]}/${tomo_dir}/${temp_dir}"
-#       tomo_dns_dir="${vars[outdir]}/${tomo_dir}/${temp_dir}/${dir2denoise}"
-#       mkdir ${tomo_mic_dir} ${tomo_dns_dir} 2> /dev/null
-#     fi
-#     
-#     # Check that motion-corrected micrograph exists
-#     if [[ -f "$mc2_mic" ]]; then
-#       # Append to micrograph lists
-#       stripped_angle_array+=(${mdoc_angle_array[${subfm_idx}]})
-#       mcorr_mic_array+=($mc2_mic)
-#       denoise_array+=(${vars[outdir]}/${denoisedir}/${stem_movie}${cor_ext})
-#       ctf_stk_array+=($(mic_to_ctf "$mc2_mic"))
-#       
-#       # Write CTF summary
-#       if [[ "${vars[testing]}" == false ]] ; then
-#         local ctf_txt=$(stem2ctfout "$stem_movie")
-#         echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${tomo_ctfs}
-#       fi
-# #       
-# #       ### DIAGNOSTIC
-# #       else
-# #         echo "2758 : $mc2_mic doesn't exist"
-#     fi
-#   done
-#   # End angles loop
   
   # Plot CTF data
   plot_tomo_ctfs "${new_mdoc} ">> "${tomo_log}"
