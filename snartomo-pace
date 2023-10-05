@@ -18,7 +18,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-10-04"
+  echo "Modified 2023-10-05"
   date
   echo 
 }

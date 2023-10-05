@@ -2432,7 +2432,9 @@ function dose_fit() {
   local tomo_log=$3
   
   dose_list="${tomo_root}_dose.txt"
-  local dose_plot="${vars[outdir]}/${imgdir}/${dose_imgdir}/${tomo_base}_dose_fit.png"
+  local plot_suffix="dose_fit.png"
+  local dose_ts_plot="${tomo_root}_${plot_suffix}"
+  local dose_imgs_plot="${vars[outdir]}/${imgdir}/${dose_imgdir}/${tomo_base}_${plot_suffix}"
   good_angles_file="${tomo_root}_goodangles.txt"
   local dose_log="${tomo_root}_dosefit.log"
   
@@ -2443,7 +2445,6 @@ function dose_fit() {
   for mdoc_idx in "${!mdoc_angle_array[@]}"; do 
     # Get movie filename
     local movie_file=$(echo ${new_subframe_array[${mdoc_idx}]##*[/\\]} )
-# #     echo "2248 movie_file '${movie_file}'"
     
     # Get motion-corrected micrograph name
     local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
@@ -2465,29 +2466,36 @@ function dose_fit() {
       ${dose_list} \
       --min_dose ${vars[dosefit_min]} \
       --max_residual ${vars[dosefit_resid]} \
-      --dose_plot ${dose_plot} \
+      --dose_plot ${dose_ts_plot} \
       --good_angles ${good_angles_file} \
       --screen_verbose ${verbose} \
       --log_file ${dose_log} \
       --log_verbose ${vars[dosefit_verbose]} | xargs)"
     
     vprint "\n  $dosefit_cmd\n" "1+" "=${tomo_log}"
-    local error_code=$(${SNARTOMO_DIR}/$dosefit_cmd 2>&1)
+    local fit_status=$(${SNARTOMO_DIR}/$dosefit_cmd 2>&1)
     
-# #     echo "2419 error_code '$error_code'"
-    
-    if [[ "$error_code" == *"Error"* ]] ; then
+    if [[ "$fit_status" == *"Error"* ]] ; then
       echo -e "\nERROR!!"
-      echo -e "${error_code}\n"
+      echo -e "${fit_status}\n"
       echo -e "Conda environments: initial '$init_conda', current '$CONDA_DEFAULT_ENV'"
       echo -e "  Maybe this is the wrong environment?\n"
       exit
-    elif [[ "$error_code" == *"WARNING"* ]] ; then
-      vprint "$error_code" "1+" "${tomo_log}"
+    elif [[ "$fit_status" == *"WARNING"* ]] ; then
+      vprint "$fit_status" "1+" "${tomo_log}"
     else
-      vprint "$error_code" "1+" "=${tomo_log}"
+      vprint "$fit_status" "1+" "=${tomo_log}"
     fi
     # End error IF-THEN
+    
+    # Copy link to images directory, first attempt as a hard link
+    cp -l ${dose_ts_plot} ${dose_imgs_plot} 2> /dev/null
+    local cp_status=$?
+    
+    # Upon failure, copy as soft link
+    if [[ $cp_status -ne 0 ]] ; then
+      cp -s ${dose_ts_plot} ${dose_imgs_plot} 2> /dev/null
+    fi
   fi
   # End dose-list IF-THEN
 }
