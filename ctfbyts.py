@@ -35,7 +35,7 @@ Assumptions:
 
 """ % ((__file__,)*1)
 
-MODIFIED="Modified 2023 Sep 24"
+MODIFIED="Modified 2023 Oct 05"
 MAX_VERBOSITY=8
 
 def print_log_msg(mesg, cutoff, options):
@@ -65,6 +65,7 @@ def main():
   # Read file series (sorting from https://stackoverflow.com/a/23430865)
   tilt_ctfs= glob.glob(options.tilt_ctfs)
   tilt_ctfs.sort(key=os.path.getmtime)
+  ###print(f"tilt_ctfs ({len(tilt_ctfs)}): {tilt_ctfs}") ; exit()
   
   # Sanity check: Make sure plot extension is legal
   plot_ext= os.path.splitext(ctf_plot)[1].lstrip('.')
@@ -296,7 +297,7 @@ def parse_command_line():
     parser.add_argument(
         "tilt_ctfs", 
         type=str, 
-        help="Input CTF summary for tilt series")
+        help="Input CTF summaries for tilt series (surrounded by quotes if more than one)")
 
     parser.add_argument(
         "tilt_list", 
