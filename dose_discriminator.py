@@ -18,7 +18,7 @@ USAGE:
 
 """ % ((__file__,)*1)
 
-MODIFIED="Modified 2023 Jul 06"
+MODIFIED="Modified 2023 Oct 11"
 MAX_VERBOSITY=8
 
 def print_log_msg(mesg, cutoff, options):
@@ -31,9 +31,6 @@ def print_log_msg(mesg, cutoff, options):
         options : (Namespace) Command-line options
     """
 
-    ##print(options.screen_verbose)
-    ##exit()
-    
     if options.screen_verbose >= cutoff:
       print(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {mesg}")
       
@@ -70,8 +67,6 @@ def main():
   max_dose= np.ndarray.max(dose_array0)
   dose_cutoff= max_dose * options.min_dose
   max_residual= max_dose * options.max_residual
-  ##print(f"dose_cutoff: {dose_cutoff}")
-  ##print(f"max_residual: {max_residual}")
 
   # Fit all points
   tilt_rad= np.radians(tilt_array)
@@ -79,11 +74,8 @@ def main():
   fit_curve1 = fit_params1[0] + fit_params1[1] * np.cos(tilt_rad + fit_params1[2])
   residual_array1= abs(dose_array - cosine_func(tilt_rad, *fit_params1))
 
-  #np.set_printoptions(suppress=True)
-  #print(len(residual_array1), residual_array1)
-
   # Scatter plot of raw data
-  plt.figure(figsize=(9,7))
+  plt.figure( figsize=(9,9) )
   plt.scatter(tilt_array, dose_array)
   plt.plot(tilt_array, fit_curve1, label="all images")
   
@@ -96,9 +88,6 @@ def main():
   # Initialize counter
   rm_counter= 0
 
-  ##print('iteration 0:', len(idx_array))
-  ##print('idx_array', idx_array)
-  
   # Remove outliers
   for sort_idx, img in reversed( list( enumerate(idx_array) ) ):
     if dose_array[sort_idx] < dose_cutoff :
@@ -172,7 +161,8 @@ def main():
   plt.xlabel('Tilt angle')
   plt.ylabel('Dose rate')
   plt.title( os.path.splitext( os.path.basename(output_png) )[0], fontsize=16)
-  #print(plt.gcf())
+  print(f"plt.gcf() '{plt.gcf()}'")
+  print(f"plt.rcParams['figure.figsize'] '{plt.rcParams['figure.figsize']}'")
   plt.savefig(output_png)
 
   np.savetxt(options.good_angles, idx_array, fmt="%d")
@@ -216,19 +206,19 @@ def parse_command_line():
         "--dose_plot", 
         type=str, 
         default="plot.png", 
-        help="Fitted plot PNG")
+        help="Output fitted plot PNG")
 
     parser.add_argument(
         "--good_angles", 
         type=str, 
         default="good_angles.txt", 
-        help="Good-angles text file")
+        help="Output good-angles text file")
 
     parser.add_argument(
         "--log_file", 
         type=str, 
         default=None, 
-        help="Log file")
+        help="Output log file")
 
     parser.add_argument("--screen_verbose",
         type=int, 
