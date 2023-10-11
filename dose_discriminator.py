@@ -161,8 +161,8 @@ def main():
   plt.xlabel('Tilt angle')
   plt.ylabel('Dose rate')
   plt.title( os.path.splitext( os.path.basename(output_png) )[0], fontsize=16)
-  print(f"plt.gcf() '{plt.gcf()}'")
-  print(f"plt.rcParams['figure.figsize'] '{plt.rcParams['figure.figsize']}'")
+  ##print(f"plt.gcf() '{plt.gcf()}'")
+  ##print(f"plt.rcParams['figure.figsize'] '{plt.rcParams['figure.figsize']}'")
   plt.savefig(output_png)
 
   np.savetxt(options.good_angles, idx_array, fmt="%d")
