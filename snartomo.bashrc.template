@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Modified 2023-07-05
+# Modified 2023-10-10
 
 ##### PLEASE DEFINE THE FOLLOWING #####
 
@@ -28,6 +28,7 @@ export SNARTOMO_WAIT_TIME=120.0                                   # (seconds) Ho
 export SNARTOMO_RUOTNOCON_SD=3.0                                  # Contours with eTomo residuals greater than this multiple of sigma will be removed
 # 
 # SNARTomoPACE only
+export SNARTOMO_GPUS="0 1"                                        # GPUs to use, delimited with spaces
 export SNARTOMO_TILT_TOLERANCE=0.2                                # Angle difference of last tilt +/- this value will signal end of series
 export SNARTOMO_RAM_WARN=20                                       # Free system memory (GB) before warning printed
 export SNARTOMO_RAM_KILL=10                                       # Free system memory (GB) before exiting
@@ -45,8 +46,8 @@ export SNARTOMO_CTF_RESLO=30.0                                    # (Angstroms) 
 export SNARTOMO_CTF_RESHI=9.0                                     # (Angstroms) High resolution limit for CTF fitting
 export SNARTOMO_CTF_DFLO=30000.0                                  # (Angstroms) Minimal defocus value to consider during fitting
 export SNARTOMO_CTF_DFHI=70000.0                                  # (Angstroms) Maximal defocus value to consider during fitting
-export SNARTOMO_DF_STEP=500.0                                     # (Angstroms) Defocus step
-export SNARTOMO_CTF_DAST=1000                                     # (Angstroms) Astigmatism constraint
+export SNARTOMO_DF_STEP=500.0                                     # Defocus step
+export SNARTOMO_CTF_DAST=1000                                     # Astigmatism restraint
 
 # JANNI
 export SNARTOMO_JANNI_BATCH=4                                     # Number of patches predicted in parallel
@@ -71,7 +72,7 @@ export SNARTOMO_BP_METHOD=1                                       # Reconstructi
 export SNARTOMO_FLIPVOL=1                                         # (boolean) Flip coordinates axes (1: yes, 0: no)
 export SNARTOMO_TRANSFILE=1                                       # (boolean) Generate IMOD XF files
 export SNARTOMO_ARETOMO_PATCH="0 0"                               # Number of patches in x & y (slows down alignment)
-export SNARTOMO_ARETOMO_TIME=30m                                  # Maximum duration, AreTomo sometimes hangs
+export SNARTOMO_ARETOMO_TIME=60m                                  # Maximum duration, AreTomo sometimes hangs
 
 # IsoNet parameter
 export SNARTOMO_SNRFALLOFF=0.7                                    # Signal-to-noise falloff
