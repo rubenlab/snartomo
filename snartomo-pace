@@ -1,5 +1,4 @@
 #!/bin/bash
-# # set -u  # error if variable undefined
 
 ###############################################################################
 # Function:
@@ -18,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-10-05"
+  echo "Modified 2023-10-11"
   date
   echo 
 }
@@ -34,9 +33,9 @@ outdir=SNARTomoPACE                                # Output top-level directory
 
 # General parameters
 LAST_TILT=-999.9                                  # Last (not highest) tilt angle in tilt series
-max_minutes=200                                   # Maximum run time, minutes
+max_minutes=400                                   # Maximum run time, minutes
 apix=-1.00                                        # Pixel size, Angstroms
-gpus="0 1"                                        # List of GPUs to use, delimited by spaces
+# # # gpus="0 1"                                        # List of GPUs to use, delimited by spaces
 verbosity=4                                       # Verbosity level
 #                                                 #   0: prints nothing
 #                                                 #   1: prints brief overall summary
@@ -51,7 +50,6 @@ verbosity=4                                       # Verbosity level
 dosefit_verbose=6                                 # Verbosity level for dose-fitting log file (0..8)
 
 # MotionCor2
-# # # grouping=-1                                       # Number of EER frames to merge during compression
 max_mic_dose=10                                   # Maximum electron dose (e/A2) above which a warning will be printed
 reffrm=1                                          # (boolean) Reference frame (0: first, 1: middle)
 SplitSum=0                                        # (boolean) Split frames into even & odd half-sets (1: yes)
@@ -103,6 +101,7 @@ heat_plot=plot-heat.gnu                           # Gnuplot script for RAM usage
 warn_log=warnings.txt                             # Warnings log
 
 # Temporary files (in $temp_share_dir)
+my_info=MY_INFO.txt
 init_movies=list-movies-init.txt
 mc2_movies=list-movies-mc2.txt
 gpu_status=status-gpu.txt
@@ -141,11 +140,12 @@ main
     check_mc2_frame
     check_file {gain reference, frame file, IMOD batch directive}
     check_python
+  check_other_snartomos
+  shared.check_gain_format 
+  shared.update_adoc
   
   Loop through target files
     initialize_vars
-    shared.check_gain_format 
-    shared.update_adoc
     targets_init
     movies_init
     read_init {MotionCor2, CTFFIND4}
@@ -208,6 +208,7 @@ function main() {
   print2log "print_arguments" "7+" "${set_file}"
   
   validate_inputs "${main_log}"
+  check_other_snartomos "${main_log}"
   
   # Read target files as array
   mapfile -t target_array < <(ls -tr ${vars[target_files]})
@@ -351,7 +352,8 @@ function parse_command_line() {
   add_argument "tif_dir" "" "Input TIFF movie stack directory" "ANY"
   
   add_section "GLOBAL SETTINGS" "These settings affect multiple steps."
-  add_argument "gpus" "${gpus}" "GPUs to use (surrounding quotes & space-delimited if more than one)" "ANY"
+  add_argument "gpus" "${SNARTOMO_GPUS}" "GPUs to use (surrounding quotes & space-delimited if more than one)" "ANY"
+  add_argument "force" "false" "Force execution even if same GPUs in use" "BOOL"
   add_argument "live" "false" "Flag to detect new files on-the-fly" "BOOL"
   add_argument "last_tilt" "${LAST_TILT}" "Last (not highest) tilt angle in tilt series (required in live mode)" "FLOAT"
   add_argument "outdir" "${outdir}" "Output directory" "ANY"
@@ -516,6 +518,7 @@ function prepare_logfiles() {
 #     power_plotfile
 #     heat_log
 #     heat_plot
+#     my_info
 #     mc2_movies
 #     gpu_status
 #     mc2_mics
@@ -549,6 +552,7 @@ function prepare_logfiles() {
   heat_log=${vars[outdir]}/${log_dir}/${heat_log}
   heat_plot=${vars[outdir]}/${log_dir}/${heat_plot}
   warn_log=${vars[outdir]}/${log_dir}/${warn_log}
+  my_info=${temp_share_dir}/${my_info}
   mc2_movies=${temp_share_dir}/${mc2_movies}
   init_movies=${temp_share_dir}/${init_movies}
   gpu_status=${temp_share_dir}/${gpu_status}
@@ -635,6 +639,103 @@ function print2log() {
   fi
   
   return $status_code
+}
+
+function check_other_snartomos() {
+###############################################################################
+#   Function:
+#     Look for other SNARTomo processes
+#   
+#   Positional variables:
+#     1) (optional) output log
+#   
+#   Calls functions:
+#     vprint
+#   
+#   Global variables:
+#     temp_share_dir
+#     my_info
+#     vars
+#   
+###############################################################################
+  
+  local outlog=$1
+  
+  # Shared-memory directory was created but written to the screen before the log file was created
+  vprint "Writing temporary files to shared memory: '${temp_share_dir}'\n" "1+" "${main_log}"
+  
+  echo -e "StartingTime:     $(date +"$time_format")" >  $my_info
+  echo -e "WorkingDirectory: $PWD"                    >> $my_info
+  echo -e "GpusRequested:    ${vars[gpus]}"           >> $my_info
+  
+  IFS=' ' read -r -a my_gpus <<< "${vars[gpus]}"
+  
+  # Loop through PIDs
+  for test_pid in $(pgrep snartomo-pace) ; do
+    if [[ "$test_pid" != "$$" ]] ; then
+      # Look for SNARTomo directories (assuming default naming convention, might be a different user)
+      if compgen -G "${vars[temp_share]}/../*/${test_pid}" > /dev/null ; then
+        found_dir=$(realpath $( compgen -G "${vars[temp_share]}/../*/${test_pid}") )
+        # (Adapted compgen syntax from https://stackoverflow.com/a/34195247)
+        
+        if  [[ -d "$found_dir" ]] ; then
+          local their_info="${found_dir}/$(basename $my_info)"
+          
+          # Make sure MY_INFO file exists (might be old SNARTomo version)
+          if  [[ -f "$their_info" ]] ; then
+            # Check which GPUs they're using
+            local their_gpus=$(grep "GpusRequested:" $their_info | xargs | cut -d' ' -f2-)
+            IFS=' ' read -r -a their_array <<< "${their_gpus}"
+            local found_match=false
+            local do_continue=true
+            
+            # Loop through my GPUs and see if they overlap with any of their GPUs
+            for curr_gpu in "${my_gpus[@]}"; do 
+              if [[ ${their_array[@]} =~ "${curr_gpu}" ]] ; then 
+                found_match=true
+              fi
+            done
+            
+            if [[ "$found_match" == true ]] ; then
+              if [[ "${vars[testing]}" == true ]] || [[ "${vars[force]}" == true ]] ; then
+                local their_dir=$(grep "WorkingDirectory:" $their_info | xargs | cut -d' ' -f2-)
+                vprint "WARNING! SNARTomo process ${test_pid} (directory '$their_dir') already using same GPUs. Continuing...\n" "1+" "${outlog}"
+              else
+                vprint "ERROR!! SNARTomo process ${test_pid} (directory '$their_dir') already using same GPUs!" "0+" "${outlog}"
+                do_continue=false
+              fi
+              
+              vprint "  GPUs requested here          \t: ${vars[gpus]}" "1+" "${outlog}"
+              vprint "  GPUs requested by PID #${test_pid}\t: ${their_gpus}" "1+" "${outlog}"
+              
+              if [[ "${vars[force]}" == false ]] ; then
+                vprint "  Use the '--force' flag to override, if you're sure you know what you're doing.'" "1+" "${outlog}"
+              fi
+              
+              if [[ "${do_continue}" == true ]]; then
+                vprint "  Please consider using different GPUs...\n" "1+" "${outlog}"
+              else
+                vprint "\nExiting...\n" "0+" "${outlog}"
+              fi
+            fi
+            # End overlap-found IF-THEN
+          else
+            vprint "WARNING! Another SNARTomo process (PID ${test_pid}) found" "0+" "${outlog}"
+            vprint "  Command line: $(ps -p ${test_pid} -o args=)" "0+" "${outlog}"
+            vprint "  Please consider using different GPUs if not already...\n" "0+" "${outlog}"
+          fi
+          # End found-info IF-THEN
+        
+        # Shouldn't really happen
+        else
+          echo "731 WARNING! Variable '$found_dir' is empty or not a directory, which shouldn't happen"
+        fi
+        # End directory-exists IF-THEN 
+      fi
+      # End found-tempdir IF-THEN
+    fi
+    # End my-PID IF-THEN
+  done
 }
 
 function initialize_vars() {
@@ -1304,10 +1405,6 @@ function distribute_motioncor() {
         # Add to in-core cumulative array
         mic_array+=("${mic_key}")
         
-#         if [[ "${do_parallel}" == false ]] ; then
-#           sleep 0.1
-#         fi
-    
         # Get number of micrographs
         local num_mics="${#mic_array[@]}"
 
@@ -1317,7 +1414,7 @@ function distribute_motioncor() {
         
         # Append to list
         if [[ "${do_parallel}" == true ]]; then
-          file_lock "${ctf_mics}" "25" "${FUNCNAME[0]}"
+          file_lock "${ctf_mics}" "30" "${FUNCNAME[0]}"
           local mic_lock=${lock_file}
         fi
         
@@ -1964,38 +2061,8 @@ function distribute_ctffind() {
   local start_time=$SECONDS
   while (( $(( $SECONDS - $start_time )) < $max_seconds )) ; do
     # Check whether MotionCor is finished
-#     if [[ -f "${mcor_done}" ]]; then
-#       # Read number of motion-corrected micrographs (once)
-#       if [[ "${mics_found}" == "" ]]; then
-#         local mics_found=$(cat ${mcor_done})
-#         vprint "\n$(date +"$time_format"): MotionCor2 completed on ${mics_found} files, waiting for CTFFIND4...\n" "1+" "${main_log}"
-#       else
-#         if [[ "${mics_found}" -eq "${num_ctfs}" ]]; then
-#           break
-#         else
-#           if [[ "${do_parallel}" == true ]] ; then
-#             
-#             if (( "$(($num_ctfs + ${#new_ctfs[@]}))" < "${mics_found}" )); then
-#               if [[ "${already_warned}" == false ]] ; then
-#                 # Only warn once
-#                 already_warned=true
-#                 vprint "\n$(date +"$time_format"): WARNING! $(($mics_found - $num_ctfs)) CTFs missing" "0+" "${main_log} =${warn_log}"
-#               fi
-#               
-#               rescue_ctfs >> ${warn_log}
-#             fi
-#             # End missing-CTFs IF-THEN
-#             
-#             sleep "${vars[search_interval]}"
-#           fi
-#           # End do-parallel IF-THEN
-#         fi
-#         # End correct-number IF-THEN
-#       fi
-#       # End non-empty IF-THEN
-#     fi
-#     # End file-exists IF-THEN
     wait4motioncor
+    
     if [[ "${do_break}" == true ]] ; then
       break
     fi
@@ -2638,7 +2705,8 @@ function compute_tomograms() {
           update_status "$(date +"$time_format"): Reconstructing tomograms, most recent reconstruction '$(basename $tomogram_3d)'"
           
         else
-          vprint   "WARNING! eTomo output '$tomogram_3d' does not exist!" "1+" "${main_log} =${warn_log}"
+          vprint   "WARNING! Reconstruction '$tomogram_3d' does not exist!" "1+" "${main_log} =${warn_log}"
+          # TODO: etomo_out only defined for eTomo option
           cat ${etomo_out} | grep -Ev 'quit|Beginning|ABORT|failures|^$' | sed 's/^/         /' | tee -a ${main_log} ${warn_log}
           vprint "\n         Continuing...\n" "1+" "${main_log} =${warn_log}"
           
@@ -2676,7 +2744,7 @@ function compute_tomograms() {
   echo "${#tomo_array[@]}" > "${rec_done}"
   
   if (( $num_tomos < $num_mdocs )) ; then
-    vprint "\n$(date +"$time_format"): WARNING! Computed ${num_tomos}/$num_mdocs 3D reconstructions within time limit.\n" "1+" "${main_log} =${warn_log} =${status_file}"
+    vprint "\n$(date +"$time_format"): WARNING! Computed only ${num_tomos}/$num_mdocs 3D reconstructions within time limit.\n" "1+" "${main_log} =${warn_log} =${status_file}"
   fi
 }
 
@@ -2716,6 +2784,7 @@ function tomogram_parallel() {
 #     mdoc_angle_array (OUTPUT)
 #     new_subframe_array (OUTPUT)
 #     dose_rate_array (OUTPUT)
+#     warn_log
 #     micdir
 #     cor_ext
 #     tomo_dns_dir
@@ -2745,7 +2814,7 @@ function tomogram_parallel() {
   local tomo_ctfs="${vars[outdir]}/${tomo_dir}/${ctf_summary}"
   
   local mdoc_base=$(basename $orig_mdoc)
-  local mdoc_copy="${vars[outdir]}/${tomo_dir}/${mdoc_base%.mrc.mdoc}_0-orig.mrc.mdoc"
+  local mdoc_copy="${vars[outdir]}/${tomo_dir}/${mdoc_base}.orig"
   new_mdoc="${vars[outdir]}/${tomo_dir}/${mdoc_base}"
   local temp_mdoc_dir="${vars[outdir]}/${tomo_dir}/tmp_mdoc"
   
@@ -2878,6 +2947,9 @@ function tomogram_parallel() {
   if [[ "${vars[testing]}" == true ]]; then
     if [[ "${vars[slow]}" == true ]]; then
       sleep $(( (RANDOM % 7) + 5 ))
+#     else
+#        echo "TESTING Waiting 30s to touch '$(basename ${tomogram_3d})'"
+#        sleep 30
     fi
     
     touch "${tomogram_3d}"

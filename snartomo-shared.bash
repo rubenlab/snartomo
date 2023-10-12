@@ -10,13 +10,11 @@ function check_vars() {
 #   
 ###############################################################################
   
-  var_array=("SNARTOMO_VOLTAGE" "SNARTOMO_INTERVAL" "SNARTOMO_TILT_TOLERANCE")
-  var_array+=("SNARTOMO_MINFRAMES" "SNARTOMO_MAXFRAMES" "SNARTOMO_RAM_WARN")
-  var_array+=("SNARTOMO_RAM_KILL" "SNARTOMO_EER_WAIT" "SNARTOMO_MC2_PATCH")
-  var_array+=("SNARTOMO_WAIT_TIME" "SNARTOMO_IMOD_SLOTS" "SNARTOMO_RUOTNOCON_SD")
-  var_array+=("SNARTOMO_CTF_SLOTS" "SNARTOMO_CTF_CS" "SNARTOMO_AC")
-  var_array+=("SNARTOMO_CTF_BOXSIZE" "SNARTOMO_CTF_RESLO" "SNARTOMO_CTF_RESHI")
-  var_array+=("SNARTOMO_CTF_DFLO" "SNARTOMO_CTF_DFHI" "SNARTOMO_DF_STEP")
+  var_array=("SNARTOMO_VOLTAGE" "SNARTOMO_INTERVAL" "SNARTOMO_MINFRAMES")
+  var_array+=("SNARTOMO_MAXFRAMES" "SNARTOMO_EER_WAIT" "SNARTOMO_MC2_PATCH")
+  var_array+=("SNARTOMO_WAIT_TIME" "SNARTOMO_RUOTNOCON_SD" "SNARTOMO_CTF_SLOTS")
+  var_array+=("SNARTOMO_CTF_CS" "SNARTOMO_AC" "SNARTOMO_CTF_BOXSIZE" "SNARTOMO_CTF_RESLO")
+  var_array+=("SNARTOMO_CTF_RESHI" "SNARTOMO_CTF_DFLO" "SNARTOMO_CTF_DFHI" "SNARTOMO_DF_STEP")
   var_array+=("SNARTOMO_CTF_DAST" "SNARTOMO_JANNI_BATCH" "SNARTOMO_JANNI_OVERLAP")
   var_array+=("SNARTOMO_TOPAZ_PATCH" "SNARTOMO_TOPAZ_TIME" "SNARTOMO_DOSEFIT_MIN")
   var_array+=("SNARTOMO_DOSEFIT_RESID" "SNARTOMO_BINNING" "SNARTOMO_VOL_ZDIM")
@@ -24,6 +22,10 @@ function check_vars() {
   var_array+=("SNARTOMO_TILTCOR" "SNARTOMO_BP_METHOD" "SNARTOMO_FLIPVOL")
   var_array+=("SNARTOMO_TRANSFILE" "SNARTOMO_ARETOMO_PATCH" "SNARTOMO_ARETOMO_TIME")
   var_array+=("ISONET_ENV" "SNARTOMO_SNRFALLOFF" "SNARTOMO_SHARE" "IMOD_BIN")
+  
+  if [[ "${do_pace}" == true ]]; then
+    var_array+=("SNARTOMO_GPUS" "SNARTOMO_RAM_KILL" "SNARTOMO_TILT_TOLERANCE" "SNARTOMO_RAM_WARN" "SNARTOMO_IMOD_SLOTS")
+  fi
   
   declare -a missing_array
   
@@ -58,7 +60,7 @@ function check_testing() {
   
   if [[ "${vars[testing]}" == "true" ]]; then
     echo -e "TESTING...\n"
-    vars[outdir]="${vars[outdir]}/0-Testing"
+    vars[outdir]="${vars[outdir]}/99-Testing"
     
     # Weird output if MOTIONCOR2_EXE undefined
     if [ -z "$MOTIONCOR2_EXE" ] ; then
@@ -350,7 +352,7 @@ function create_directories() {
     else
       mkdir -p "${temp_share_dir}" 2> /dev/null
     fi
-  
+    
   # If non-PACE
   else
     if [[ "${vars[testing]}" == false ]]; then
@@ -451,7 +453,7 @@ function clean_local_dir() {
     for curr_dir in ${dir_array[@]} ; do 
       # Make sure directory is empty
       if [ "$(ls -A ${curr_dir})" ]; then 
-        vprint "WARNING! ${curr_dir} not empty" "0+" "${outlog} =${warn_log}"
+        vprint "WARNING! ${curr_dir} not empty" "1+" "${outlog} =${warn_log}"
       
       else
         if [[ "$verbose" -ge 1 ]] && [[ vars[eer_local] == "true" ]] && [[ "${key}" == "temp_local" ]] ; then
@@ -705,7 +707,6 @@ function validate_inputs() {
     validated=false
   fi
   
-# # #   if [[ "${vars[do_compress]}" == true ]] ; then
   if [[ "${vars[grouping]}" -gt 0 ]] ; then
     if [[ "${movie_ext}" == "eer" ]] ; then
       check_exe "$(which relion_convert_to_tiff)" "RELION executable" "${outlog}"
@@ -919,10 +920,14 @@ function validate_inputs() {
       done
       # End micrograph loop
       
-      if [[ "$bad_counter" == 0 ]]; then
-        vprint "    Found $mic_counter micrographs with ${data_descr} within specified range [${limit_lo}, ${limit_hi}]" "5+" "${outlog}"
-      else
+      if [[ "$bad_counter" != 0 ]]; then
         vprint "    WARNING! Found $bad_counter out of $mic_counter ${data_descr} in ${vars[mdoc_files]} outside of range [${limit_lo}, ${limit_hi}]" "2+" "${outlog}"
+      else
+        if [[ "$verbose" -ge 5 ]]; then
+          vprint "    Found $mic_counter micrographs with ${data_descr} within specified range [${limit_lo}, ${limit_hi}]" "5+" "${outlog}"
+        else
+          vprint "    ${data_descr^} OK" "2+" "${outlog}"
+        fi
       fi
     }
 
@@ -1152,7 +1157,7 @@ function validate_inputs() {
           vprint "    WARNING! AreTomo version (${two_decimals}.${third_decimal}) does not support '--out_imod' option. Disabling..." "1+" "${outlog}"
           vars[out_imod]=0
         else
-          vprint "    AreTomo version (${two_decimals}.${third_decimal}), using '-OutImod ${vars[out_imod]}'" "1+" "${outlog}"
+          vprint "    AreTomo version ${two_decimals}.${third_decimal}, using '-OutImod ${vars[out_imod]}'" "1+" "${outlog}"
         fi
       fi
       # End special cases: MotionCor, AreTomo
@@ -2639,8 +2644,8 @@ function plot_tomo_ctfs() {
   
   # (TODO: Make sure Classic doesn't err out if target_file is blank)
   if [[ "${do_pace}" == true ]] && [[ "$(basename ${vars[target_file]})" != "${single_target}" ]] ; then
-    local tgt_ts_list="${vars[outdir]}/${imgdir}/${ts_list}-${vars[target_file]}"
-    local tgt_ctf_plot="${vars[outdir]}/${imgdir}/${ctf_plot}-${vars[target_file]%.txt}.png"
+    local tgt_ts_list="${vars[outdir]}/${imgdir}/${ts_list}-$(basename ${vars[target_file]})"
+    local tgt_ctf_plot="${vars[outdir]}/${imgdir}/${ctf_plot}-$(basename ${vars[target_file]%.txt}).png"
   else
     local tgt_ts_list="${vars[outdir]}/${imgdir}/${ts_list}.txt"
     local tgt_ctf_plot="${vars[outdir]}/${imgdir}/${ctf_plot}.png"
@@ -2887,6 +2892,7 @@ function clean_up_mdoc() {
 #     vars
 #     micdir
 #     cor_ext
+#     warn_log
 #   
 ###############################################################################
   
@@ -2963,19 +2969,23 @@ function clean_up_mdoc() {
     
     # Replace ZValue
     local new_line=$(echo ${zvalue_line/$zvalue_orig/$good_counter})
-    sed -i "s/${zvalue_line}/${new_line}/" $curr_chunk
+    
+    # Save stderr in case there's an error
+    local sed_err=$((sed -i "s/${zvalue_line}/${new_line}/" $curr_chunk) 2>&1 )
+    
+    # If error (e.g., permission error), then make sure change actually appeared
+    if [[ "$sed_err" != "" ]] ; then
+      if ! grep -q "${new_line}" "$curr_chunk" ; then
+        vprint "WARNING! $sed_err" "0+" "${main_log} =${warn_log}"
+      fi
+    fi
+    
     let "good_counter++"
     
     # Append
     cat $curr_chunk >> $new_mdoc
     echo >> $new_mdoc
   done
-  
-#   echo "2815 good_mdoc_array ${#good_mdoc_array[*]}:"
-#   printf "  '%s'\n" "${good_mdoc_array[@]}"
-#   echo "2823 ${good_angles_file} '$(cat ${good_angles_file} | wc -l )'"
-#   echo "2821 $(ls -l --full-time ${good_angles_file})"
-#   exit
   
   # Clean up 
   rm -r $temp_mdoc_dir 2> /dev/null
@@ -3164,6 +3174,7 @@ function draw_thumbnails() {
 #     1) output log file
 #   
 #   Calls functions:
+#     quietCommand
 #   
 #   Global variables:
 #     tomo_dir
@@ -3180,10 +3191,12 @@ function draw_thumbnails() {
   local tomo_thumb_dir="${vars[outdir]}/${tomo_dir}/${thumbdir}"
   local binned_stack="${tomo_root}_bin.mrcs"
   local bin_cmd="binvol -z 1 -x ${vars[thumb_bin]} -y ${vars[thumb_bin]} ${reordered_stack} ${binned_stack}"
+  local bin_args="-z 1 -x ${vars[thumb_bin]} -y ${vars[thumb_bin]} ${reordered_stack} ${binned_stack}"
   
   # Convert to JPEGs
   local micjpg_prefix="${tomo_thumb_dir}/$(basename ${tomo_root})_newstack"
   local mic2jpg_cmd="mrc2tif -j ${binned_stack} ${micjpg_prefix}"
+  local mic2jpg_args="-j ${binned_stack} ${micjpg_prefix}"
   
   # Calculate edge of CTF fitting region
   local half_width=$(echo ${vars[box]}*${vars[apix]}/${vars[res_hi]}+1 | bc)
@@ -3192,52 +3205,104 @@ function draw_thumbnails() {
   # Crop power spectra
   local win_ctf="${tomo_root}_ctfstack_center.mrcs"
   local clip_cmd="clip resize -2d -ox ${box_width} -oy ${box_width} ${ctf_stack} ${win_ctf}"
+  local clip_args="resize -2d -ox ${box_width} -oy ${box_width} ${ctf_stack} ${win_ctf}"
   
   # Convert to JPEGs
   local ctf_prefix="${tomo_thumb_dir}/$(basename ${tomo_root})_ctfstack_center"
   local ctf2jpg_cmd="mrc2tif -j ${win_ctf} ${ctf_prefix}"
+  local ctf2jpg_args="-j ${win_ctf} ${ctf_prefix}"
   
   if [[ "${vars[testing]}" == false ]]; then
     mkdir -p ${tomo_thumb_dir} 2> /dev/null
     
-    vprint "  Running: ${bin_cmd}\n" "3+" "=${outlog}"
-    if [[ $verbose -ge 3 ]] ; then
-      ${vars[imod_dir]}/$bin_cmd >> ${outlog}
-    else
-      ${vars[imod_dir]}/$bin_cmd > /dev/null
-    fi
-    
-    
-    vprint "  Running: ${mic2jpg_cmd}\n" "3+" "=${outlog}"
-    if [[ $verbose -ge 3 ]] ; then
-      ${vars[imod_dir]}/${mic2jpg_cmd} >> ${outlog}
-    else
-      ${vars[imod_dir]}/${mic2jpg_cmd} > /dev/null
-    fi
-    \rm ${binned_stack} 2> /dev/null
-    
-    vprint "  Running: ${clip_cmd}\n" "3+" "=${outlog}"
-    if [[ $verbose -ge 3 ]] ; then
-      ${vars[imod_dir]}/${clip_cmd} >> ${outlog}
-    else
-      ${vars[imod_dir]}/${clip_cmd} > /dev/null
-    fi
-    
-    vprint "  Running: ${ctf2jpg_cmd}\n" "3+" "=${outlog}"
-    if [[ $verbose -ge 3 ]] ; then
-      ${vars[imod_dir]}/${ctf2jpg_cmd} >> ${outlog}
-    else
-      ${vars[imod_dir]}/${ctf2jpg_cmd} > /dev/null
-    fi
+#     vprint "  Running: ${bin_cmd}\n" "3+" "=${outlog}"
+#     if [[ $verbose -ge 3 ]] ; then
+#       ${vars[imod_dir]}/$bin_cmd >> ${outlog}
+#     else
+#       ${vars[imod_dir]}/$bin_cmd > /dev/null
+#     fi
+#     
+#     vprint "  Running: ${mic2jpg_cmd}\n" "3+" "=${outlog}"
+#     if [[ $verbose -ge 3 ]] ; then
+#       ${vars[imod_dir]}/${mic2jpg_cmd} >> ${outlog}
+#     else
+#       ${vars[imod_dir]}/${mic2jpg_cmd} > /dev/null
+#     fi
+#     \rm ${binned_stack} 2> /dev/null
+#     
+#     vprint "  Running: ${clip_cmd}\n" "3+" "=${outlog}"
+#     if [[ $verbose -ge 3 ]] ; then
+#       ${vars[imod_dir]}/${clip_cmd} >> ${outlog}
+#     else
+#       ${vars[imod_dir]}/${clip_cmd} > /dev/null
+#     fi
+#     
+#     vprint "  Running: ${ctf2jpg_cmd}\n" "3+" "=${outlog}"
+#     if [[ $verbose -ge 3 ]] ; then
+#       ${vars[imod_dir]}/${ctf2jpg_cmd} >> ${outlog}
+#     else
+#       ${vars[imod_dir]}/${ctf2jpg_cmd} > /dev/null
+#     fi
+#     
+    quietCommand "${vars[imod_dir]}/binvol"  "$bin_args"     "3" "  " "${outlog}"
+    quietCommand "${vars[imod_dir]}/mrc2tif" "$mic2jpg_args" "3" "  " "${outlog}"
+    quietCommand "${vars[imod_dir]}/clip"    "$clip_args"    "3" "  " "${outlog}"
+    quietCommand "${vars[imod_dir]}/mrc2tif" "$ctf2jpg_args" "3" "  " "${outlog}"
   
   else
-    vprint "\n  TESTING: ${bin_cmd}" "3+" "=${outlog}"
-    vprint   "  TESTING: ${mic2jpg_cmd}" "3+" "=${outlog}"
-    vprint   "  TESTING: ${clip_cmd}" "3+" "=${outlog}"
-    vprint   "  TESTING: ${ctf2jpg_cmd}" "3+" "=${outlog}"
+    vprint "\n  TESTING: binvol $bin_args" "3+" "=${outlog}"
+    vprint   "  TESTING: mrc2tif $mic2jpg_args" "3+" "=${outlog}"
+    vprint   "  TESTING: clip $clip_args" "3+" "=${outlog}"
+    vprint   "  TESTING: mrc2tif $ctf2jpg_args\n" "3+" "=${outlog}"
+    
+#     quietCommand "${vars[imod_dir]}/binvol" "$bin_args"      "3" "  "
+#     quietCommand "${vars[imod_dir]}/mrc2tif" "$mic2jpg_args" "3" "  "
+#     quietCommand "${vars[imod_dir]}/clip" "$clip_args"       "3" "  "
+#     quietCommand "${vars[imod_dir]}/mrc2tif" "$ctf2jpg_args" "3" "  "
   fi
-  
 }
+
+  function quietCommand() {
+  ###############################################################################
+  #   Function:
+  #     Runs command with desired verbosities:
+  #       0  Silent
+  #       1  Command printed to screen
+  #       6+ Program output also written
+  #   
+  #   Global variables:
+  #     verbose
+  #     
+  #   Positional variables:
+  #     1) command (can be full path, only basename will be echoed)
+  #     2) command arguments (everything except command)
+  #     3) verbosity threshold (number, no "+" afterward)
+  #     4) (OPTIONAL) string before command
+  #     5) (OPTIONAL) log file
+  #   
+  #   Calls functions:
+  #     vprint
+  #   
+  ###############################################################################
+    
+    local cmd=$1
+    local args=$2
+    local threshold=$3
+    local prestring=$4
+    local outlog=$5
+    
+    vprint "${prestring}Running: $(basename $cmd) ${args}\n" "${threshold}+" "=${outlog}"
+
+    if [[ $verbose -ge $threshold ]] ; then
+      if [ -z "${outlog}" ] ; then
+        eval "$cmd $args"
+      else
+        eval "$cmd $args" >> ${outlog}
+      fi
+    else
+      eval "$cmd $args" > /dev/null 2>&1
+    fi
+  }
 
 function wrapper_aretomo() {
 ###############################################################################
@@ -3376,7 +3441,6 @@ function wrapper_aretomo() {
   
   # Testing
   else
-# #     if [[ "${do_overwrite}" == false ]] && [[ "${vars[no_redo3d]}" == true ]] ; then
     if [[ "${vars[no_redo3d]}" == true ]] ; then
       if [[ "$verbose" -ge 2 ]]; then
         echo -e "\n  AreTomo output $tomogram_3d already exists, skipping..."
@@ -3603,7 +3667,7 @@ function wrapper_etomo() {
       vprint "\n  eTomo output $tomogram_3d already exists, skipping..." "2+"
     else
       if [[ "$verbose" -ge 3 ]]; then
-        echo -e "  TESTING $etomo_cmd\n"
+        echo -e "  TESTING: $etomo_cmd\n"
       elif [[ "$verbose" -eq 2 ]]; then
         echo      "  ${etomo_cmd}"
       fi
@@ -4419,7 +4483,7 @@ function get_central_slice() {
   norm_cmd="convert ${jpg_slice} -normalize $central_slice_jpg "
   vprint "    $norm_cmd" "3+"
   $norm_cmd && rm ${jpg_slice}
-  \cp -a $central_slice_jpg "${vars[outdir]}/${imgdir}/${thumbdir}/"
+  \cp -a $central_slice_jpg "${vars[outdir]}/${imgdir}/${thumbdir}/" 2> /dev/null
 }
 
 function getDimensions() {
@@ -4475,37 +4539,6 @@ function get_shortest_axis() {
   done
 }
 
-function quietCommand() {
-###############################################################################
-#   Function:
-#     Runs command with desired verbosities:
-#       0  Silent
-#       1  Command printed to screen
-#       6+ Program output also written
-#   
-#   Positional variables:
-#     1) command
-#     2) verbosity
-#     3) string before command (OPTIONAL)
-#   
-#   Calls functions:
-#     vprint
-#   
-###############################################################################
-  
-  local cmd=$1
-  local verbose=$2
-  local prestring=$3
-  
-  vprint "${prestring}Running: $cmd" "1+"
-  
-  if [[ $verbose -ge 6 ]] ; then
-    eval "$cmd"
-  else
-    eval "$cmd" > /dev/null 2>&1
-  fi
-}
-
 function validateDose() {
 ###############################################################################
 #   Function:
@@ -4524,7 +4557,7 @@ function validateDose() {
   
   # Sanity check that frame_array exists
   if [[ "${#frame_array[@]}" -lt 3 ]]; then
-    echo -e "  ERROR!! Array 'frame_array' is undefined! Exiting...\n"
+    echo -e "  ERROR!! Couldn't read '${vars[frame_file]}'! Exiting...\n"
     exit
   fi
   
