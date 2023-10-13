@@ -4695,7 +4695,7 @@ function validateTiff() {
   
   # Sanity check
   local num_tiff_frames="${dimension_array[2]}"
-  local num_calc_frames=$(($num_eer_frames/"${vars[grouping]}"))
+  local num_calc_frames=$(($num_eer_frames/${vars[grouping]}))
   
   if [[ ${num_tiff_frames} -ne ${num_calc_frames} ]] ; then
     vprint "    WARNING! Number of frames in TIFF file (${num_tiff_frames}) differs from calculated ($num_eer_frames/${vars[grouping]}=$num_calc_frames)" "1+" "=$outlog"
