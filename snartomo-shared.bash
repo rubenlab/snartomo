@@ -1839,7 +1839,7 @@ function check_frames() {
           
           vprint "" "1+" "=${outlog}"
         else
-          vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog} =${warn_log}"
+          vprint "    WARNING! Micrograph '$fn' header took ${hdr_time} seconds to load. Will copy locally...\n" "0+" "${outlog}"
           mkdir -pv "${temp_local_dir}" | sed 's/^/    /'  # (prepends spaces to output)
           
           # Start copying locally
@@ -1847,11 +1847,6 @@ function check_frames() {
           copy_local "${outlog}"
         fi
         # End PACE IF-THEN
-        
-#         
-#       # TESTING
-#       else
-#         vprint "   1728 fn $fn, hdr_time ${hdr_time}, eer_latency ${vars[eer_latency]}, eer_local '${vars[eer_local]}'\n" "0+" "${outlog}"
       fi
       # End read-time IF-THEN
       

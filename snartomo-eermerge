@@ -12,7 +12,7 @@ function program_info() {
   if [[ "${verbose}" -ge 1 ]]; then
     echo 
     echo "Running: SNARTomoEERMerge"
-    echo "Modified 2023-09-28"
+    echo "Modified 2023-10-13"
     date
     echo 
   fi
@@ -92,6 +92,9 @@ function main() {
     echo -e "$0 ${@}\n" >> "${vars[tifdir]}/${cmd_file}"
   fi
   
+  # If log file exists in output directory, append to it, else move it
+  moveLogFile
+  
   vprint "Done!\n" "1+"
 }
 
@@ -131,7 +134,7 @@ function do_real_work() {
     fn="${eer_array[$eer_idx]}"
     
     if [[ "${vars[testing]}" == false ]] ; then
-      check_frames  # copies the EER files locally if necessary
+      check_frames "${vars[log]}"  # copies the EER files locally if necessary
       # NOTE: Updates $fn if copying locally
       
       # If using the progress bar, then only direct output to the log file
@@ -320,7 +323,37 @@ function progressBar {
 
   # Build progressbar strings and print the ProgressBar line
   printf "\rProgress : [${_fill// /#}${_empty// /-}] ${_progress}%%" >&2
-# # #   echo "curr_idx ${curr_idx}, _done ${_done}, _left ${_left} _progress ${_progress}"
+}
+
+function moveLogFile() {
+###############################################################################
+#   Function:
+#     If log file exists in output directory, append to it, else move it
+#   
+#   Positional variables:
+#   
+#   Calls functions:
+#   
+#   Global variables:
+#     vars
+#   
+###############################################################################
+  
+  local temp_log="tmp-log$$.txt"
+  
+  if [[ -f "${vars[tifdir]}/${vars[log]}" ]]; then
+    cat ${vars[log]} ${vars[tifdir]}/${vars[log]} > ${temp_log}
+    mv ${temp_log} ${vars[tifdir]}/${vars[log]}
+    local status_code=$?
+  else
+    mv ${vars[log]} ${vars[tifdir]}/${vars[log]}
+    local status_code=$?
+  fi
+  
+  if [[ $status_code -ne 0 ]] ; then
+    echo "WARNING! Couldn't move log file '${vars[log]}' to output directory '${vars[tifdir]}/' (Maybe it's already open?)"
+    \rm ${temp_log} 2> /dev/null
+  fi
 }
 
 function DUMMY_FUNCTION() {
