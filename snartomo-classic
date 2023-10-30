@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2023-09-25"
+  echo "Modified 2023-10-13"
   date
   echo 
 }
@@ -91,7 +91,7 @@ thumb_bin=16                                      # Downsampling factor for JPEG
 
 # CTFFIND
 ctf1d_dpi=250                                     # Resolution (dpi) of PNG of 1D CTF profile
-ctfplot_first=-1                                  # Plots first CTF data for first N images in tilt series
+ctfplot_first=13                                  # Plots first CTF data for first N images in tilt series
 
 #################### Outputs #################### 
 
@@ -107,7 +107,7 @@ denoisedir=4-Denoise                              # Denoised micrograph director
 recdir=5-Tomo                                     # Reconstruction directory
 imgdir=Images                                     # Image directory
 ts_list=ts_list                                   # Prefix for list of tilt-series text files
-ctf_plot=ctfbyts                                  # Prefix for ONG plots of CTF data by tilt series
+ctf_plot=ctfbyts                                  # Prefix for PNG plots of CTF data by tilt series
 thumbdir=Thumbnails                               # Central sections of tomograms
 dose_imgdir=DoseFit                               # Dose fitting plot directory
 resid_imgdir=Residuals                            # Micrograph removal plot directory
@@ -181,9 +181,10 @@ function main() {
     do_real_work "${@}"
   else
     if [[ "${verbose}" -ge 1 ]]; then
-      echo "Writing to log file: ${vars[log]}"
       do_real_work "${@}" 2>&1 | tee -a "${vars[log]}"
     fi
+    
+    mv ${vars[log]} ${vars[outdir]}/
   fi
 }
 
@@ -221,7 +222,6 @@ function do_real_work() {
 
   while (( $(echo "$SECONDS < $max_seconds" | bc) )) ; do
     new_files=($(get_new_files "${vars[movie_dir]}" ".${movie_ext}"))
-# #     printf "'%s'\n" "${new_files[@]}" ; exit  ### TESTING
 
     for fn in "${new_files[@]}" ; do
       # Does the file end with .eer?
@@ -236,12 +236,6 @@ function do_real_work() {
         else
           break
         fi
-#       
-#       # TESTING
-#       else
-#         echo "$fn : doesn't end in '.${movie_ext}'"
-#         exit  add_argument "thumb_bin" "${thumb_bin}" "Downsampling factor for JPEG thumbnails of micrographs" "INT"
-
       fi
       # End movie IF-THEN
     done
@@ -262,7 +256,6 @@ function do_real_work() {
   compute_tomogram
   summary_info
 }
-# End main()
 
 function parse_command_line() {
 ###############################################################################
@@ -982,6 +975,7 @@ function compute_tomogram() {
 #     Default behavior is to OVERWRITE pre-existing outputs.
 #   
 #   Calls functions:
+#     clean_up_mdoc
 #     write_angles_lists
 #     write_tomo_ctfs
 #     janni_denoise
@@ -1036,15 +1030,17 @@ function compute_tomogram() {
     mkdir ${tomo_mic_dir} ${tomo_dns_dir} 2> /dev/null
   fi
 
-  # Find MDOC file
+  # Find MDOC file (TODO: Move to function)
   if [[ "${vars[mdoc_dir]}" != "" ]] ; then
     local last_mic="$(basename ${mcorr_mic_array[-1]%_mic.mrc})"
     local found_mdoc=$(grep -l $last_mic ${vars[mdoc_dir]}/*.mdoc 2> /dev/null)
     
     if [[ $found_mdoc != "" ]] ; then
       local mdoc_base=$(basename $found_mdoc)
-      local mdoc_copy="${vars[outdir]}/${tomo_dir}/${mdoc_base%.mrc.mdoc}_orig.mrc.mdoc"
-      new_mdoc="${vars[outdir]}/${tomo_dir}/${mdoc_base}"
+# # #       local mdoc_copy="${vars[outdir]}/${tomo_dir}/${mdoc_base%.mrc.mdoc}_orig.mrc.mdoc"
+      local mdoc_copy="${vars[outdir]}/${tomo_dir}/${mdoc_base}.orig"
+# # #       new_mdoc="${vars[outdir]}/${tomo_dir}/${mdoc_base}"
+      new_mdoc="${tomo_root}.mrc.mdoc"
       local temp_mdoc_dir="${vars[outdir]}/${tomo_dir}/tmp_mdoc"
       
       if [[ "$verbose" -ge 2 ]]; then
@@ -1136,7 +1132,9 @@ function compute_tomogram() {
       deconvolute_wrapper "${vars[outdir]}/${tomo_dir}" "${new_mdoc}"
     fi
     
-    get_central_slice ${tomogram_3d}
+    if [[ "${vars[testing]}" == false ]]; then
+      get_central_slice ${tomogram_3d}
+    fi
   fi
   # End tomogram-exists IF-THEN
     
@@ -1176,7 +1174,7 @@ function summary_info() {
 ###############################################################################
   
   # Remove temp directory if copying EERs locally
-  clean_local_dir
+  clean_local_dir "temp_local"
   
   if [[ "$verbose" -ge 1 ]]; then
     echo

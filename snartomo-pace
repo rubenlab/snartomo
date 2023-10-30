@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-10-11"
+  echo "Modified 2023-10-27"
   date
   echo 
 }
@@ -27,7 +27,7 @@ function program_info() {
 shared_libs=snartomo-shared.bash                   # Shared libraries
 gpu_libs=gpu_resources.bash                        # Resource (GPUs, etc.) libraries
 frame_file=motioncor-frame.txt                     # Frames file
-outdir=SNARTomoPACE                                # Output top-level directory
+outdir=SNARTomo                                    # Output top-level directory
 
 #################### Parameters ###################
 
@@ -75,7 +75,7 @@ denoisedir=4-Denoise                              # Denoised micrograph director
 recdir=5-Tomo                                     # Reconstruction directory
 imgdir=Images                                     # Image directory
 ts_list=ts_list                                   # Prefix for list of tilt-series text files
-ctf_plot=ctfbyts                                  # Prefix for ONG plots of CTF data by tilt series
+ctf_plot=ctfbyts                                  # Prefix for PNG plots of CTF data by tilt series
 thumbdir=Thumbnails                               # Central sections of tomograms
 dose_imgdir=DoseFit                               # Dose fitting plot directory
 resid_imgdir=Residuals                            # Micrograph removal plot directory
@@ -662,7 +662,7 @@ function check_other_snartomos() {
   local outlog=$1
   
   # Shared-memory directory was created but written to the screen before the log file was created
-  vprint "Writing temporary files to shared memory: '${temp_share_dir}'\n" "1+" "${main_log}"
+  vprint "Writing temporary files to: '${temp_share_dir}'\n" "1+" "${main_log}"
   
   echo -e "StartingTime:     $(date +"$time_format")" >  $my_info
   echo -e "WorkingDirectory: $PWD"                    >> $my_info
@@ -779,10 +779,32 @@ function targets_init() {
   rm ${mc2_movies} 2> /dev/null
   touch ${mc2_movies}
   
-  # Initialize MDOC list
-  while read -r target_line ; do
+#   # Initialize MDOC list (BASH 5 syntax)
+#   while read -r target_line ; do
+#     # Replace CRLFs
+#     no_crlfs=$(echo ${target_line} | sed 's/\r//')
+#     
+#     # Cut at '=' ('xargs' removes whitespace)
+#     local mdoc_file="$(dirname ${vars[target_file]})/$(echo $no_crlfs | cut -d'=' -f 2 | xargs).mdoc"
+#     if [[ -e $mdoc_file ]]; then
+#       mdoc_array+=(${mdoc_file})
+#     else
+#       vprint "$(date +"$time_format"): WARNING! MDOC file '${mdoc_file}' does not exist. Skipping..." "1+" "${main_log} =${warn_log}"
+#     fi
+#     
+#     # Save previous version of MDOC file
+#     local old_mdoc=$(get_backup_name "${mdoc_file}")
+#     
+#     rm "${old_mdoc}" 2> /dev/null
+#     touch "${old_mdoc}"
+#   done <<< $(grep "^tsfile" "${vars[target_file]}")
+  
+  # Initialize MDOC list (Using BASH 4 notation)
+  mapfile -t tsfile_array < <(grep "^tsfile" "${vars[target_file]}") 
+  for target_idx in ${!tsfile_array[@]} ; do 
     # Replace CRLFs
-    no_crlfs=$(echo ${target_line} | sed 's/\r//')
+    local target_line="${tsfile_array[$target_idx]}"
+    local no_crlfs=$(echo ${target_line} | sed 's/\r//')
     
     # Cut at '=' ('xargs' removes whitespace)
     local mdoc_file="$(dirname ${vars[target_file]})/$(echo $no_crlfs | cut -d'=' -f 2 | xargs).mdoc"
@@ -797,7 +819,7 @@ function targets_init() {
     
     rm "${old_mdoc}" 2> /dev/null
     touch "${old_mdoc}"
-  done <<< $(grep "^tsfile" "${vars[target_file]}")
+  done
   
   # Write it out so that the reconstruction step can read it
   declare -p mdoc_array > ${mdoc_list}
