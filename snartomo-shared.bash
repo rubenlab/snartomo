@@ -658,6 +658,8 @@ function validate_inputs() {
   init_conda="$CONDA_DEFAULT_ENV"
   single_target="single_tgts.txt"
   
+  check_bash "${outlog}"
+  
   if [[ "${do_pace}" == true ]]; then
     check_targets "${outlog}"
     check_apix_pace "${outlog}"
@@ -768,10 +770,10 @@ function validate_inputs() {
     try_conda "IsoNet executable" "${vars[isonet_env]}" "${outlog}"
   fi
   
-  if [[ "${do_pace}" == false ]] || [[ "${vars[do_ruotnocon]}" == true ]] || [[ "${vars[do_laudiseron]}" == true ]] ; then
-    check_python "${outlog}"
-  fi
-  
+#   if [[ "${do_pace}" == false ]] || [[ "${vars[do_ruotnocon]}" == true ]] || [[ "${vars[do_laudiseron]}" == true ]] ; then
+#     check_python "${outlog}"
+#   fi
+  check_python "${outlog}"
   check_exe "$(which convert)" "Imagemagick convert executable" "${outlog}"
   
   # Summary
@@ -952,15 +954,37 @@ function validate_inputs() {
       # Get first match 
       local first_target=$(echo $(ls -tr ${vars[target_files]} | head -n 1 ) )
       
-      # Get first MDOC
-      while read -r target_line ; do
+#       # Get first MDOC (BASH 5 syntax)
+#       while read -r target_line ; do
+#         # Replace CRLFs
+#         no_crlfs=$(echo ${target_line} | sed 's/\r//')
+#         echo "961 target_line '$target_line'"
+#         echo "962 no_crlfs '$no_crlfs'"
+#         
+#         # Cut at '=' ('xargs' removes whitespace)
+#         local mdoc_file="$(dirname ${first_target})/$(echo $no_crlfs | cut -d'=' -f 2 | xargs).mdoc"
+#         echo "966 $(dirname ${first_target})/$(echo $no_crlfs | cut -d'=' -f 2 | xargs).mdoc"
+#         echo "967 $(dirname ${first_target})"
+#         echo "968 $(echo $no_crlfs | cut -d'=' -f 2 | xargs).mdoc"
+#         echo "969 mdoc_file '${mdoc_file}'"
+#         break
+#       done <<< $(grep "^tsfile" "${first_target}")
+      
+      # Get first MDOC (BASH 4 syntax)
+      mapfile -t tsfile_array < <(grep "^tsfile" "${first_target}") 
+      for target_idx in ${!tsfile_array[@]} ; do 
         # Replace CRLFs
-        no_crlfs=$(echo ${target_line} | sed 's/\r//')
+        local target_line="${tsfile_array[$target_idx]}"
+        local no_crlfs=$(echo ${target_line} | sed 's/\r//')
+# #         echo "979 target_line '$target_line'"
+# #         echo "980 no_crlfs '$no_crlfs'"
         
         # Cut at '=' ('xargs' removes whitespace)
         local mdoc_file="$(dirname ${first_target})/$(echo $no_crlfs | cut -d'=' -f 2 | xargs).mdoc"
+# #         echo "984 $(dirname ${first_target})/$(echo $no_crlfs | cut -d'=' -f 2 | xargs).mdoc"
+# #         echo "985 mdoc_file '${mdoc_file}'"
         break
-      done <<< $(grep "^tsfile" "${first_target}")
+      done
       
       check_apix_classic "${mdoc_file}" "${outlog}"
     }
@@ -1326,8 +1350,8 @@ function validate_inputs() {
         vprint "    New conda environment: ${CONDA_DEFAULT_ENV}" "5+" "${outlog}"
       else
         echo -e "\nERROR!! Conda environment '${conda_env}' not found!"
-        echo    "Install '${conda_env}' or disable option,"
-        echo -e "Exiting...\n"
+        echo      "  Install '${conda_env}' or disable option"
+        echo -e   "Exiting...\n"
         exit
       fi
       
@@ -1337,6 +1361,32 @@ function validate_inputs() {
       conda deactivate
     fi
     # End testing IF-THEN
+  }
+
+  function check_bash() {
+  ###############################################################################
+  #   Function:
+  #     Checks BASH version
+  #   
+  #   Positional variables:
+  #   
+  #   Calls functions:
+  #     vprint
+  #   
+  #   Global variables:
+  #     warn_log
+  #   
+  ###############################################################################
+
+  local outlog=$1
+  
+  local version_string=$(bash --version | head -n 1 | cut -d' ' -f4 | cut -d. -f-2)
+  if (( $(echo "${version_string} < 5.0" |bc -l) )); then
+    vprint "  WARNING! BASH version ${version_string} not officially supported. Continuing..." "0+" "${outlog} =${warn_log}"
+  else
+    vprint "  BASH version ${version_string} OK" "1+" "${outlog}"
+  fi
+  
   }
 
   function check_targets() {
@@ -1541,7 +1591,7 @@ function validate_inputs() {
   #           vprint "  ERROR!! Frame file '${vars[frame_file]}' has the wrong format!" "0+" "${outlog}"
   #         fi
         else
-          vprint "  Dose per micrograph : $mic_dose e-/A2" "1+" "${outlog}"
+          vprint "  Dose per micrograph: $mic_dose e-/A2" "1+" "${outlog}"
         fi
         # End max-dose IF-THEN
       fi
@@ -2475,18 +2525,36 @@ function dose_fit() {
     vprint "\n  $dosefit_cmd\n" "1+" "=${tomo_log}"
     local fit_status=$(${SNARTOMO_DIR}/$dosefit_cmd 2>&1)
     
-    if [[ "$fit_status" == *"Error"* ]] ; then
-      echo -e "\nERROR!!"
-      echo -e "${fit_status}\n"
-      echo -e "Conda environments: initial '$init_conda', current '$CONDA_DEFAULT_ENV'"
-      echo -e "  Maybe this is the wrong environment?\n"
-      exit
+    if ! [ -e "${good_angles_file}" ] ; then
+      if [[ "$fit_status" == *"Error"* ]] ; then
+        vprint "\nERROR!!" "0+" "${main_log} =${warn_log}"
+        vprint "${fit_status}\n" "0+" "${main_log} =${warn_log}"
+        vprint "Conda environments: initial '$init_conda', current '$CONDA_DEFAULT_ENV'" "0+" "${main_log} =${warn_log}"
+        vprint "  Maybe this is the wrong environment?\n" "0+" "${main_log} =${warn_log}"
+        exit
+      elif [[ "$fit_status" == *"xcb"* ]] ; then
+        vprint "\nWARNING! Library problem during dose-fitting. See '${tomo_log}' for more details. Contuinuing..." "1+" "${warn_log}"
+        vprint   "Dose-fitting output: " "0+" "=${tomo_log}"
+        vprint   "  $fit_status" "0+" "=${tomo_log}"
+        vprint "\nCheck the output of 'ldd ${CONDA_PREFIX}/plugins/platforms/libqxcb.so' for 'not found errors' and modify LD_LIBRARY_PATH" "0+" "=${tomo_log}"
+        ldd ${CONDA_PREFIX}/plugins/platforms/libqxcb.so >> $tomo_log
+        
+        [ "${do_pace}" == true ] && update_arrays
+        sort_array_keys
+      else
+        vprint "\nERROR!! Dose-fitting failed for unknown reason!" "0+" "${main_log} =${warn_log}"
+        vprint   "Output: " "0+" "${main_log} =${warn_log}"
+        vprint   "  $fit_status" "0+" "${main_log} =${warn_log}"
+        vprint "\nExiting...\n" "0+" "${main_log} =${warn_log}"
+        exit
+      fi
+      # End error IF-THEN
     elif [[ "$fit_status" == *"WARNING"* ]] ; then
       vprint "$fit_status" "1+" "${tomo_log}"
     else
       vprint "$fit_status" "1+" "=${tomo_log}"
     fi
-    # End error IF-THEN
+    # End file-not-found IF-THEN
     
     # Copy link to images directory, first attempt as a hard link
     cp -l ${dose_ts_plot} ${dose_imgs_plot} 2> /dev/null
@@ -2599,14 +2667,16 @@ function write_angles_lists() {
   #     
   ###############################################################################
     
-    \rm $good_angles_file
+    \rm $good_angles_file 2> /dev/null
+    
+# # #     printf "2654 stripped_angle_array '%s'\n" "${stripped_angle_array[@]}"
     
     # Sort by angle (Adapted from https://stackoverflow.com/a/54560296)
     for KEY in ${!stripped_angle_array[@]}; do
       echo "${stripped_angle_array[$KEY]}:::$KEY"
     done | sort -n | awk -F::: '{print $2}' >> $good_angles_file
     
-# #     echo -e "\n2407 $good_angles_file (${#stripped_angle_array[@]}):" ; nl $good_angles_file #; exit ### TESTING
+# # #     echo -e "\n2661 $good_angles_file (${#stripped_angle_array[@]}):" ; nl $good_angles_file ; exit ### TESTING
   }
 
 function plot_tomo_ctfs() {

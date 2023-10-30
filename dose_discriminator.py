@@ -3,12 +3,14 @@
 import sys
 import numpy as np
 from scipy import optimize
+import matplotlib
 import matplotlib.pyplot as plt
 import os
 import argparse
 from datetime import datetime
 
 np.set_printoptions(suppress=True)
+matplotlib.use('agg')  # Gets rid of GUI dependencies
 
 USAGE="""
 Eliminates images which are too dark or deviate too much from a cosine function.
@@ -18,7 +20,7 @@ USAGE:
 
 """ % ((__file__,)*1)
 
-MODIFIED="Modified 2023 Oct 11"
+MODIFIED="Modified 2023 Oct 30"
 MAX_VERBOSITY=8
 
 def print_log_msg(mesg, cutoff, options):
