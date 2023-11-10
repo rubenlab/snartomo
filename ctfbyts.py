@@ -3,6 +3,7 @@
 #import sys
 import numpy as np
 #from scipy import optimize
+import matplotlib
 import matplotlib.pyplot as plt
 import os
 import argparse
@@ -13,6 +14,7 @@ import itertools
 from matplotlib import ticker
 import sys
 
+matplotlib.use('agg')  # Gets rid of GUI dependencies
 #np.set_printoptions(suppress=True)
 
 USAGE="""
@@ -35,7 +37,7 @@ Assumptions:
 
 """ % ((__file__,)*1)
 
-MODIFIED="Modified 2023 Oct 05"
+MODIFIED="Modified 2023 Nov 10"
 MAX_VERBOSITY=8
 
 def print_log_msg(mesg, cutoff, options):

@@ -2,19 +2,21 @@
 
 import numpy as np
 import argparse
+import matplotlib
 import matplotlib.pyplot as plt
 
+matplotlib.use('agg')  # Gets rid of GUI dependencies
 np.set_printoptions(suppress=True)
 
 USAGE="""
-Shows contour with highest residual and optionally plots.
+Shows entries with highest residual and optionally plots.
 
 USAGE:
   %s <residual_table> <options>
 
 """ % ((__file__,)*1)
 
-MODIFIED="Modified 2022 Sep 02"
+MODIFIED="Modified 2022 Nov 10"
 MAX_VERBOSITY=3
 
 def main():
@@ -23,7 +25,7 @@ def main():
   #exit()
 
   with open(options.angles_log) as f:
-    skip_first= f.readlines()[1:]
+    skip_first= f.readlines()[options.skip:]
 
   header_line= skip_first[0].split()
   
@@ -31,17 +33,20 @@ def main():
   h2c= {k: v for v, k in enumerate(header_line)}
   #print(f"'{h2c}'")  # '{0: '#', 1: 'X', 2: 'Y', 3: 'Z', 4: 'obj', 5: 'cont', 6: 'resid-nm', 7: 'Weights'}'
 
-  contour_data= np.loadtxt(options.angles_log, skiprows=2)
+  contour_data= np.loadtxt(options.angles_log, skiprows=options.skip+1)
   residual_array= contour_data[:, h2c['resid-nm'] ]
   sigma_residual= np.std(residual_array)
-  ###print(residual_array, type(residual_array), sigma_residual )
+  min_residual= np.min(residual_array)
+  #min_residual= np.mean(residual_array)
+  #min_residual= 0
+  #print('min_residual', type(min_residual), min_residual )
 
   # Sort
   sorted_array= contour_data[residual_array.argsort()]
   worst_countour= int(sorted_array[-1][0])
   worst_idx= np.argmax(residual_array)
   
-  residual_cutoff= options.sd * sigma_residual
+  residual_cutoff= min_residual + options.sd * sigma_residual
   
   # If residual exceeds the threshold...
   if sorted_array[-1][ h2c['resid-nm'] ] >= (residual_cutoff) :
@@ -71,8 +76,8 @@ def main():
       
     # Print more detailed information
     elif options.verbose==3:
-      print(f"Sigma: {sigma_residual:.1f}nm, cutoff: {options.sd:.2f}*sigma")
-      print("Contours exceeding cutoff:")
+      print(f"Minimum: {min_residual:.2f}, sigma: {sigma_residual:.2f}nm, cutoff: minimum + {options.sd:.2f}*sigma = {residual_cutoff:.2f}")
+      print("Indices exceeding cutoff:")
       
       # Reverse array
       reversed_array= sorted_array[::-1]
@@ -80,7 +85,7 @@ def main():
       # Loop through array
       for idx, line in enumerate(reversed_array):
         if reversed_array[idx][ h2c['resid-nm'] ] >= (residual_cutoff) :
-          print(f"  Contour: {int(reversed_array[idx][0])}, residual: {reversed_array[idx][ h2c['resid-nm'] ]:.1f}nm")
+          print(f"  Index: {int(reversed_array[idx][0])}, residual: {reversed_array[idx][ h2c['resid-nm'] ]:.2f}nm")
         else:
           break  # no need to continue loop
       
@@ -103,14 +108,16 @@ def main():
       np.savetxt(f, contour_data, fmt='%-10s')
   
   # Plot
-  ##x = list( range( 1, len(residual_array)+1 ) )
-  ##print(x)
   x = range( 1, len(residual_array)+1 )
-  #for i in x:
-    #print(i)
   if options.plot:
     plt.scatter( x, np.sort(residual_array) )
-    plt.xlabel('Contour number (sorted)')
+    
+    #print( h2c.keys() )
+    for idx in range(len(residual_array)):
+      plt.annotate( int(sorted_array[idx][0]), (x[idx]-0.7, sorted_array[idx][ h2c['resid-nm'] ]+np.ndarray.max(residual_array)/60), fontsize=6)
+      #print( int(sorted_array[idx][0]), x[idx], sorted_array[idx][ h2c['resid-nm'] ] )
+    
+    plt.xlabel('Index number (sorted)')
     plt.ylabel('Residual (nm)')
     plt.hlines(residual_cutoff, x[0], x[-1])
     #plt.title( os.path.splitext( os.path.basename(options.plot) )[0], fontsize=16)
@@ -143,7 +150,7 @@ def parse_command_line():
         "--sd", "--sigma_cutoff", 
         type=float, 
         default=3, 
-        help="Sigma cutoff, only contour above this threshold times sigma will be displayed")
+        help="Sigma cutoff, values above this threshold times sigma will be excluded")
     
     parser.add_argument(
         "--outfile", "-o",
@@ -169,6 +176,12 @@ def parse_command_line():
         default=2, 
         help=f"Screen verbosity [0..{MAX_VERBOSITY}]")
     
+    parser.add_argument(
+        "--skip", 
+        type=int, 
+        default=1, 
+        help="Number of lines before header row in input file")
+
     return parser.parse_args()
 
 if __name__ == "__main__":
