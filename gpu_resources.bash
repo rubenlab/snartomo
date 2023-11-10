@@ -5,8 +5,8 @@
 #   2022-04-28 (trs) -- can monitor over time, as text or in Gnuplot
 ###############################################################################
 
-if ! [ -x "$(which nvidia-smi)" ]; then
-  echo "ERROR!! nvidia-smi not found!"
+if ! [ -x "$(which nvidia-smi 2> /dev/null)" ]; then
+  echo "ERROR!! nvidia-smi not found! GPU monitoring will be disabled..."
   return
 fi
 
@@ -15,23 +15,36 @@ function gpu_resources() {
 #   Function:
 #     Shows GPU memory usage
 #     In format of nvidia-smi
+#     
+#   Positional variables:
+#     1) Units (optional)
+#     
 ###############################################################################
+  
+  local default_unit="MiB"
+  
+  if [[ "$1" != "" ]]; then
+    default_unit=$1
+  fi
   
   if [ -x "$(which nvidia-smi)" ]; then
     prev_line=""
 
-    # (Syntax for splitting output by line: https://unix.stackexchange.com/a/47876/504277)
-    nvidia-smi | while IFS= read -r curr_line
-    do 
-      num_words=`echo $curr_line | wc -w | bc`
-      if [[ "$num_words" == 15 ]]; then
-        gpu_num=`echo $prev_line | cut -d" " -f2`
-        gpu_usage=`echo $curr_line | cut -d" " -f9-11`
+    # BASH 4 syntax
+    readarray -t smi_array < <(nvidia-smi)
+    
+    for line_idx in ${!smi_array[@]} ; do 
+      local curr_line=${smi_array[$line_idx]}
+      num_words=$(echo $curr_line | wc -w | bc)
+      
+      if [[ "$curr_line" == *"%"* ]]; then
+        local gpu_num=$(echo $prev_line | cut -d" " -f2)
+        local gpu_usage=$(echo $curr_line | grep -o '\b\w*MiB\b' | head -n 1)
         echo "GPU $gpu_num: $gpu_usage"
       fi
       
       # Remember previous line
-      prev_line=$curr_line
+      local prev_line=$curr_line
     done
   else
     echo "ERROR!! nvidia-smi not found!"
@@ -228,33 +241,62 @@ function gpu_plot() {
   while (( $(echo "$(( $SECONDS - $start_time )) < $max_seconds" | bc) )) ; do
     line=$(date +"${TIMEFMT}")
     
-    while read -r gpu_line ; do
+#     while read -r gpu_line ; do
+# # # #       echo "232 gpu_line '$gpu_line'"
+#       
+#       # Parse only usage number (e.g., from "GPU 1: 5MiB / 11019MiB")
+#       memory_used=$(echo $gpu_line | cut -d' ' -f 3)
+#       echo "234 memory_used '$memory_used'"
+#       
+#       # Extract number
+#       memory_num=$(echo $memory_used | grep -o -E '[0-9]+')
+#       echo "237 memory_num '$memory_num'"
+#       line+="\t$memory_num"
+#       
+#       # Check units
+#       memory_unit=$(printf '%s\n' "${memory_used//[[:digit:]]/}")
+#       echo "241 memory_unit '$memory_unit'"
+# # #       return  ### TESTING
+#       
+#       # Warn if not megabytes
+#       if [[ "${memory_unit}" != "${default_unit}" ]] && [[ "${WARNED}" == false ]] ; then
+#         WARNED=true
+#         
+#         # Units could be wrong or, worse, blank if there's a problem with graphics driver
+#         if [[ "${memory_unit}" != "" ]] ; then
+#           echo "WARNING! gpu_plot: Expected units '${default_unit}', instead saw '${memory_unit}'"
+#         else
+#           echo    "WARNING! gpu_plot: Expected units '${default_unit}'"
+#           echo    "  nvidia-smi output: "
+#           echo    "$(nvidia-smi)"
+#           echo -e "Exiting gpu_plot...\n"
+#           return  # 'exit' will close terminal
+#         fi
+#       fi
+#       
+#     done <<< $(gpu_resources)
+    
+    # BASH 4 syntax
+    mapfile -t resource_array < <(gpu_resources) 
+# # #     for gpu_line in ${resource_array[@]} ; do 
+    for gpu_idx in ${!resource_array[@]} ; do 
+      local gpu_line=${resource_array[$gpu_idx]}
+# # #       echo "305 gpu_line '${gpu_line}'"
+      
       # Parse only usage number (e.g., from "GPU 1: 5MiB / 11019MiB")
       memory_used=$(echo $gpu_line | cut -d' ' -f 3)
+# # #       echo "309 memory_used '$memory_used'"
       
       # Extract number
       memory_num=$(echo $memory_used | grep -o -E '[0-9]+')
+# # #       echo "313 memory_num '$memory_num'"
       line+="\t$memory_num"
       
       # Check units
       memory_unit=$(printf '%s\n' "${memory_used//[[:digit:]]/}")
-      
-      # Warn if not megabytes
-      if [[ "${memory_unit}" != "${default_unit}" ]] && [[ "${WARNED}" == false ]] ; then
-        WARNED=true
-        
-        # Units could be wrong or, worse, blank if there's a problem with graphics driver
-        if [[ "${memory_unit}" != "" ]] ; then
-          echo "WARNING! gpu_plot: Expected units '${default_unit}', instead saw '${memory_unit}'"
-        else
-          echo    "WARNING! gpu_plot: Expected units '${default_unit}'"
-          echo    "  nvidia-smi output: "
-          echo -e "    '$(nvidia-smi)'\n"
-          exit
-        fi
-      fi
-      
-    done <<< $(gpu_resources)
+# # #       echo "318 memory_unit '$memory_unit'"
+    done
+# # #     return  ### TESTING
     
     if [[ "${DO_ECHO}" == false ]] ; then
       echo -e "$line" >> "${logfile}"
@@ -739,7 +781,7 @@ function temperature_plot() {
 # Check whether script is being sourced or executed (https://stackoverflow.com/a/2684300/3361621)
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 #   echo "script ${BASH_SOURCE[0]} is being executed..."
-   gpu_chart "$@"
+   gpu_plot "$@"
 # else
 #   echo "script ${BASH_SOURCE[0]} is being sourced..."
 fi
