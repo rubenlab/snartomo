@@ -1130,6 +1130,7 @@ function validate_inputs() {
   #     validated
   #     two_decimals
   #     third_decimal
+  #     warn_log
   #     
   ###############################################################################
     
@@ -1141,8 +1142,16 @@ function validate_inputs() {
     # First, check that the executable simply exists
     if [[ -f "${search_exe}" ]]; then
       vprint "  Found ${exe_descr}: ${search_exe}" "1+" "${outlog}"
-      local exe_base=$(basename $search_exe)
       
+      # Look for library errors (adapted from https://stackoverflow.com/a/42543911)
+      local ldd_err=$(ldd $search_exe 2>&1 >/dev/null)
+      if ! [ -z "$ldd_err" ] ; then
+        vprint "    WARNING! ${exe_descr^} reports the following library error:" "1+" "${outlog} =${warn_log}"
+        vprint "      ${ldd_err}" "1+" "${outlog} =${warn_log}"
+      fi
+      # End library-error IF-THEN
+      
+      # Check special cases
       if [[ "${exe_descr}" == "MotionCor2 executable" ]] ; then
         # Check owner of /tmp/MotionCor2_FreeGpus.txt
         local mc2_tempfile="/tmp/MotionCor2_FreeGpus.txt"
@@ -1160,8 +1169,8 @@ function validate_inputs() {
             # Check if you own MotionCor's temporary file (NOW CHECKS BEFORE EVERY MICROGRAPH)
             if [[ "${tempfile_owner}" != "$(whoami)" ]]; then
               if [[ "${vars[testing]}" == true ]]; then
-                vprint "  WARNING! ${mc2_tempfile} owned by ${tempfile_owner} and not you" "1+" "${outlog}"
-                vprint "    MotionCor writes a temporary file called '${mc2_tempfile}'" "2+" "${outlog}"
+                vprint "  WARNING! ${mc2_tempfile} owned by ${tempfile_owner} and not you" "1+" "${outlog} =${warn_log}"
+                vprint "    MotionCor writes a temporary file called '${mc2_tempfile}'" "2+" "${outlog} =${warn_log}"
               fi
             fi
             # End not-owner IF-THEN
@@ -1178,30 +1187,34 @@ function validate_inputs() {
         get_version_number "$search_exe"
         
         if (( $(echo "${two_decimals} < 1.1" |bc -l) )); then
-          vprint "    WARNING! AreTomo version (${two_decimals}.${third_decimal}) does not support '--out_imod' option. Disabling..." "1+" "${outlog}"
+          vprint "    WARNING! AreTomo version (${two_decimals}.${third_decimal}) does not support '--out_imod' option. Disabling..." "1+" "${outlog} =${warn_log}"
           vars[out_imod]=0
         else
           vprint "    AreTomo version ${two_decimals}.${third_decimal}, using '-OutImod ${vars[out_imod]}'" "1+" "${outlog}"
         fi
       fi
-      # End special cases: MotionCor, AreTomo
+      # End special cases IF-THEN
     
     else
       if [[ "${exe_descr}" == "PDF converter" ]] ; then
-        vprint "  WARNING! ${exe_descr} not found" "1+" "${outlog}"
-        vprint "    CTFFIND 1D spectra will not be converted to images" "2+" "${outlog}"
-        vprint "    Install pdftoppm to enable this function" "2+" "${outlog}"
+        vprint "  WARNING! ${exe_descr} not found" "1+" "${outlog} =${warn_log}"
+        vprint "    CTFFIND 1D spectra will not be converted to images" "2+" "${outlog} =${warn_log}"
+        vprint "    Install pdftoppm to enable this function" "2+" "${outlog} =${warn_log}"
         return
       fi
       
       if [[ "${vars[testing]}" == true ]]; then
-        vprint    "  WARNING! ${exe_descr} not found. Continuing..." "1+" "${outlog}"
+        vprint    "  WARNING! ${exe_descr} not found. Continuing..." "1+" "${outlog} =${warn_log}"
       else
         validated=false
-        vprint "  ERROR!! ${exe_descr} not found!" "0+" "${outlog}"
+        vprint "  ERROR!! ${exe_descr} not found!" "0+" "${outlog} =${warn_log}"
+      fi
+      
+      if [[ "${exe_descr}" == "IsoNet executable" ]] ; then
+        vprint "    If conda environment is correct, it's likely that you need to update your PATH" "0+" "${outlog} =${warn_log}"
       fi
     fi
-    # End PATH check
+    # End file-found IF-THEN
   }
 
     function debug_cuda() {
@@ -1322,14 +1335,21 @@ function validate_inputs() {
   #     2) conda environment
   #     3) output log file
   #   
+  #   Calls functions:
+  #     vprint
+  #     quietCommand
+  #   
   #   Global variables:
   #     vars
+  #     validated
   #     
   ###############################################################################
     
     local exe_descr=$1
     local conda_env=$2
     local outlog=$3
+    
+# # #     local temp_conda="${vars[outdir]}/${temp_dir}/load_conda.sh"
     
 # #     echo "1222 '$exe_descr' '$conda_env' '$outlog'" ; exit  ### TESTING
     
@@ -1341,13 +1361,11 @@ function validate_inputs() {
       eval "$(conda shell.bash hook)"
       # (Can't combine the eval command into a variable and run it, for some reason)
       
-      local conda_cmd="conda activate ${conda_env}"
-      vprint "    Executing: $conda_cmd" "5+" "${outlog}"
-      $conda_cmd 2> /dev/null
+      quietCommand "conda" "activate ${conda_env}" "5" "    " #"${outlog}"
       
       # Sanity check
-      if [[ "${CONDA_DEFAULT_ENV}" == "${conda_env}"  ]]; then
-        vprint "    New conda environment: ${CONDA_DEFAULT_ENV}" "5+" "${outlog}"
+      if [[ "${CONDA_DEFAULT_ENV}" == *"${conda_env}"*  ]]; then
+        vprint "    Found conda environment: ${CONDA_DEFAULT_ENV}" "5+" "${outlog}"
       else
         echo -e "\nERROR!! Conda environment '${conda_env}' not found!"
         echo      "  Install '${conda_env}' or disable option"
@@ -1355,7 +1373,21 @@ function validate_inputs() {
         exit
       fi
       
-      # TODO: For IsoNet, make sure isonet.py is in the PATH
+      # For IsoNet, make sure isonet.py is in the PATH
+      if [[ "${exe_descr}" == "IsoNet executable" ]]; then
+        check_exe "$(which isonet.py)" "IsoNet executable" "${outlog}"
+        
+        # Check libraries
+        declare -a not_found=()
+        check_library_python "IsoNet" "${outlog}"
+        
+        # Look for element in array (adapted from https://www.baeldung.com/linux/check-bash-array-contains-value)
+        if [[ $(echo ${not_found[@]} | fgrep -w "IsoNet") ]] ; then
+          vprint "    ERROR!! Couldn't find Python library IsoNet!" "0+" "${outlog} =${warn_log}"
+          vprint "    You may need to update your PYTHONPATH" "0+" "${outlog} =${warn_log}"
+          validated=false
+        fi
+      fi
       
       # Matplotlib won't work later on
       conda deactivate
@@ -1369,6 +1401,7 @@ function validate_inputs() {
   #     Checks BASH version
   #   
   #   Positional variables:
+  #     1) (OPTIONAL) output log 
   #   
   #   Calls functions:
   #     vprint
@@ -1382,7 +1415,7 @@ function validate_inputs() {
   
   local version_string=$(bash --version | head -n 1 | cut -d' ' -f4 | cut -d. -f-2)
   if (( $(echo "${version_string} < 5.0" |bc -l) )); then
-    vprint "  WARNING! BASH version ${version_string} not officially supported. Continuing..." "0+" "${outlog} =${warn_log}"
+    vprint "  WARNING! BASH version ${version_string} not officially supported. Continuing..." "1+" "${outlog} =${warn_log}"
   else
     vprint "  BASH version ${version_string} OK" "1+" "${outlog}"
   fi
@@ -1420,6 +1453,11 @@ function validate_inputs() {
       else
         # Read MDOC list as array
         mapfile -t mdoc_array < <(ls ${vars[mdoc_files]} 2> /dev/null)
+        
+        if [[ "${#mdoc_array[@]}" -eq 0 ]]; then
+          vprint "  ERROR!! Found no MDOC files of the form '${vars[mdoc_files]}'!\n" "0+" "${outlog}"
+          exit
+        fi
         
         local fake_targets="${vars[outdir]}/${temp_dir}/${single_target}"
         rm ${fake_targets} 2> /dev/null
@@ -1631,27 +1669,65 @@ function validate_inputs() {
     declare -a lib_array=("sys" "numpy" "scipy" "matplotlib" "os" "argparse" "datetime")
     declare -a not_found=()
     
+#     if [[ "${vars[do_deconvolute]}" == true ]]; then
+#       lib_array+=("IsoNet")
+#     fi
+    
     # Loop through libraries
     for curr_lib in ${lib_array[@]}; do
-      # Try to import, and store status code
-      python -c "import ${curr_lib}" 2> /dev/null
-      local status_code=$?
-      
-      # If it fails, then save
-      if [[ "$status_code" -ne 0 ]]; then
-        vprint "    Couldn't find: '${curr_lib}'" "7+" "${outlog}"
-        not_found+=("${curr_lib}")
-      else
-        vprint "    Found: '${curr_lib}'" "7+" "${outlog}"
-      fi
+      check_library_python "${curr_lib}" "${outlog}"
+#       # Try to import, and store status code
+#       python -c "import ${curr_lib}" 2> /dev/null
+#       local status_code=$?
+#       
+#       # If it fails, then save
+#       if [[ "$status_code" -ne 0 ]]; then
+#         vprint "    Couldn't find: '${curr_lib}'" "7+" "${outlog}"
+#         not_found+=("${curr_lib}")
+#       else
+#         vprint "    Found: '${curr_lib}'" "7+" "${outlog}"
+#       fi
     done
     # End library loop
     
     if [[ "${#not_found[@]}" > 0 ]] ; then
       validated=false
-      vprint "  ERROR!! Couldn't find the following Python libraries: ${not_found[*]}" "0+" "${outlog}"
+      vprint "  ERROR!! Couldn't find the following Python libraries: ${not_found[*]}" "0+" "${outlog} =${warn_log}"
     else
       vprint "  Python version and libraries OK" "1+" "${outlog}"
+    fi
+  }
+
+  function check_library_python() {
+  ###############################################################################
+  #   Function:
+  #     Checks for Python library by trying to import it
+  #   
+  #   Positional variables:
+  #     1) Python library
+  #     2) output log
+  #     
+  #   Global variable:
+  #     not_found
+  #     
+  #   Call function:
+  #     vprint
+  #   
+  ###############################################################################
+
+    local curr_lib=$1
+    local outlog=$2
+    
+    # Try to import, and store status code
+    python -c "import ${curr_lib}" 2> /dev/null
+    local status_code=$?
+    
+    # If it fails, then save
+    if [[ "$status_code" -ne 0 ]]; then
+      vprint "    Couldn't find Python library: '${curr_lib}'" "7+" "${outlog} =${warn_log}"
+      not_found+=("${curr_lib}")
+    else
+      vprint "    Found Python library: '${curr_lib}'" "7+" "${outlog}"
     fi
   }
 
@@ -2319,7 +2395,7 @@ function ctffind_common() {
         fi
         
         # Convert to PNG
-        ${png_cmd} 1> /dev/null
+        ${png_cmd} > /dev/null
         
 #         else
 #           echo "Not found!"
@@ -3280,50 +3356,16 @@ function draw_thumbnails() {
   if [[ "${vars[testing]}" == false ]]; then
     mkdir -p ${tomo_thumb_dir} 2> /dev/null
     
-#     vprint "  Running: ${bin_cmd}\n" "3+" "=${outlog}"
-#     if [[ $verbose -ge 3 ]] ; then
-#       ${vars[imod_dir]}/$bin_cmd >> ${outlog}
-#     else
-#       ${vars[imod_dir]}/$bin_cmd > /dev/null
-#     fi
-#     
-#     vprint "  Running: ${mic2jpg_cmd}\n" "3+" "=${outlog}"
-#     if [[ $verbose -ge 3 ]] ; then
-#       ${vars[imod_dir]}/${mic2jpg_cmd} >> ${outlog}
-#     else
-#       ${vars[imod_dir]}/${mic2jpg_cmd} > /dev/null
-#     fi
-#     \rm ${binned_stack} 2> /dev/null
-#     
-#     vprint "  Running: ${clip_cmd}\n" "3+" "=${outlog}"
-#     if [[ $verbose -ge 3 ]] ; then
-#       ${vars[imod_dir]}/${clip_cmd} >> ${outlog}
-#     else
-#       ${vars[imod_dir]}/${clip_cmd} > /dev/null
-#     fi
-#     
-#     vprint "  Running: ${ctf2jpg_cmd}\n" "3+" "=${outlog}"
-#     if [[ $verbose -ge 3 ]] ; then
-#       ${vars[imod_dir]}/${ctf2jpg_cmd} >> ${outlog}
-#     else
-#       ${vars[imod_dir]}/${ctf2jpg_cmd} > /dev/null
-#     fi
-#     
-    quietCommand "${vars[imod_dir]}/binvol"  "$bin_args"     "3" "  " "${outlog}"
-    quietCommand "${vars[imod_dir]}/mrc2tif" "$mic2jpg_args" "3" "  " "${outlog}"
-    quietCommand "${vars[imod_dir]}/clip"    "$clip_args"    "3" "  " "${outlog}"
-    quietCommand "${vars[imod_dir]}/mrc2tif" "$ctf2jpg_args" "3" "  " "${outlog}"
+    quietCommand "${vars[imod_dir]}/binvol"  "$bin_args"     "3" "  " "${outlog}" "\n"
+    quietCommand "${vars[imod_dir]}/mrc2tif" "$mic2jpg_args" "3" "  " "${outlog}" "\n"
+    quietCommand "${vars[imod_dir]}/clip"    "$clip_args"    "3" "  " "${outlog}" "\n"
+    quietCommand "${vars[imod_dir]}/mrc2tif" "$ctf2jpg_args" "3" "  " "${outlog}" "\n"
   
   else
     vprint "\n  TESTING: binvol $bin_args" "3+" "=${outlog}"
     vprint   "  TESTING: mrc2tif $mic2jpg_args" "3+" "=${outlog}"
     vprint   "  TESTING: clip $clip_args" "3+" "=${outlog}"
     vprint   "  TESTING: mrc2tif $ctf2jpg_args\n" "3+" "=${outlog}"
-    
-#     quietCommand "${vars[imod_dir]}/binvol" "$bin_args"      "3" "  "
-#     quietCommand "${vars[imod_dir]}/mrc2tif" "$mic2jpg_args" "3" "  "
-#     quietCommand "${vars[imod_dir]}/clip" "$clip_args"       "3" "  "
-#     quietCommand "${vars[imod_dir]}/mrc2tif" "$ctf2jpg_args" "3" "  "
   fi
 }
 
@@ -3344,6 +3386,7 @@ function draw_thumbnails() {
   #     3) verbosity threshold (number, no "+" afterward)
   #     4) (OPTIONAL) string before command
   #     5) (OPTIONAL) log file
+  #     6) (OPTIONAL) string after command
   #   
   #   Calls functions:
   #     vprint
@@ -3355,18 +3398,19 @@ function draw_thumbnails() {
     local threshold=$3
     local prestring=$4
     local outlog=$5
+    local poststring=$6
     
-    vprint "${prestring}Running: $(basename $cmd) ${args}\n" "${threshold}+" "=${outlog}"
+    vprint "${prestring}Running: $(basename $cmd) ${args}${poststring}" "${threshold}+" "=${outlog}"
 
-    if [[ $verbose -ge $threshold ]] ; then
+#     if [[ $verbose -ge $threshold ]] ; then
       if [ -z "${outlog}" ] ; then
-        eval "$cmd $args"
+        eval "$cmd $args" 2> /dev/null
       else
         eval "$cmd $args" >> ${outlog}
       fi
-    else
-      eval "$cmd $args" > /dev/null 2>&1
-    fi
+#     else
+#       eval "$cmd $args" > /dev/null 2>&1
+#     fi
   }
 
 function wrapper_aretomo() {
