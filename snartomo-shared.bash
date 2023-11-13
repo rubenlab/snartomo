@@ -954,35 +954,15 @@ function validate_inputs() {
       # Get first match 
       local first_target=$(echo $(ls -tr ${vars[target_files]} | head -n 1 ) )
       
-#       # Get first MDOC (BASH 5 syntax)
-#       while read -r target_line ; do
-#         # Replace CRLFs
-#         no_crlfs=$(echo ${target_line} | sed 's/\r//')
-#         echo "961 target_line '$target_line'"
-#         echo "962 no_crlfs '$no_crlfs'"
-#         
-#         # Cut at '=' ('xargs' removes whitespace)
-#         local mdoc_file="$(dirname ${first_target})/$(echo $no_crlfs | cut -d'=' -f 2 | xargs).mdoc"
-#         echo "966 $(dirname ${first_target})/$(echo $no_crlfs | cut -d'=' -f 2 | xargs).mdoc"
-#         echo "967 $(dirname ${first_target})"
-#         echo "968 $(echo $no_crlfs | cut -d'=' -f 2 | xargs).mdoc"
-#         echo "969 mdoc_file '${mdoc_file}'"
-#         break
-#       done <<< $(grep "^tsfile" "${first_target}")
-      
       # Get first MDOC (BASH 4 syntax)
       mapfile -t tsfile_array < <(grep "^tsfile" "${first_target}") 
       for target_idx in ${!tsfile_array[@]} ; do 
         # Replace CRLFs
         local target_line="${tsfile_array[$target_idx]}"
         local no_crlfs=$(echo ${target_line} | sed 's/\r//')
-# #         echo "979 target_line '$target_line'"
-# #         echo "980 no_crlfs '$no_crlfs'"
         
         # Cut at '=' ('xargs' removes whitespace)
         local mdoc_file="$(dirname ${first_target})/$(echo $no_crlfs | cut -d'=' -f 2 | xargs).mdoc"
-# #         echo "984 $(dirname ${first_target})/$(echo $no_crlfs | cut -d'=' -f 2 | xargs).mdoc"
-# #         echo "985 mdoc_file '${mdoc_file}'"
         break
       done
       
@@ -1414,8 +1394,10 @@ function validate_inputs() {
   local outlog=$1
   
   local version_string=$(bash --version | head -n 1 | cut -d' ' -f4 | cut -d. -f-2)
-  if (( $(echo "${version_string} < 5.0" |bc -l) )); then
-    vprint "  WARNING! BASH version ${version_string} not officially supported. Continuing..." "1+" "${outlog} =${warn_log}"
+  if (( $(echo "${version_string} < 4,2" |bc -l) )); then
+    vprint "  WARNING! BASH version ${version_string} not fully tested. Continuing..." "1+" "${outlog} =${warn_log}"
+  elif (( $(echo "${version_string} < 5.0" |bc -l) )); then
+    vprint "  WARNING! BASH version ${version_string} not supported. Continuing..." "1+" "${outlog} =${warn_log}"
   else
     vprint "  BASH version ${version_string} OK" "1+" "${outlog}"
   fi
@@ -2586,7 +2568,7 @@ function dose_fit() {
   # Fit dose to cosine function
   if [[ ! -f "${dose_list}" ]]; then
     vprint "\nWARNING! Dose list '${dose_list}' not found" "0+" "${main_log} =${warn_log}"
-    vprint "  Continuing...\n" "0+" "${main_log} =${warn_log}"
+    vprint "  Continuing...\n" "0+" "${main_log}"
   else
     local dosefit_cmd="$(echo dose_discriminator.py \
       ${dose_list} \
@@ -2892,6 +2874,7 @@ function denoise_wrapper() {
 #     gpu_local
 #     vars
 #     tomo_dns_dir
+#     tomo_base
 #     
 ###############################################################################
   
@@ -2959,7 +2942,8 @@ function denoise_wrapper() {
       local status_code=("${PIPESTATUS[0]}")
     else
       if [[ "${outlog}" != "" ]] ; then
-        $denoise_cmd >>${outlog} 2>&1
+# # #         $denoise_cmd >>${outlog} 2>&1
+        $denoise_cmd 2> /dev/null >> ${outlog} 
         local status_code=("${PIPESTATUS[0]}")
       else
         # Suppress output (https://stackoverflow.com/a/46009371)
@@ -2970,15 +2954,31 @@ function denoise_wrapper() {
     
     # TODO: Figure out why Topaz hangs sometimes
     vprint "    ${dns_name} complete, status code: ${status_code}" "3+" "=${outlog}"
-    # Topaz status code 124: bad
+    # Topaz status codes 1,124: bad
     
-    local num_orig="$(ls ${indir}/*_mic.mrc | wc -w)"
-    local num_dns="$(ls ${tomo_dns_dir}/*_mic.mrc | wc -w)"
-    if [[ "${num_orig}" -ne "${num_dns}" ]] ; then
-      vprint "\n    WARNING!" "2+" "=${outlog}"
+    # Topaz crashes, re-run it and save the error
+    if [[ "${dns_type}" == "topaz" ]] && [[ "${status_code}" -ne 0 ]] ; then
+      # Re-run Topaz
+      mapfile -t topaz_err < <( ($denoise_cmd) 2>&1 )
+      
+      # Error code should be nonzero again, but who knows
+      if [[ "$verbose" -ge 1 ]]; then
+        vprint "" "1+" "=${outlog}"
+        vprint "WARNING! Topaz failed for '${tomo_base}'" "1+" "${outlog} =${warn_log}"
+        printf "    %s\n" "${topaz_err[@]}" >> "${outlog}"
+        vprint "  ${topaz_err[-1]}" "1+" "${warn_log}"
+      fi
     fi
+    # End Topaz-crash IF-THEN
     
-    vprint "    Denoised ${num_dns}/${num_orig} micrographs" "3+" "=${outlog}"
+    # Sanity check for number of denoised micrographs
+    local num_orig="$(ls ${indir}/*_mic.mrc | wc -w)"
+    local num_dns="$(ls ${tomo_dns_dir}/*_mic.mrc 2> /dev/null | wc -w)"
+    if [[ "${num_orig}" -ne "${num_dns}" ]] ; then
+      vprint "\n    WARNING! Found ${num_dns}/${num_orig} denoised micrographs" "1+" "=${outlog} =${warn_log}"
+    else
+      vprint "    Denoised ${num_dns}/${num_orig} micrographs" "3+" "=${outlog}"
+    fi
   
     # Clean up
     conda deactivate
@@ -3112,7 +3112,7 @@ function clean_up_mdoc() {
     local new_line=$(echo ${zvalue_line/$zvalue_orig/$good_counter})
     
     # Save stderr in case there's an error
-    local sed_err=$((sed -i "s/${zvalue_line}/${new_line}/" $curr_chunk) 2>&1 )
+    local sed_err=$( (sed -i "s/${zvalue_line}/${new_line}/" $curr_chunk) 2>&1 )
     
     # If error (e.g., permission error), then make sure change actually appeared
     if [[ "$sed_err" != "" ]] ; then
@@ -3245,7 +3245,7 @@ function imod_restack() {
         
         local newstack_status=("${PIPESTATUS[0]}")
       else
-        ${vars[imod_dir]}/${restack_cmd} >> $newstack_log
+        ${vars[imod_dir]}/${restack_cmd} >> $newstack_log 2>&1
         local newstack_status=("${PIPESTATUS[0]}")
       fi
     
@@ -3258,7 +3258,7 @@ function imod_restack() {
         
         if [[ "$verbose" -ge 1 ]]; then
           vprint "  WARNING! Newstack output '$reordered_stack' does not exist! Status code: ${newstack_status}" "0+" "${outlog} =${warn_log}"
-          vprint "    Continuing...\n" "0+" "${outlog} =${warn_log}"
+          vprint "    Continuing...\n" "0+" "${outlog}"
         fi
       else
         # Update pixel size

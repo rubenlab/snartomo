@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-10-27"
+  echo "Modified 2023-11-13"
   date
   echo 
 }
@@ -35,7 +35,6 @@ outdir=SNARTomo                                    # Output top-level directory
 LAST_TILT=-999.9                                  # Last (not highest) tilt angle in tilt series
 max_minutes=400                                   # Maximum run time, minutes
 apix=-1.00                                        # Pixel size, Angstroms
-# # # gpus="0 1"                                        # List of GPUs to use, delimited by spaces
 verbosity=4                                       # Verbosity level
 #                                                 #   0: prints nothing
 #                                                 #   1: prints brief overall summary
@@ -2730,7 +2729,7 @@ function compute_tomograms() {
           vprint   "WARNING! Reconstruction '$tomogram_3d' does not exist!" "1+" "${main_log} =${warn_log}"
           # TODO: etomo_out only defined for eTomo option
           cat ${etomo_out} | grep -Ev 'quit|Beginning|ABORT|failures|^$' | sed 's/^/         /' | tee -a ${main_log} ${warn_log}
-          vprint "\n         Continuing...\n" "1+" "${main_log} =${warn_log}"
+          vprint "         Continuing...\n" "1+" "${main_log} =${warn_log}"
           
           # Don't look for this output
           let "num_mdocs--"
@@ -2807,6 +2806,7 @@ function tomogram_parallel() {
 #     new_subframe_array (OUTPUT)
 #     dose_rate_array (OUTPUT)
 #     warn_log
+#     tomo_mic_dir
 #     micdir
 #     cor_ext
 #     tomo_dns_dir
