@@ -1394,10 +1394,10 @@ function validate_inputs() {
   local outlog=$1
   
   local version_string=$(bash --version | head -n 1 | cut -d' ' -f4 | cut -d. -f-2)
-  if (( $(echo "${version_string} < 4,2" |bc -l) )); then
-    vprint "  WARNING! BASH version ${version_string} not fully tested. Continuing..." "1+" "${outlog} =${warn_log}"
-  elif (( $(echo "${version_string} < 5.0" |bc -l) )); then
+  if (( $(echo "${version_string} < 5.0" |bc -l) )); then
     vprint "  WARNING! BASH version ${version_string} not supported. Continuing..." "1+" "${outlog} =${warn_log}"
+  elif (( $(echo "${version_string} < 4.2" |bc -l) )); then
+    vprint "  WARNING! BASH version ${version_string} not fully tested. Continuing..." "1+" "${outlog} =${warn_log}"
   else
     vprint "  BASH version ${version_string} OK" "1+" "${outlog}"
   fi
