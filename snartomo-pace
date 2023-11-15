@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-11-13"
+  echo "Modified 2023-11-14"
   date
   echo 
 }
@@ -40,8 +40,8 @@ verbosity=4                                       # Verbosity level
 #                                                 #   1: prints brief overall summary
 #                                                 #   2: prints warnings, more thorough sanity check
 #                                                 #   3: prints summary for each tomogram 
-#                                                 #   4: (NOT USED) lists each micrograph 
-#                                                 #   5: prints commands for each micrograph
+#                                                 #   4: prints counter
+#                                                 #   5: prints commands
 #                                                 #   6: prints summary of CTFFIND, denoising, etc.
 #                                                 #   7: prints full CTFFIND/denoising/IMOD/AreTomo info
 #                                                 #   8: shows file unlocking & locking
@@ -82,6 +82,7 @@ contour_imgdir=Contours                           # Contour removal plot directo
 temp_dir=tmp                                      # Temporary files
 dir2denoise=TmpDenoised                           # Denoised micrographs will go here
 isonet_star=isonet_deconv.star                    # IsoNet STAR file
+heatwave_json=heatwave.json                       # JSON file for SNARTomo GUI
 
 # Log files (in $log_dir)
 main_log=snartomo.txt                             # Main log file
@@ -173,6 +174,7 @@ main
     shared.backup_file {movies_done, mcor_done, ctf_done, rec_done}
   End target-file loop
   
+  shared.create_json
   shared.clean_local_dir
 '
 
@@ -248,7 +250,7 @@ function main() {
     # Read pre-existing CTFFIND files
     read_init "${ctf_mics}"   "${ctf_list}" "mic_to_ctf"   "MotionCor2"     "CTFFIND4"   "CTFs"
     
-# #     do_parallel=false  ### TESTING
+# # #     do_parallel=false  ### TESTING
     
     # If fast testing, run in series
     if [[ "${do_parallel}" == false ]] ; then
@@ -281,7 +283,7 @@ function main() {
   done
   # End targets loop
   
-  vprint "" "1+" "${main_log}"
+  create_json "${main_log}" "$(date +"$time_format"): "
   clean_local_dir "temp_local" "${main_log}"
   clean_local_dir "temp_share" "${main_log}"
   
@@ -360,6 +362,7 @@ function parse_command_line() {
   add_argument "testing" "false" "Testing flag" "BOOL"
   add_argument "overwrite" "false" "Flag to overwrite pre-existing output directory" "BOOL"
   add_argument "verbosity" "${verbosity}" "Verbosity level (0..8)" "INT"
+  add_argument "do_json" "false" "Write JSON file" "BOOL"
   add_argument "max_minutes" "${max_minutes}" "Maximum run time, minutes" "INT"
   add_argument "kv" "${SNARTOMO_VOLTAGE}" "Voltage, kV" "FLOAT"
   add_argument "no_redo3d" "false" "Flag to NOT overwrite pre-existing 3D reconstructions" "BOOL"
@@ -382,7 +385,6 @@ function parse_command_line() {
 
   # EERMerge
   add_section "EERMERGE SETTINGS" "Settings if compressing EERs."
-# # #   add_argument "do_compress" "false" "Flag to compress EERs" "BOOL"
   add_argument "grouping" "-1" "Number of EER frames to merge" "INT"
   
   # MotionCor2
@@ -947,7 +949,7 @@ function movies_init() {
             
         vprint "$(date +"$time_format"): Found EER in tilt series #${series_num}, MDOC '$(basename $mdoc_file)': ${init_movie_array[-1]}, angle: ${movie_angle}, remaining EERs: ${#init_movie_array[@]}" "0+" "=${file_log}"
         
-        if [[ "$verbose" -ge 1 ]]; then
+        if [[ "$verbose" -ge 4 ]]; then
           echo -ne "Found ${movie_counter} pre-existing EERs\r"
         fi
         
@@ -1138,7 +1140,7 @@ function detect_new_movies() {
             let "new_idx++"
             let "movie_counter++"
             
-            if [[ "$verbose" -ge 1 ]]; then
+            if [[ "$verbose" -ge 4 ]]; then
               echo -ne "Accumulated ${movie_counter} movies\r"
             fi
             
@@ -1429,7 +1431,7 @@ function distribute_motioncor() {
         # Get number of micrographs
         local num_mics="${#mic_array[@]}"
 
-        if [[ "$verbose" -ge 1 ]]; then
+        if [[ "$verbose" -ge 4 ]]; then
           echo -ne "Accumulated\t\t${num_mics} micrographs\r"
         fi
         
@@ -1532,6 +1534,9 @@ function distribute_motioncor() {
     ali_out="${vars[outdir]}/${micdir}/${mc2_logs}/${stem_movie}_mic.out"
     ali_err="${vars[outdir]}/${micdir}/${mc2_logs}/${stem_movie}_mic.err"
     mc2_tempfile="/tmp/MotionCor2_FreeGpus.txt"
+# #       
+# #     get_version_number "${vars[motioncor_exe]}"
+# #     echo "1537 two_decimals '${two_decimals}', third_decimal '${third_decimal}'" ; exit
 
     if [[ "${vars[testing]}" == false ]]; then
       # Check whether copying locally
@@ -1553,6 +1558,7 @@ function distribute_motioncor() {
       vprint "$(date +"$time_format"): Starting MotionCor2 on '$(basename ${fn})' on GPU #${gpu_num}, movies remaining: ${remaining_movies}" "0+" "=${file_log}"
       vprint "$(run_motioncor ${fn} $gpu_num)" "4+" "=${mc2_out}" 
       
+# # #       run_motioncor ${fn} $gpu_num ; exit ### TESTING
       local mc2_cmd=$(run_motioncor ${fn} $gpu_num)
       
       if [[ "$verbose" -le 8 ]]; then
@@ -2179,7 +2185,7 @@ function distribute_ctffind() {
     # Get number of CTFs
     num_ctfs="${#ctf_array[@]}"
 
-    if [[ "$verbose" -ge 1 ]]; then
+    if [[ "$verbose" -ge 4 ]]; then
       echo -ne "Accumulated\t\t\t\t\t${num_ctfs} CTFs\r"
     fi
           
@@ -2743,7 +2749,7 @@ function compute_tomograms() {
     # Get number of tomograms
     local num_tomos="${#tomo_array[@]}"
 
-    if [[ "$verbose" -ge 1 ]]; then
+    if [[ "$verbose" -ge 4 ]]; then
       echo -ne "Accumulated ${num_tomos} tomograms\r"
     fi
           

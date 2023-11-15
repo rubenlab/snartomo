@@ -774,7 +774,8 @@ function validate_inputs() {
 #     check_python "${outlog}"
 #   fi
   check_python "${outlog}"
-  check_exe "$(which convert)" "Imagemagick convert executable" "${outlog}"
+  check_exe "$(which convert)" "ImageMagick convert executable" "${outlog}"
+  check_exe "$(which snartomo-heatwave.py)" "SNARTomo Heatwave" "${outlog}"
   
   # Summary
   if [[ "$validated" == false ]]; then
@@ -1123,13 +1124,16 @@ function validate_inputs() {
     if [[ -f "${search_exe}" ]]; then
       vprint "  Found ${exe_descr}: ${search_exe}" "1+" "${outlog}"
       
-      # Look for library errors (adapted from https://stackoverflow.com/a/42543911)
-      local ldd_err=$(ldd $search_exe 2>&1 >/dev/null)
-      if ! [ -z "$ldd_err" ] ; then
-        vprint "    WARNING! ${exe_descr^} reports the following library error:" "1+" "${outlog} =${warn_log}"
-        vprint "      ${ldd_err}" "1+" "${outlog} =${warn_log}"
+      # nvcc isn't a dynamically-linked executable
+      if [[ ${exe_descr} != "CUDA libraries" ]] && [[ ${exe_descr} != "SNARTomo Heatwave" ]] ; then
+        # Look for library errors (adapted from https://stackoverflow.com/a/42543911)
+        local ldd_err=$(ldd $search_exe 2>&1 >/dev/null)
+        if ! [ -z "$ldd_err" ] ; then
+          vprint "    WARNING! ${exe_descr^} reports the following library error:" "1+" "${outlog} =${warn_log}"
+          vprint "      ${ldd_err}" "1+" "${outlog} =${warn_log}"
+        fi
       fi
-      # End library-error IF-THEN
+      # End nvcc IF-THEN
       
       # Check special cases
       if [[ "${exe_descr}" == "MotionCor2 executable" ]] ; then
@@ -2209,8 +2213,25 @@ function run_motioncor() {
   -Tol 0.5 \
   -Serial 0 \
   -SumRange 0 0 \
-  -Gpu ${gpu_local} \
-  -LogFile ${vars[outdir]}/$micdir/${mc2_logs}/${stem_movie}_mic.log "
+  -Gpu ${gpu_local} "
+  
+  # Starting with MotionCor v1.4.6, LogFile is replaced with LogDir
+  get_version_number "${vars[motioncor_exe]}"
+  local use_logdir=false
+  if (( $(echo "${two_decimals} > 1.4" | bc -l) )) ; then
+    use_logdir=true
+  elif [[ "${two_decimals}" == "1.4" ]] && [[ "${third_decimal}" -ge 6 ]] ; then
+    use_logdir=true
+  fi
+  
+    
+  if [[ "${use_logdir}" == true ]] ; then
+# # #     echo "2229 use_logdir '$use_logdir', two_decimals '${two_decimals}', third_decimal '${third_decimal}'"
+    mc_command+=" -LogDir ${vars[outdir]}/$micdir/${mc2_logs}/ "
+  else
+# # #     echo "2232 use_logdir '$use_logdir', two_decimals '${two_decimals}', third_decimal '${third_decimal}'"
+    mc_command+=" -LogFile ${vars[outdir]}/$micdir/${mc2_logs}/${stem_movie}_mic.log "
+  fi
   
   if [[ "${vars[split_sum]}" == 1 || "${vars[do_splitsum]}" == true ]]; then
     mc_command+=" -SplitSum 1 "
@@ -2654,20 +2675,17 @@ function write_angles_lists() {
   
   local outlog=$1
 
-  # TODO: Test in Classic mode w/o MDOC
-#   if [[ $found_mdoc == "" ]] ; then
-#     sort_array_keys
-#   fi
+#   echo "2683 good_angles_file '$good_angles_file'"
+#   echo "2684 found_mdoc '$found_mdoc'"
+#   exit
+  
+  # Need in Classic mode w/o MDOC
+  if [[ $found_mdoc == "" ]] ; then
+    sort_array_keys
+  fi
   
   mapfile -t sorted_keys < $good_angles_file
 
-#   echo "2412  $(ls -l --full-time ${good_angles_file})"
-#   echo "2414 sorted_keys ${#sorted_keys[*]}:"
-#   printf "  '%s'\n" "${sorted_keys[@]}"
-#   echo "2415 stripped_angle_array ${#stripped_angle_array[*]}:"
-#   printf "  '%s'\n" "${stripped_angle_array[@]}"
-#   exit
-  
   mcorr_list="${tomo_root}_mcorr.txt"
   angles_list="${tomo_root}_newstack.rawtlt"
   denoise_list="${tomo_root}_denoise.txt"
@@ -4818,6 +4836,90 @@ function validateTiff() {
     \mv $curr_tiff "${vars[tifdir]}"
 # #   else
 # #     echo "273 $fn is in current directory"
+  fi
+}
+
+function create_json() {
+###############################################################################
+#   Function:
+#     Calls SNARTomo Heatwave to generate the JSON file
+#   
+#   Positional variables:
+#     1) (optional) output log
+#     2) (OPTIONAL) string before command
+#
+#   Calls functions:
+#     vprint
+#   
+#   Global variables:
+#     heatwave_json
+#     vars
+#     recdir
+#     thumbdir
+#     ctf_summary
+#     ctf_plot
+#     imgdir
+#     warn_log
+#   
+###############################################################################
+  
+  local outlog=$1
+  local prestring=$2
+  
+  local heatwave_cmd="snartomo-heatwave.py --no_gui --json ${heatwave_json} "
+  
+  # If MDOC files are provided, vars[target_files] will be a dummy file
+  if [[ "${do_pace}" == true ]]; then
+    if [[ "${vars[mdoc_files]}" != "" ]] ; then
+      # TODO: test PACE in MDOC mode
+      heatwave_cmd+=" --mdoc_files \'${vars[mdoc_files]}\' "
+    else
+      heatwave_cmd+=" --target_files \'${vars[target_files]}\' "
+    fi
+  
+  # In Classic mode, vars[mdoc_files] will only have a single MDOC (if at all)
+  else
+    vprint "" "1+"
+    if [[ "${vars[mdoc_dir]}" != "" ]] ; then
+# # #         echo "4884 mdoc_array '${mdoc_array[@]}'"
+      heatwave_cmd+=" --mdoc_files \'${mdoc_array[@]}\' "
+    else
+      vprint "Skipping creation of JSON file with no MDOCs" "1+"
+      return
+    fi
+  fi
+  
+  # Assuming default values for --micthumb_suffix, --ctfthumb_suffix, --slice_jpg, --dosefit_plot, and --thumb_format
+  heatwave_cmd+="--in_dir ${vars[outdir]} \
+    --ts_dir \'\$IN_DIR/${recdir}/\$MDOC_STEM\' \
+    --micthumb_dir ${thumbdir} \
+    --ctf_summary ${ctf_summary} \
+    --ctfbyts_1ts ${ctf_plot}.png \
+    --ctfbyts_tgts \'\$IN_DIR/${imgdir}/${ctf_plot}*.png\' \
+  "
+  
+  local clean_cmd=$(echo ${heatwave_cmd} | xargs)
+  
+  # Remove whitespace
+  vprint "${prestring}Creating JSON file '${heatwave_json}' for GUI" "1+" "$outlog"
+  
+  if [[ "${vars[testing]}" == true ]]; then
+    vprint "  TESTING: $clean_cmd"  "4+" "$outlog"
+  else
+    vprint "  $clean_cmd"  "5+" "$outlog"
+    eval $clean_cmd
+    local status_code=$?
+    
+# # #     echo "4901 status_code '$status_code'"
+    if [[ $status_code -ne 0 ]] ; then
+      vprint "  WARNING! JSON-generating command failed" "1+" "$outlog =${warn_log}"
+      
+      if [[ "${verbose}" -lt 5 ]] ; then
+        vprint "  Failed command: $clean_cmd"  "1+" "$outlog =${warn_log}"
+      else
+        vprint "  Failed command: $clean_cmd"  "1+" "=${warn_log}"
+      fi
+    fi
   fi
 }
 

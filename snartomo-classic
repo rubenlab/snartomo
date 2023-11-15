@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2023-10-13"
+  echo "Modified 2023-11-14"
   date
   echo 
 }
@@ -115,6 +115,7 @@ contour_imgdir=Contours                           # Contour removal plot directo
 temp_dir=tmp                                      # Temporary files
 dir2denoise=TmpDenoised                           # Denoised micrographs will go here
 isonet_star=isonet_deconv.star                    # IsoNet STAR file
+heatwave_json=heatwave.json                       # JSON file for SNARTomo GUI
 
 ################ END BATCH HEADER ################
 
@@ -153,6 +154,7 @@ main
           remove_local
         ctffind4_serial
         check_time
+    shared.create_json
     summary_info
       shared.clean_local_dir
 '
@@ -254,6 +256,7 @@ function do_real_work() {
   # Close last tomogram list
   check_time
   compute_tomogram
+  create_json
   summary_info
 }
 
@@ -562,6 +565,7 @@ function initialize_vars() {
   declare -A denoise_array=()
   declare -A stripped_angle_array=()
   declare -A ctf_stk_array=()
+  declare -a mdoc_array
   
   tomo_counter=0
   kill_all_humans=false
@@ -989,6 +993,7 @@ function compute_tomogram() {
 #     mcorr_mic_array
 #     tomo_dir (OUTPUT)
 #     new_mdoc (OUTPUT)
+#     mdoc_array
 #     good_angles_file
 #     recdir
 #     prev_name
@@ -1037,9 +1042,7 @@ function compute_tomogram() {
     
     if [[ $found_mdoc != "" ]] ; then
       local mdoc_base=$(basename $found_mdoc)
-# # #       local mdoc_copy="${vars[outdir]}/${tomo_dir}/${mdoc_base%.mrc.mdoc}_orig.mrc.mdoc"
       local mdoc_copy="${vars[outdir]}/${tomo_dir}/${mdoc_base}.orig"
-# # #       new_mdoc="${vars[outdir]}/${tomo_dir}/${mdoc_base}"
       new_mdoc="${tomo_root}.mrc.mdoc"
       local temp_mdoc_dir="${vars[outdir]}/${tomo_dir}/tmp_mdoc"
       
@@ -1059,6 +1062,10 @@ function compute_tomogram() {
       
       # Write MDOC file with remaining micrographs
       clean_up_mdoc "${mdoc_copy}" "${new_mdoc}" "$temp_mdoc_dir"
+      
+      # Record MDOC path
+      mdoc_array+=(${new_mdoc})
+# # #       echo "1068 Adding '${new_mdoc}' to mdoc_array"
     
     # Not using MDOC
     else
@@ -1071,7 +1078,9 @@ function compute_tomogram() {
     # End found-MDOC IF-THEN
   else
     new_mdoc=""
+    good_angles_file="${tomo_root}_goodangles.txt"
   fi
+  # End mdoc IF-THEN
   
   write_angles_lists
   
