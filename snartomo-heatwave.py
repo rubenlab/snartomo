@@ -2002,7 +2002,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         if total_files: 
             msg=f"There are still {total_files} remaining files in '{self.incinerate_dir}', presumably from a previous session. "
             msg+="If you would like to restore them, you will need to do so manually."
-            QtWidgets.QMessageBox.wawrning(self, 'NOTE', msg, QtWidgets.QMessageBox.Ok)
+            QtWidgets.QMessageBox.warning(self, 'NOTE', msg, QtWidgets.QMessageBox.Ok)
             if self.verbosity>=1 : print(msg)
     
     # Adapted from https://stackoverflow.com/a/9249527
