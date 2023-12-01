@@ -25,6 +25,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image, ImageTk
 import copy
+import webbrowser
 
 USAGE = """
   For PACEtomo target files: %s --target_files '*tgts.txt' <options>
@@ -35,7 +36,7 @@ USAGE = """
   For more info about options, enter: %s --help
 """ % ( (os.path.basename(__file__),)*3 )
 
-MODIFIED="Modified 2023 Nov 30"
+MODIFIED="Modified 2023 Dec 01"
 MAX_VERBOSITY=9
 VIRTUAL_TARGET_FILE='All tilt series'
 
@@ -100,12 +101,13 @@ class MdocTreeView(QtWidgets.QMainWindow):
         self.warn_keys= ['MicThumbnail', 'CtfThumbnail', 'MoviePath', 'McorrMic', 'TiffFile', 'DenoiseMic', 'slices']
         self.warn_dict= {key: False for key in self.warn_keys}
         self.incinerate_subdirs={}
-        self.incinerate_dirlist=  ['movie_dir','tif_dir', 'mic_dir', 'denoise_dir','ts_dir']
+        self.incinerate_subdirs=  ['movie_dir','tif_dir', 'mic_dir', 'denoise_dir','ts_dir']
         self.incinerate_jsonkeys= ['MoviePath','TiffFile','McorrMic','DenoiseMic']  # 'ts_dir' will be handled separately
         self.incinerated_tsdict={}
         self.incinerated_mvlist=[]
         self.generic_text="EDIT TEXT"
         self.editable_column=3  # in column #3 (TiltAngle) and only for depth=1 (tilt series)
+        self.incinerate_dir= re.sub('\$IN_DIR', self.options.in_dir, self.options.incinerate_dir)
         
         # Do stuff
         self.checkJson()
@@ -817,7 +819,28 @@ class MdocTreeView(QtWidgets.QMainWindow):
         
         button_layout.addSpacerItem(QtWidgets.QSpacerItem(0, 0, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum))
         
-        # TODO: Add Help menu
+        # Help menu
+        help_button= QtWidgets.QPushButton('Help')
+        help_menu= QtWidgets.QMenu(help_button)
+        
+        # Shortcut menu item
+        shortcut_action= QtWidgets.QAction('Keyboard shortcuts', self)
+        help_menu.addAction(shortcut_action)
+        shortcut_action.triggered.connect(self.showShortcuts)
+        
+        # WWW-help menu item
+        www_action= QtWidgets.QAction('WWW help', self)
+        help_menu.addAction(www_action)
+        www_action.triggered.connect(self.openWWW)
+        
+        # About menu item
+        about_action= QtWidgets.QAction('About Heatwave', self)
+        help_menu.addAction(about_action)
+        about_action.triggered.connect(self.showAbout)
+        
+        button_layout.addWidget(help_button)
+        help_button.clicked.connect( lambda: self.showPopupMenu(help_button, help_menu) )
+        
         quit_button= QtWidgets.QPushButton('Quit')
         quit_button.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         quit_button.clicked.connect(self.closeEvent)
@@ -829,6 +852,36 @@ class MdocTreeView(QtWidgets.QMainWindow):
         test_shortcut.activated.connect(self.testFunction)
         
         return button_layout
+    
+    def showPopupMenu(self, widget, menu):
+        # Get the global position of the button
+        pos = widget.mapToGlobal(widget.rect().bottomLeft())
+
+        # Show the menu at the adjusted position
+        menu.exec_(pos)
+
+    def showShortcuts(self):
+        msg= "Ctrl+s\tSave JSON\n"
+        msg+="Ctrl+r\tRestack micrographs\n"
+        msg+="Ctrl+i\tIncinerate tilt series\n"
+        msg+="Ctrl+u\tUnincinerate files\n"
+        msg+="Ctrl+q\tQuit\n"
+        shortcut_box= QtWidgets.QMessageBox()
+        shortcut_box.setWindowTitle("Shortcuts")
+        shortcut_box.setText(msg)
+        shortcut_box.setStandardButtons(QtWidgets.QMessageBox.Ok)
+        shortcut_box.exec_()
+    
+    def openWWW(self):
+        webbrowser.open('https://github.com/rubenlab/snartomo/wiki/SNARTomoHeatwave')
+    
+    def showAbout(self):
+        QtWidgets.QMessageBox.information(
+            self, 
+            "About", 
+            f"SNARTomo Heatwave\n{MODIFIED} ",
+            QtWidgets.QMessageBox.Ok
+            )
     
     def drawTargetData(self, curr_target):
         """
@@ -1479,13 +1532,9 @@ class MdocTreeView(QtWidgets.QMainWindow):
         # End checkbox IF-THEN
         
     def testFunction(self):
-        first_target= list( self.data4json.keys() )[0]
-        last_mdoc= list( self.data4json[first_target].keys() )[-1]
-        print(f"testFunction: first_target {first_target}, last_mdoc {last_mdoc}")
-        del self.data4json[first_target][last_mdoc]
-        del self.mdoc_lut[os.path.basename(last_mdoc)]
-        self.saveSelection()
-        self.buildGUI()
+        msg=f"There are still N remaining files in '{self.incinerate_dir}', presumably from a previous session. "
+        msg+="If you would like to restore them, you will need to do so manually."
+        QtWidgets.QMessageBox.warning(self, 'NOTE', msg, QtWidgets.QMessageBox.Ok)
 
     def saveSelection(self):
         # Loop through target files (real or virtual)
@@ -1733,7 +1782,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                     # Only incinerate if completely deselected
                     if self.mic2qt_lut[curr_mdoc]['widget'].checkState() == 0:
                         self.option_dict= vars(self.options)
-                        self.incinerate_dir= re.sub('\$IN_DIR', self.options.in_dir, self.options.incinerate_dir)
+                        ###self.incinerate_dir= re.sub('\$IN_DIR', self.options.in_dir, self.options.incinerate_dir)
                         self.createIncinerateSubdirs()
                     
                         # Move tilt series directory
@@ -1749,7 +1798,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                         else:
                             if self.verbosity>=4: print(f"DEBUG: mv {ts_dir} {self.incinerate_subdirs['ts_dir']}")
                             
-                        except_tsdir= self.incinerate_dirlist.copy()
+                        except_tsdir= self.incinerate_subdirs.copy()
                         except_tsdir.remove('ts_dir')
                         
                         # Loop through data types
@@ -1808,7 +1857,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
             if self.verbosity>=1 : print(f"Created directory: {self.incinerate_dir}")
         
         # Loop through directory keys
-        for key in self.incinerate_dirlist: 
+        for key in self.incinerate_subdirs: 
             if key == 'movie_dir':
                 outdir= os.path.join(self.incinerate_dir, self.option_dict[key])
             elif key == 'ts_dir':
@@ -1951,9 +2000,9 @@ class MdocTreeView(QtWidgets.QMainWindow):
         # Count remaining files in incinerator
         total_files= countFiles(self.incinerate_dir)
         if total_files: 
-            msg=f"There are still {total_files} remaining in '{self.incinerate_dir}', presumably from a previous session. "
+            msg=f"There are still {total_files} remaining files in '{self.incinerate_dir}', presumably from a previous session. "
             msg+="If you would like to restore them, you will need to do so manually."
-            QtWidgets.QMessageBox.question(self, 'NOTE', msg, QtWidgets.QMessageBox.Ok)
+            QtWidgets.QMessageBox.wawrning(self, 'NOTE', msg, QtWidgets.QMessageBox.Ok)
             if self.verbosity>=1 : print(msg)
     
     # Adapted from https://stackoverflow.com/a/9249527
@@ -2555,14 +2604,14 @@ def parse_command_line():
     )
 
     parser.add_argument(
+        "--new", "-n",
+        action="store_true",
+        help="Create a new JSON file from scratch, even if it exists")
+    parser.add_argument(
         "--json", "-j",
         type=str,
         default='heatwave.json',
         help="JSON metadata file, will be created if it doesn't exist, and if the necessary inputs are provided")
-    parser.add_argument(
-        "--new", "-n",
-        action="store_true",
-        help="Create a new JSON file from scratch, even if it exists")
     
     required= parser.add_argument_group(
         title="Input target or MDOC files",
@@ -2584,9 +2633,20 @@ def parse_command_line():
         )
     
     parameters.add_argument(
-        '--no_gui',
+        '--no_imgs',
         action="store_true",
-        help="Flag to skip GUI, only create JSON")
+        help='Flag to skip image display')
+
+    parameters.add_argument(
+        "--imgsize",
+        type=int,
+        default=160,
+        help=f"Image size")
+
+    parameters.add_argument(
+        '--expand',
+        action="store_true",
+        help="Flag to start with expanded tree")
 
     parameters.add_argument(
         "--verbose", "-v", "--verbosity",
@@ -2607,25 +2667,14 @@ def parse_command_line():
     """
 
     parameters.add_argument(
-        "--imgsize",
-        type=int,
-        default=160,
-        help=f"Image size")
-
-    parameters.add_argument(
-        '--expand',
-        action="store_true",
-        help="Flag to start with expanded tree")
-
-    parameters.add_argument(
-        '--no_imgs',
-        action="store_true",
-        help='Flag to skip image display')
-
-    parameters.add_argument(
         '--no_rotate',
         action="store_true",
         help='Flag to skip auto-rotation during 3dmod display')
+
+    parameters.add_argument(
+        '--no_gui',
+        action="store_true",
+        help="Flag to skip GUI, only create JSON")
 
     parameters.add_argument(
         '--debug',
@@ -2698,10 +2747,10 @@ def parse_command_line():
         help="CTFFIND4 summary file, in same directory as MDOC file")
     
     patterns.add_argument(
-        "--slice_jpg",
+        "--ctfbyts_tgts",
         type=str,
-        default='_slice_norm.jpg',
-        help="Suffix for central-slice image in MDOC directory, including extension")
+        default='$IN_DIR/Images/ctfbyts*.png',
+        help="File pattern for target-file CTF scatter plot ('$IN_DIR' will be replaced)")
 
     patterns.add_argument(
         "--ctfbyts_1ts",
@@ -2710,22 +2759,22 @@ def parse_command_line():
         help="Single-tilt-series CTF scatter plot, in same directory as MDOC file")
 
     patterns.add_argument(
-        "--ctfbyts_tgts",
-        type=str,
-        default='$IN_DIR/Images/ctfbyts*.png',
-        help="File pattern for target-file CTF scatter plot ('$IN_DIR' will be replaced)")
-
-    patterns.add_argument(
         "--denoise_dir",
         type=str,
         default='$IN_DIR/4-Denoise',
-        help="Relative path of denoise-micrograph directory ('$IN_DIR' will be replaced)")
+        help="Relative path of denoised-micrograph directory ('$IN_DIR' will be replaced)")
 
     patterns.add_argument(
         "--ts_dir",
         type=str,
         default='$IN_DIR/5-Tomo/$MDOC_STEM',
         help="Relative path of tilt-series data directory ('$IN_DIR' and '$MDOC_STEM' will be replaced)")
+
+    patterns.add_argument(
+        "--slice_jpg",
+        type=str,
+        default='_slice_norm.jpg',
+        help="Suffix for central-slice image in MDOC directory, including extension")
 
     patterns.add_argument(
         "--dosefit_plot",
