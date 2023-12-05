@@ -23,8 +23,20 @@ except ImportError:
 # Image creation manipulation imports
 import numpy as np
 import matplotlib.pyplot as plt
-from PIL import Image, ImageTk
+from PIL import Image
 import copy
+
+'''
+Just add this information into the general_and_tilt dictionary. From there the GUI program can use it.
+
+Additional metadata to add
+    Dose (e/A2)
+    cumulative dose per micrograph (may be generated in snartomo)
+    cumulative exposure time 
+    designated defocus (the one defined by the data collection software)
+    
+    
+'''
 
 USAGE = """
   For PACEtomo target files: %s --target_files '*tgts.txt' <options>
@@ -548,6 +560,26 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 curr_micthumb_dir,
                 mdoc_base + self.micthumb_suffix + thumbnail_idx + self.thumb_format
                 )
+
+            '''
+            CHECK IF THUMBNAIL FILE EXISTS, IF NOT CREATE IT USING IMAGE CREATION FUNCTIONS
+            SAVE THUMBNAIL PATH INTO JSON
+            
+            "tilt_no_1": {
+               "ZValue": 0,
+               "TiltAngle": "14.4814",
+               "DoseRate": "5.70573",
+               "SubFramePath": "\\\\192.168.10.81\\StorageServer\\OffloadData\\\\TemScripting\\EF-Falcon\\Midea\\230713_primary_neurons\\frames\\PN17_ctrl_grid1_lam10_001_003_14.5.eer",
+               "DateTime": "13-Jul-2023  15:07:23",
+               "CtfFind4": -65594.6523435,
+               "MaxRes": 6.071663,
+               "McorrMic": "SNARTomo/2-MotionCor2/PN17_ctrl_grid1_lam10_001_003_14.5_mic.mrc",
+               "MicThumbnail": "SNARTomo/5-Tomo/PN17_ctrl_grid1_lam10_ts_003/Thumbnails/PN17_ctrl_grid1_lam10_ts_003_newstack.023.jpg",
+               "CtfThumbnail": "SNARTomo/5-Tomo/PN17_ctrl_grid1_lam10_ts_003/Thumbnails/PN17_ctrl_grid1_lam10_ts_003_ctfstack_center.023.jpg",
+               "MicSelected": true
+            }
+            '''
+
             ctf_thumb_base= mdoc_base + self.ctfthumb_suffix + thumbnail_idx + self.thumb_format
             ctf_thumb_path=os.path.join(curr_micthumb_dir, ctf_thumb_base)
             denoise_path= os.path.join(
@@ -560,6 +592,21 @@ class MdocTreeView(QtWidgets.QMainWindow):
             general_and_tilt[1][tilt_key] = self.setPathAndWarn(mic_path, general_and_tilt[1][tilt_key], 'McorrMic', 'Motion-corrected micrograph')
             general_and_tilt[1][tilt_key] = self.setPathAndWarn(tiff_path, general_and_tilt[1][tilt_key], 'TiffFile', 'Compressed TIFF')
             general_and_tilt[1][tilt_key] = self.setPathAndWarn(mic_thumb_path, general_and_tilt[1][tilt_key], 'MicThumbnail', 'Micrograph thumbnail')
+
+            '''
+            HERE: If setPathAndWarn fails, create the thumbnail by trying to open the MRC file and create a thumbnail
+            '''
+            if self.warn_dict['MicThumbnail'] == True:
+                try:
+                    micrograph_data = open_mrc(mic_path)
+                    bin16_micrograph_data = bin_nparray(micrograph_data, 16)
+                    #display_nparray(bin16_micrograph_data)
+                    save_as_image(bin16_micrograph_data, mic_thumb_path)
+                    if self.verbosity >= 6:
+                        print('Created thumbnail from motion-corrected micrograph. Saved it under ' + mic_thumb_path + '.')
+                except:
+                    print('Could not create thumbnail image. Make sure motioncorrected .mrcs exist!')
+
             general_and_tilt[1][tilt_key] = self.setPathAndWarn(ctf_thumb_path, general_and_tilt[1][tilt_key], 'CtfThumbnail', 'Power-spectrum image')
             general_and_tilt[1][tilt_key] = self.setPathAndWarn(denoise_path, general_and_tilt[1][tilt_key], 'DenoiseMic', 'Denoised micrograph')
             
@@ -632,6 +679,8 @@ class MdocTreeView(QtWidgets.QMainWindow):
         
         if os.path.exists(curr_path):
             curr_dict[curr_key] = curr_path
+            if self.verbosity>=6:
+                print(f" HOORAY! {curr_type} '{curr_path}' found :)")
         else:
             if not self.warn_dict[curr_key] and self.verbosity>=6:
                 print(f"  WARNING! {curr_type} '{curr_path}' not found")
@@ -2314,9 +2363,12 @@ def save_json(data, filename='output.json', verbosity=0):
     
     if verbosity>=1: print(f'Data exported and saved as {filename}')
     if verbosity>=9: 
-        print(f"\n{os.path.basename(self.json)}:")
-        system_call_23('cat', self.json)
-        print()
+        try:
+            print(f"\n{os.path.basename(filename)}:")
+            system_call_23('cat', filename)
+            print()
+        except:
+            print(":(")
 
 def read_json(json_file):
     """
@@ -2424,7 +2476,9 @@ def open_mrc(mrc_file):
     with mrcfile.open(mrc_file) as mrc:
         # Read the data from the MRC-stack as a NumPy array
         data = np.array(mrc.data)
-    return data
+        # Flipping around the X-axis because by default the x-axis is mirrored in numpy
+        mirrored_data = np.flipud(data)
+    return mirrored_data
 
 def bin_nparray(data, binning=1):
     """
@@ -2474,9 +2528,13 @@ def save_as_image(data, filename='file'):
         data : NumPy array
         filename (str) : filename
     """
-    
-    if filename[-4:] != '.png':
-        filename = filename + '.png'
+
+    # Check if directory exists, if not create it
+    file_path = filename
+    directory = os.path.dirname(file_path)
+    if not os.path.exists(directory):
+        # Create the directory if it doesn't exist
+        os.makedirs(directory)
     
     # Scale the array values to the range [0, 255]
     scaled_matrix = (data - np.min(data)) / (np.max(data) - np.min(data)) * 255
