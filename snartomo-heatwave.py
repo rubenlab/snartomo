@@ -48,7 +48,7 @@ USAGE = """
   For more info about options, enter: %s --help
 """ % ( (os.path.basename(__file__),)*3 )
 
-MODIFIED="Modified 2023 Dec 01"
+MODIFIED="Modified 2023 Dec 08"
 MAX_VERBOSITY=9
 VIRTUAL_TARGET_FILE='All tilt series'
 
@@ -110,7 +110,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         self.data4json={}
         self.unsaved_changes= False
         self.mic2qt_lut= {}  # Lookup table for checkboxes
-        self.warn_keys= ['MicThumbnail', 'CtfThumbnail', 'MoviePath', 'McorrMic', 'TiffFile', 'DenoiseMic', 'slices']
+        self.warn_keys= ['MicThumbnail', 'CtfThumbnail', 'MoviePath', 'McorrMic', 'TiffFile', 'DenoiseMic', 'slices', 'OrigMdoc']
         self.warn_dict= {key: False for key in self.warn_keys}
         self.incinerate_subdirs={}
         self.incinerate_subdirs=  ['movie_dir','tif_dir', 'mic_dir', 'denoise_dir','ts_dir']
@@ -454,53 +454,72 @@ class MdocTreeView(QtWidgets.QMainWindow):
             - Calculate cumulative exposure & dose for original mdoc file
             - Then transfer values to respective tilts via subframepath identifier
         '''
+        
         # Create dictionary of original mdoc files (here assumed as the mdoc-path + '.orig' appended at the end)
         self.mdoc_origs = {}
         for mdoc in self.mdoc_lut.keys():
             self.mdoc_origs[mdoc] = {}
-            self.mdoc_origs[mdoc]['FilePath'] = self.mdoc_lut[mdoc] + '.orig'
+            ###self.mdoc_origs[mdoc]['FilePath'] = self.mdoc_lut[mdoc] + '.orig'  # TODO: hardwired path
+            
+            # Stem is everything up to first dot
+            orig_base= os.path.basename(self.mdoc_lut[mdoc]).split('.')[0] + self.options.orig_mdoc_suffix
+            mdoc_dir= os.path.dirname(self.mdoc_lut[mdoc])
+            self.mdoc_origs[mdoc]['FilePath'] = os.path.join(mdoc_dir, orig_base)
+        
         # For each mdoc in the original mdoc dictionary, calculate cumulative exposure and dose
         for mdoc_orig in self.mdoc_origs.keys():
-            # Read general & tilt information for original mdoc
-            general, tilt = readMdocHeader(self.mdoc_origs[mdoc_orig]['FilePath'])
-            # Calculate exposure and dose based on tilt information available in the original mdoc, save into dictionary
-            path_exposure_dose = self.get_cumulative_data(tilt)
-            self.mdoc_origs[mdoc_orig]['CumulativeData'] = path_exposure_dose
+            orig_path= self.mdoc_origs[mdoc_orig]['FilePath']
+            
+            if os.path.exists(orig_path):
+                # Read general & tilt information for original mdoc
+                general, tilt = readMdocHeader(orig_path)
+                
+                # Calculate exposure and dose based on tilt information available in the original mdoc, save into dictionary
+                path_exposure_dose = self.get_cumulative_data(tilt)
+                self.mdoc_origs[mdoc_orig]['CumulativeData'] = path_exposure_dose
+            else:
+                if not self.warn_dict['OrigMdoc']:
+                    if self.verbosity >= 1: print(f"WARNING! Original MDOC not found for '{os.path.basename(mdoc_orig)}', setting dose/exposure to -1")
+                    self.warn_dict['OrigMdoc'] = True
+        
         # Transfer cumulative values to JSON
         for targets_file in self.data4json.keys():
             for mdoc in self.data4json[targets_file].keys():
                 if mdoc == 'CtfBytsPlot':
                     continue
                 for tilt_num in self.data4json[targets_file][mdoc][1].keys():
-                    try:
-                        subframepath = self.data4json[targets_file][mdoc][1][tilt_num]['SubFramePath']
-                        cum_exposure, cum_dose = self.mdoc_origs[mdoc.split('/')[-1]]['CumulativeData'][subframepath]
-                        # Save cum exposure / dose into data4json
-                        self.data4json[targets_file][mdoc][1][tilt_num]['CumExposure'] = cum_exposure
-                        self.data4json[targets_file][mdoc][1][tilt_num]['CumDose'] = cum_dose
-                    except:
-                        print("Could not find cumulative exposure / dose. Saving both as -1.")
-                        self.data4json[targets_file][mdoc][1][tilt_num]['CumExposure'] = -1
-                        self.data4json[targets_file][mdoc][1][tilt_num]['CumDose'] = -1
-        return 0
-
+                    subframepath = self.data4json[targets_file][mdoc][1][tilt_num]['SubFramePath']
+                    mdoc_base= os.path.basename(mdoc)  # mdoc.split('/')[-1]
+                    self.data4json[targets_file][mdoc][1][tilt_num]['CumExposure'] = -1
+                    self.data4json[targets_file][mdoc][1][tilt_num]['CumDose'] = -1
+                    if 'CumulativeData' in self.mdoc_origs[mdoc_base]:
+                        if subframepath in self.mdoc_origs[mdoc_base]['CumulativeData']:
+                            cum_exposure, cum_dose = self.mdoc_origs[mdoc_base]['CumulativeData'][subframepath]
+                        
+                            # Save cumulative exposure/dose into data4json
+                            self.data4json[targets_file][mdoc][1][tilt_num]['CumExposure'] = cum_exposure
+                            self.data4json[targets_file][mdoc][1][tilt_num]['CumDose'] = cum_dose
+                            
     def get_cumulative_data(self, tilt_data):
         '''
         Args:
             tilt_data: List of z_blocks from parsing an .mdoc file.
 
         Returns:
-            path_dose_exposure: Dictionary, where each key is the absolute path of an .eer file and the item is a list
-            of two numbers: accumulated exposure time (read from the .mdoc z_blocks) and accumulated dose. If the dose
-            per image could not be calculated (because of a missing motioncor-frame.txt file for example), it will be set
-            to -1.
+            path_dose_exposure: Dictionary, where each key is the absolute path of an .eer file and the item is a list of two numbers: 
+                1) accumulated exposure time (read from the .mdoc z_blocks) and 
+                2) accumulated dose. 
+              
+            If the dose per image could not be calculated (because of a missing motioncor-frame.txt file for example), it will be set to -1.
         '''
         # Define cumulative data dictionary
         path_dose_exposure = {}
+        
         # Try to get dose per image
         dose_per_image = self.get_dose_per_image()
         cum_dose = 0
         cum_exposure = 0
+        
         # Loop through each tilt and calculate cumulative exposure time and dosage (if possible)
         for tilt_information in tilt_data:
             frame_path = ''
@@ -511,17 +530,21 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 elif "ExposureTime" in line:
                     # Saves exposure time
                     exposure_time = float(line.strip().split()[2])
+            
             # Create entry in data dictionary for each tilt and add cumulative exposure first
             cum_exposure += exposure_time
             path_dose_exposure[frame_path] = [cum_exposure]
+            
             # If cumulative dose was found, add cumulative dose to data dictionary, otherwise add -1
             if cum_dose == -1:
                 path_dose_exposure[frame_path].append(-1)
             else:
                 cum_dose += dose_per_image
                 path_dose_exposure[frame_path].append(cum_dose)
-            # print(frame_path + ' has accumulated dose of ' + str(cum_dose) + ' e⁻/A² and exposure of ' + str(
-            #    cum_exposure) + ' s.')
+            
+            ## print(frame_path + ' has accumulated dose of ' + str(cum_dose) + ' e⁻/A² and exposure of ' + str(
+            ##    cum_exposure) + ' s.')
+        
         return path_dose_exposure
 
     def get_dose_per_image(self):
@@ -535,27 +558,38 @@ class MdocTreeView(QtWidgets.QMainWindow):
 
             Will return -1 if it couldn't read a frames file.
         '''
-        try:
+        
+        dose_per_image= -1  # default
+        
+        if self.options.dose:
+            dose_per_image = self.options.dose
+        
+        else:
             # Find name of motioncor frames file
-            # read settings.txt file (saved under SNARTOMO/Logs/settings.txt
-            settings_file = os.path.join(self.indir, 'Logs/settings.txt')
-            frames_file = "motioncor-frame.txt"
-            with open(settings_file) as settings_fin:
-                for line in settings_fin:
-                    if "--frame_file" in line:
-                        #print(frames_file)
-                        frames_file = line.strip().split(' ')[1].replace('\t', '')
-                        #print('Found frames file (' + frames_file + ') in ' + settings_file + '.')
-            # read frame file and calculate dose per image
-            with open(frames_file) as frame_fin:
-                frames, grouping, dose_per_frame = frame_fin.readline().split()
-                dose_per_image = float(frames) * float(dose_per_frame)
-            # return dose per image
-            #print("Calculated the dose per image based on found motioncor-frame.txt file. Setting it to " + str(
-            #    dose_per_image) + ' e⁻/A².')
-        except:
-            #print("Could not calculate dose per image based on a motioncor-frame.txt file.")
-            dose_per_image = -1
+            if os.path.exists(self.options.frame_file):
+                frames_file= self.options.frame_file  # "motioncor-frame.txt"
+            else:
+                # Read settings.txt file (saved under SNARTomo/settings.txt
+                settings_file= re.sub('\$IN_DIR', self.options.in_dir, self.options.settings)  #### os.path.join(self.indir, 'settings.txt')
+                
+                if os.path.exists(settings_file):
+                    with open(settings_file) as settings_fin:
+                        for line in settings_fin:
+                            if "--frame_file" in line:
+                                #print(frames_file)
+                                frames_file = line.strip().split(' ')[1].replace('\t', '')
+                                #print('Found frames file (' + frames_file + ') in ' + settings_file + '.')
+            # END frames-file IF-THEN
+            
+            if os.path.exists(frames_file):
+                # read frame file and calculate dose per image
+                with open(frames_file) as frame_fin:
+                    frames, grouping, dose_per_frame = frame_fin.readline().split()
+                    dose_per_image = float(frames) * float(dose_per_frame)
+                
+                ##print("Calculated the dose per image based on found motioncor-frame.txt file. Setting it to " + str(
+                ##    dose_per_image) + ' e⁻/A².')
+        
         return dose_per_image
 
     '''
@@ -2153,8 +2187,9 @@ class MdocTreeView(QtWidgets.QMainWindow):
     
     # Adapted from https://stackoverflow.com/a/9249527
     def closeEvent(self, event=None):
-        print(f"1955 position {type( self.pos() )} ({self.pos().x()},{self.pos().y()})")
-        if self.debug: print(f"1987 closeEvent: event {type(event)}")
+        if self.debug: 
+            print(f"2178 position {type( self.pos() )} ({self.pos().x()},{self.pos().y()})")
+            print(f"2179 closeEvent: event {type(event)}")
         if self.unsaved_changes == True:
             if self.debug:
                 print("DEBUG: Exiting with unsaved changes...")
@@ -2837,6 +2872,22 @@ def parse_command_line():
         help='Flag to add debugging information')
 
 
+    doseinfo= parser.add_argument_group(
+        title="Dose information",
+        description="Information needed for dose calculation.")
+    
+    doseinfo.add_argument(
+        "--dose", 
+        type=float,
+        help="Dose per micrograph, e-/A2")
+
+    doseinfo.add_argument(
+        "--frame_file",
+        type=str,
+        default='motioncor-frame.txt',
+        help="MotionCor2 frames file")
+
+
     patterns= parser.add_argument_group(
         title="File patterns",
         description="Default values are established by SNARTomo.")
@@ -2846,6 +2897,12 @@ def parse_command_line():
         type=str,
         default='SNARTomo',
         help="Top-level directory for inputs")
+
+    patterns.add_argument(
+        "--settings",
+        type=str,
+        default='$IN_DIR/settings.txt',
+        help="SNARTomo settings file ('$IN_DIR' will be replaced)")
 
     patterns.add_argument(
         "--movie_dir",
@@ -2924,6 +2981,12 @@ def parse_command_line():
         type=str,
         default='$IN_DIR/5-Tomo/$MDOC_STEM',
         help="Relative path of tilt-series data directory ('$IN_DIR' and '$MDOC_STEM' will be replaced)")
+
+    patterns.add_argument(
+        "--orig_mdoc_suffix",
+        type=str,
+        default='.mrc.mdoc.orig',
+        help="Pattern for original MDOC file up until the first '.', in same directory as current MDOC")
 
     patterns.add_argument(
         "--slice_jpg",
