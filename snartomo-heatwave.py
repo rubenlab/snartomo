@@ -826,13 +826,15 @@ class MdocTreeView(QtWidgets.QMainWindow):
         If there are targets without associated MDOCs, then remove them
         """
         
+        data_copy= copy.deepcopy(self.data4json)  # Can't modify dict while iterating through it
+        
         # Loop through targets
-        for curr_target in self.data4json:
+        for curr_target in data_copy:
             keep_target= False
             
             # Loop through MDOC candidates
-            for curr_mdoc in self.data4json[curr_target]:
-                if isinstance(self.data4json[curr_target][curr_mdoc], list):
+            for curr_mdoc in data_copy[curr_target]:
+                if isinstance(data_copy[curr_target][curr_mdoc], list):
                     keep_target= True
                 else:
                     if curr_mdoc != 'CtfBytsPlot':
@@ -850,7 +852,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 self.temp_targets.remove(curr_target)
                 if curr_target in self.new_targets : self.new_targets.remove(curr_target)
                 if self.debug:
-                    print(f"418 self.data4json.keys() ({len(self.data4json.keys())} {self.data4json.keys()})")
+                    print(f"418 data_copy.keys() ({len(data_copy.keys())} {data_copy.keys()})")
                     print(f"419 self.list_targets ({len(self.list_targets)}) {self.list_targets})")
                     print(f"420 self.new_targets ({len(self.new_targets)}) {self.new_targets})")
                     print(f"420 self.temp_targets ({len(self.temp_targets)}) {self.temp_targets})")
