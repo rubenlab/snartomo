@@ -48,7 +48,7 @@ USAGE = """
   For more info about options, enter: %s --help
 """ % ( (os.path.basename(__file__),)*3 )
 
-MODIFIED="Modified 2023 Dec 08"
+MODIFIED="Modified 2023 Dec 12"
 MAX_VERBOSITY=9
 VIRTUAL_TARGET_FILE='All tilt series'
 
@@ -2810,12 +2810,12 @@ def parse_command_line():
         description="One of these types of files must be provided if JSON file doesn't exist.")
     
     required.add_argument(
-        "--target_files",
+        "--target_files", "-t",
         type=str,
         help="PACE target files (surrounded by quotes if more than one)")
 
     required.add_argument(
-        "--mdoc_files",
+        "--mdoc_files", "-m",
         type=str,
         help="MDOC files (surrounded by quotes if more than one)")
 
