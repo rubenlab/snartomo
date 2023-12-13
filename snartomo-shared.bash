@@ -370,7 +370,6 @@ function create_directories() {
   createTempLocal
   
   # EERMerge
-# # #   if [[ "${vars[do_compress]}" == true ]] && [[ "${vars[testing]}" == false ]] ; then
   if [[ "${vars[grouping]}" -gt 0 ]] && [[ "${vars[testing]}" == false ]] ; then
     mkdir "${vars[outdir]}/$tifdir" 2> /dev/null
     
@@ -581,7 +580,6 @@ function vprint() {
       if [[ "${do_echo2screen}" == true ]]; then
         # If no log file is specified simply write to the screen
         if [[ "${log_file}" == "" ]]; then
-#           echo -e "'${#log_array[@]}' ${do_echo2screen} '${firstchar}' '${log_file}' '${string2print}'"  ### TESTING
           echo -e "${string2print}"
         else
           # Log file name might be empty after stripping '='
@@ -964,7 +962,11 @@ function validate_inputs() {
         
         # Cut at '=' ('xargs' removes whitespace)
         local mdoc_file="$(dirname ${first_target})/$(echo $no_crlfs | cut -d'=' -f 2 | xargs).mdoc"
-        break
+        
+        # Trap in case MDOC doesn't exist
+        if [[ -f "$mdoc_file" ]]; then
+          break
+        fi
       done
       
       check_apix_classic "${mdoc_file}" "${outlog}"
@@ -1291,10 +1293,8 @@ function validate_inputs() {
     local to_int=$(printf "%.0f" "$to_check")
     
     if (( $(echo "${to_check} == ${to_int}" | bc -l) )) ; then
-  # #     vprint "  Integer : '$to_check'" "1+" "${outlog}"
       local var_type="int"
     else
-  # #     vprint "  Float   : '$to_check'" "1+" "${outlog}"
       local var_type="float"
     fi
     
@@ -1332,10 +1332,6 @@ function validate_inputs() {
     local exe_descr=$1
     local conda_env=$2
     local outlog=$3
-    
-# # #     local temp_conda="${vars[outdir]}/${temp_dir}/load_conda.sh"
-    
-# #     echo "1222 '$exe_descr' '$conda_env' '$outlog'" ; exit  ### TESTING
     
     if [[ "${vars[testing]}" == "false" ]]; then
       vprint "    Current conda environment: ${CONDA_DEFAULT_ENV}" '5+' "${outlog}"
@@ -1399,9 +1395,9 @@ function validate_inputs() {
   
   local version_string=$(bash --version | head -n 1 | cut -d' ' -f4 | cut -d. -f-2)
   if (( $(echo "${version_string} < 5.0" |bc -l) )); then
-    vprint "  WARNING! BASH version ${version_string} not supported. Continuing..." "1+" "${outlog} =${warn_log}"
-  elif (( $(echo "${version_string} < 4.2" |bc -l) )); then
     vprint "  WARNING! BASH version ${version_string} not fully tested. Continuing..." "1+" "${outlog} =${warn_log}"
+  elif (( $(echo "${version_string} < 4.2" |bc -l) )); then
+    vprint "  WARNING! BASH version ${version_string} not supported. Continuing..." "1+" "${outlog} =${warn_log}"
   else
     vprint "  BASH version ${version_string} OK" "1+" "${outlog}"
   fi
@@ -2226,10 +2222,8 @@ function run_motioncor() {
   
     
   if [[ "${use_logdir}" == true ]] ; then
-# # #     echo "2229 use_logdir '$use_logdir', two_decimals '${two_decimals}', third_decimal '${third_decimal}'"
     mc_command+=" -LogDir ${vars[outdir]}/$micdir/${mc2_logs}/ "
   else
-# # #     echo "2232 use_logdir '$use_logdir', two_decimals '${two_decimals}', third_decimal '${third_decimal}'"
     mc_command+=" -LogFile ${vars[outdir]}/$micdir/${mc2_logs}/${stem_movie}_mic.log "
   fi
   
@@ -2960,7 +2954,6 @@ function denoise_wrapper() {
       local status_code=("${PIPESTATUS[0]}")
     else
       if [[ "${outlog}" != "" ]] ; then
-# # #         $denoise_cmd >>${outlog} 2>&1
         $denoise_cmd 2> /dev/null >> ${outlog} 
         local status_code=("${PIPESTATUS[0]}")
       else
@@ -3349,26 +3342,26 @@ function draw_thumbnails() {
   # Downsample tilt series
   local tomo_thumb_dir="${vars[outdir]}/${tomo_dir}/${thumbdir}"
   local binned_stack="${tomo_root}_bin.mrcs"
-  local bin_cmd="binvol -z 1 -x ${vars[thumb_bin]} -y ${vars[thumb_bin]} ${reordered_stack} ${binned_stack}"
+# # #   local bin_cmd="binvol -z 1 -x ${vars[thumb_bin]} -y ${vars[thumb_bin]} ${reordered_stack} ${binned_stack}"
   local bin_args="-z 1 -x ${vars[thumb_bin]} -y ${vars[thumb_bin]} ${reordered_stack} ${binned_stack}"
   
-  # Convert to JPEGs
+  # Convert micrograph to JPEG
   local micjpg_prefix="${tomo_thumb_dir}/$(basename ${tomo_root})_newstack"
-  local mic2jpg_cmd="mrc2tif -j ${binned_stack} ${micjpg_prefix}"
+# # #   local mic2jpg_cmd="mrc2tif -j ${binned_stack} ${micjpg_prefix}"
   local mic2jpg_args="-j ${binned_stack} ${micjpg_prefix}"
   
   # Calculate edge of CTF fitting region
   local half_width=$(echo ${vars[box]}*${vars[apix]}/${vars[res_hi]}+1 | bc)
   local box_width=$(echo $half_width*2 | bc)
   
-  # Crop power spectra
+  # Crop power spectrum
   local win_ctf="${tomo_root}_ctfstack_center.mrcs"
   local clip_cmd="clip resize -2d -ox ${box_width} -oy ${box_width} ${ctf_stack} ${win_ctf}"
   local clip_args="resize -2d -ox ${box_width} -oy ${box_width} ${ctf_stack} ${win_ctf}"
   
-  # Convert to JPEGs
+  # Convert power spectrum to JPEG
   local ctf_prefix="${tomo_thumb_dir}/$(basename ${tomo_root})_ctfstack_center"
-  local ctf2jpg_cmd="mrc2tif -j ${win_ctf} ${ctf_prefix}"
+# # #   local ctf2jpg_cmd="mrc2tif -j ${win_ctf} ${ctf_prefix}"
   local ctf2jpg_args="-j ${win_ctf} ${ctf_prefix}"
   
   if [[ "${vars[testing]}" == false ]]; then
@@ -4871,8 +4864,7 @@ function create_json() {
   # If MDOC files are provided, vars[target_files] will be a dummy file
   if [[ "${do_pace}" == true ]]; then
     if [[ "${vars[mdoc_files]}" != "" ]] ; then
-      # TODO: test PACE in MDOC mode
-      heatwave_cmd+=" --mdoc_files \'${vars[mdoc_files]}\' "
+      heatwave_cmd+=" --mdoc_files \'${vars[outdir]}/${recdir}/*/*.mdoc\' "
     else
       heatwave_cmd+=" --target_files \'${vars[target_files]}\' "
     fi
@@ -4881,7 +4873,6 @@ function create_json() {
   else
     vprint "" "1+"
     if [[ "${vars[mdoc_dir]}" != "" ]] ; then
-# # #         echo "4884 mdoc_array '${mdoc_array[@]}'"
       heatwave_cmd+=" --mdoc_files \'${mdoc_array[@]}\' "
     else
       vprint "Skipping creation of JSON file with no MDOCs" "1+"
@@ -4903,14 +4894,11 @@ function create_json() {
   # Remove whitespace
   vprint "${prestring}Creating JSON file '${heatwave_json}' for GUI" "1+" "$outlog"
   
-  if [[ "${vars[testing]}" == true ]]; then
-    vprint "  TESTING: $clean_cmd"  "4+" "$outlog"
-  else
+  if [[ "${vars[testing]}" == false ]]; then
     vprint "  $clean_cmd"  "5+" "$outlog"
     eval $clean_cmd
     local status_code=$?
     
-# # #     echo "4901 status_code '$status_code'"
     if [[ $status_code -ne 0 ]] ; then
       vprint "  WARNING! JSON-generating command failed" "1+" "$outlog =${warn_log}"
       
@@ -4920,7 +4908,11 @@ function create_json() {
         vprint "  Failed command: $clean_cmd"  "1+" "=${warn_log}"
       fi
     fi
+    # END error-code IF-THEN
+  else
+    vprint "TESTING: $clean_cmd"  "4+" "$outlog"
   fi
+  # END testing IF-THEN
 }
 
 function DUMMY_FUNCTION() {
