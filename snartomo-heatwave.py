@@ -48,7 +48,7 @@ USAGE = """
   For more info about options, enter: %s --help
 """ % ( (os.path.basename(__file__),)*3 )
 
-MODIFIED="Modified 2023 Dec 12"
+MODIFIED="Modified 2023 Dec 15"
 MAX_VERBOSITY=9
 VIRTUAL_TARGET_FILE='All tilt series'
 
@@ -113,7 +113,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         self.warn_keys= ['MicThumbnail', 'CtfThumbnail', 'MoviePath', 'McorrMic', 'TiffFile', 'DenoiseMic', 'slices', 'OrigMdoc']
         self.warn_dict= {key: False for key in self.warn_keys}
         self.incinerate_subdirs={}
-        self.incinerate_subdirs=  ['movie_dir','tif_dir', 'mic_dir', 'denoise_dir','ts_dir']
+        self.incinerate_keys=  ['movie_dir','tif_dir', 'mic_dir', 'denoise_dir','ts_dir']
         self.incinerate_jsonkeys= ['MoviePath','TiffFile','McorrMic','DenoiseMic']  # 'ts_dir' will be handled separately
         self.incinerated_tsdict={}
         self.incinerated_mvlist=[]
@@ -1981,7 +1981,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                             if self.verbosity>=4: print(f"DEBUG: mv {ts_dir} {self.incinerate_subdirs['ts_dir']}")
                             
                         except_tsdir= self.incinerate_subdirs.copy()
-                        except_tsdir.remove('ts_dir')
+                        del except_tsdir['ts_dir']
                         
                         # Loop through data types
                         for json_key, incinerate_key in zip(self.incinerate_jsonkeys, except_tsdir):
@@ -2039,7 +2039,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
             if self.verbosity>=1 : print(f"Created directory: {self.incinerate_dir}")
         
         # Loop through directory keys
-        for key in self.incinerate_subdirs: 
+        for key in self.incinerate_keys: 
             if key == 'movie_dir':
                 outdir= os.path.join(self.incinerate_dir, self.option_dict[key])
             elif key == 'ts_dir':
