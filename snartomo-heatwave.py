@@ -40,7 +40,7 @@ Additional metadata to add
 '''
 
 USAGE = """
-  For PACEtomo target files: %s --target_files '*tgts.txt' <options>
+  For PACE-tomo target files: %s --target_files '*tgts.txt' <options>
   For SerialEM MDOC files:   %s --mdoc_files   '*.mdoc'    <options>
   
   The quotes (single or double) are required if multiple files.
@@ -48,7 +48,7 @@ USAGE = """
   For more info about options, enter: %s --help
 """ % ( (os.path.basename(__file__),)*3 )
 
-MODIFIED="Modified 2023 Dec 15"
+MODIFIED="Modified 2024 Feb 13"
 MAX_VERBOSITY=9
 VIRTUAL_TARGET_FILE='All tilt series'
 
@@ -118,7 +118,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         self.incinerated_tsdict={}
         self.incinerated_mvlist=[]
         self.generic_text="EDIT TEXT"
-        self.editable_column=3  # in column #3 (TiltAngle) and only for depth=1 (tilt series)
+        self.editable_column=5  # in column #3 (DateTime) and only for depth=1 (tilt series)
         self.incinerate_dir= re.sub('\$IN_DIR', self.options.in_dir, self.options.incinerate_dir)
         
         # Do stuff
@@ -852,10 +852,10 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 self.temp_targets.remove(curr_target)
                 if curr_target in self.new_targets : self.new_targets.remove(curr_target)
                 if self.debug:
-                    print(f"418 data_copy.keys() ({len(data_copy.keys())} {data_copy.keys()})")
-                    print(f"419 self.list_targets ({len(self.list_targets)}) {self.list_targets})")
-                    print(f"420 self.new_targets ({len(self.new_targets)}) {self.new_targets})")
-                    print(f"420 self.temp_targets ({len(self.temp_targets)}) {self.temp_targets})")
+                    print(f"855 data_copy.keys() ({len(data_copy.keys())} {data_copy.keys()})")
+                    print(f"856 self.list_targets ({len(self.list_targets)}) {self.list_targets})")
+                    print(f"857 self.new_targets ({len(self.new_targets)}) {self.new_targets})")
+                    print(f"858 self.temp_targets ({len(self.temp_targets)}) {self.temp_targets})")
         
         # Save to JSON
         save_json(self.data4json, filename=self.json, verbosity=self.verbosity)
@@ -870,7 +870,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         The "Micrograph" and "CtfFind4" columns will be displayed first and second, respectively.
         """
         
-        self.default_width= 80
+        self.default_width= 81
         stat_map=MdocColumnAttrs()
         stat_map.add_column('DoseRate',      self.default_width, '4.2f', QtCore.Qt.AlignCenter)
         stat_map.add_column('TiltAngle',     self.default_width, '5.2f')
@@ -1130,15 +1130,14 @@ class MdocTreeView(QtWidgets.QMainWindow):
                     # If we built the JSON file from scratch, there will have been a warning earlier
             
             self.mic2qt_lut[curr_mdoc] = {}
-            ts_parent_item, ts_select= self.buildStatList(ts_parent_item, self.data4json[curr_target][curr_mdoc][1], curr_mdoc)
+            ts_parent_item, ts_select, tilt_string, resolution_string= self.buildStatList(
+                ts_parent_item, self.data4json[curr_target][curr_mdoc][1], curr_mdoc
+                )
             ts_item_list= [ts_parent_item]
             ts_parent_item.setAutoTristate(True)
             
             if 'MdocSelected' in self.data4json[curr_target][curr_mdoc][0]:
                 mdoc_select= self.data4json[curr_target][curr_mdoc][0]['MdocSelected']
-                #if self.data4json[curr_target][curr_mdoc][0]['MdocSelected'] != ts_select:
-                    #if self.verbosity>=1: 
-                        #print(f"WARNING! Inconsistent selection value for MDOC '{os.path.basename(curr_mdoc)}' between JSON ({mdoc_select}) and micrographs. Using: {ts_select}")
             ts_parent_item.setCheckState(ts_select)
             self.mic2qt_lut[curr_mdoc]['widget']= ts_parent_item
             
@@ -1159,6 +1158,10 @@ class MdocTreeView(QtWidgets.QMainWindow):
                     
                 ts_item_list= self.addTSImgs(self.data4json[curr_target][curr_mdoc][0]['DosefitPlot'], ts_item_list)
                         
+            # Add extrema
+            ts_item_list.append( QtGui.QStandardItem(tilt_string) )
+            ts_item_list.append( QtGui.QStandardItem(resolution_string) )
+
             # Free-text box
             if 'TextNote' in self.data4json[curr_target][curr_mdoc][0]:
                 starting_text= self.data4json[curr_target][curr_mdoc][0]['TextNote']
@@ -1205,6 +1208,9 @@ class MdocTreeView(QtWidgets.QMainWindow):
         all_selected= True
         none_selected= True
 
+        # Store extrema as a dictionary
+        extrema_dict= {'tilt_min':999, 'tilt_max':-999, 'res_best':9999, 'res_worst':-1}
+
         # Loop through micrographs
         for sorted_idx, tilt_key in enumerate(sorted_angles_list):
             # Initialize row of micrograph stats
@@ -1215,16 +1221,26 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 if stat_key in self.stat_map.column_dict:
                     # Clean up if path
                     if stat_key=='SubFramePath':
-                        stat_value=ntpath.basename(tilt_data[tilt_key][stat_key])
+                        stat_string=ntpath.basename(tilt_data[tilt_key][stat_key])
                     else:
                         # If string, then don't format
                         stat_format= self.stat_map.column_dict[stat_key].format
                         if stat_format=='str':
-                            stat_value = tilt_data[tilt_key][stat_key]
+                            stat_string = tilt_data[tilt_key][stat_key]
                         else:
-                            stat_value=f"{float(tilt_data[tilt_key][stat_key]):{stat_format}}"
+                            stat_value= float(tilt_data[tilt_key][stat_key])
+                            stat_string=f"{stat_value:{stat_format}}"
 
-                    stat_item= QtGui.QStandardItem(stat_value)
+                            # Check against extrama
+                            ###print(f"1227 stat_key '{stat_key}'")
+                            if stat_key == 'TiltAngle':
+                                if stat_value < extrema_dict['tilt_min'] : extrema_dict['tilt_min']= stat_value
+                                if stat_value > extrema_dict['tilt_max'] : extrema_dict['tilt_max']= stat_value
+                            elif stat_key == 'MaxRes':
+                                if stat_value < extrema_dict['res_best'] : extrema_dict['res_best']= stat_value
+                                if stat_value > extrema_dict['res_worst'] : extrema_dict['res_worst']= stat_value
+
+                    stat_item= QtGui.QStandardItem(stat_string)
                     
                     # Align if necessary
                     stat_align= self.stat_map.column_dict[stat_key].align
@@ -1233,7 +1249,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                     stat_list.append(stat_item)
                 # End found stat_key IF-THEN
 
-                if self.verbosity>=8: print(f"  {stat_key} : '{stat_value}'")
+                if self.verbosity>=8: print(f"  {stat_key} : '{stat_string}'")
             # End stat loop
 
             ts_parent_item.appendRow(stat_list)
@@ -1247,7 +1263,14 @@ class MdocTreeView(QtWidgets.QMainWindow):
         else:
             if none_selected: ts_select= 0
         
-        return ts_parent_item, ts_select
+        # Format extrema
+        if extrema_dict['tilt_max'] > 0:
+            tilt_string= f"{extrema_dict['tilt_min']:.1f} to +{extrema_dict['tilt_max']:.1f}"
+        else:
+            tilt_string= f"{extrema_dict['tilt_min']:.1f} to {extrema_dict['tilt_max']:.1f}"
+        resolution_string= f"{extrema_dict['res_best']:.1f} to {extrema_dict['res_worst']:.1f}"
+
+        return ts_parent_item, ts_select, tilt_string, resolution_string
                     
     def addMicWidget(self, tilt_data, tilt_key, curr_mdoc, sorted_idx, did_warn_thumbs, did_warn_ctfs):
         """
