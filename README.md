@@ -10,10 +10,10 @@ The name is derived from the programs that were originally run by it:
   * **N** ewstack, from IMOD
   * **AR** e **Tomo**
 
-We since added other functionalities, such as MotionCor2, IMOD, Topaz, PACE-tomo, and JANNI, but the name remains.
+We since added other functionalities, such as MotionCor2, IMOD, PACE-tomo, and others, but the name remains.
 
 See the wiki at: https://github.com/rubenlab/snartomo/wiki
 
 ## Recent news
 
-2023-09-14 -- Added documentation for SNARTomoEERMerge
+2023-11-30 – added SNARTomoHeatwave documentation
