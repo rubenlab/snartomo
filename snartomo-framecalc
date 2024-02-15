@@ -12,7 +12,7 @@
 
 function program_info() {
   echo "Running: SNARTomoFrameCalculator"
-  echo "Modified 2022-12-08"
+  echo "Modified 2024-02-15"
   date
   echo 
 }
@@ -130,6 +130,9 @@ function check_env() {
   else
     source "${SNARTOMO_DIR}/${shared_libs}"
     source "${SNARTOMO_DIR}/argumentparser_dynamic.sh"
+
+    # If locale uses a comma as a decimal, there will be problems
+    LC_NUMERIC="en_US.UTF-8"
   fi
 }
 
@@ -235,7 +238,9 @@ function build_frames_file() {
 ###############################################################################
   
   local dose_per_frame=$(bc -l <<< "${vars[dose_per_img]}"/"${vars[num_frames]}")
-# #   echo "dose_per_frame: '${dose_per_frame}'"
+  echo "dose_per_img:   '${vars[dose_per_img]}'"
+  echo "num_frames:     '${vars[num_frames]}'"
+  echo "dose_per_frame: '${dose_per_frame}'"
   local dose_str=$(printf "%8.6f" "${dose_per_frame}")
 # #   echo "dose_str: '${dose_str}'"
   local num_frames=$(bc -l <<< "${vars[dose_per_combined]}"/"$dose_per_frame")

@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2023-11-14"
+  echo "Modified 2024-02-15"
   date
   echo 
 }
@@ -316,7 +316,10 @@ function check_env() {
   else
     source "${SNARTOMO_DIR}/${shared_libs}"
     source "${SNARTOMO_DIR}/argumentparser_dynamic.sh"
-    
+
+    # If locale uses a comma as a decimal, there will be problems
+    LC_NUMERIC="en_US.UTF-8"
+
     check_vars
     
     if [[ "${do_pace}" == true ]]; then
