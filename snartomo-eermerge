@@ -12,7 +12,7 @@ function program_info() {
   if [[ "${verbose}" -ge 1 ]]; then
     echo 
     echo "Running: SNARTomoEERMerge"
-    echo "Modified 2023-10-13"
+    echo "Modified 2024-02-15"
     date
     echo 
   fi
@@ -200,6 +200,9 @@ function check_env() {
   else
     source "${SNARTOMO_DIR}/${shared_libs}"
     source "${SNARTOMO_DIR}/argumentparser_dynamic.sh"
+
+    # If locale uses a comma as a decimal, there will be problems
+    LC_NUMERIC="en_US.UTF-8"
   fi
 }
 

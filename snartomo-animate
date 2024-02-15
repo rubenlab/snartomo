@@ -12,7 +12,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoAnimate"
-  echo "Modified 2023-09-07"
+  echo "Modified 2024-02-15"
   date
   echo 
 }
@@ -22,7 +22,7 @@ function program_info() {
 shared_libs=snartomo-shared.bash  # Shared libraries
 bin_factor=1                      # Downsampling factor
 frame_rate=25                     # Frame rate of movie
-movie_format=mpg                  # Movie format
+movie_format=mp4                  # Movie format
 verbosity=2                       # Verbosity level (Max: 4)
 
 ################ END BATCH HEADER ################
@@ -107,6 +107,9 @@ function check_env() {
   else
     source "${SNARTOMO_DIR}/${shared_libs}"
     source "${SNARTOMO_DIR}/argumentparser_dynamic.sh"
+
+    # If locale uses a comma as a decimal, there will be problems
+    LC_NUMERIC="en_US.UTF-8"
   fi
 }
 
