@@ -26,7 +26,7 @@ function print_usage() {
 
 #################### Parameters ###################
 
-shared_libs=snartomo-shared-8dec.bash  # Shared libraries
+shared_libs=snartomo-shared.bash  # Shared libraries
 frame_file=motioncor-frame.txt          # Frames file
 combined_dose=0.15                      # Dose per combined MotionCor frame, electrons per square Angstrom
 verbosity=2                             # Verbosity level

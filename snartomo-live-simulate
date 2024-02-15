@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Input
-shared_libs="snartomo-shared-22mar.bash"  # Shared libraries
+shared_libs="snartomo-shared.bash"  # Shared libraries
 
 # Parameter
 delay=1.5                  # delay between micrographs, seconds (can be overridden on command line)
