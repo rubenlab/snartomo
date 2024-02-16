@@ -1992,7 +1992,6 @@ function check_frames() {
   ###############################################################################
     
     local outlog=$1
-    
     local cp_time=$( TIMEFORMAT="%R" ; { time cp "$fn" "${temp_local_dir}/" ; } 2>&1 )
     
     # Sanity check
@@ -2001,6 +2000,11 @@ function check_frames() {
       fn="${temp_local_dir}/$(basename $fn)"
       vprint "    Copied to '$fn' (in ${cp_time} sec)" "0+" "=${outlog}"
     else
+      # Assert that local directory still exists
+      if [[ ! -d "${temp_local_dir}" ]]; then
+        vprint "WARNING! Temporary directory ${temp_local_dir} doesn't exist!" "0+" "${outlog} =${warn_log}"
+      fi
+
       vprint "WARNING! Couldn't copy '$fn' to ${temp_local_dir}. Continuing..." "0+" "${outlog} =${warn_log}"
 # # #       vprint "  temp_local_dir '$temp_local_dir'\n" "0+" "${outlog}"
     fi
@@ -3654,12 +3658,18 @@ function mdoc2tomo() {
   local mdoc_file=$1
   
   # MDOC might have dots other than extension
-  tomo_base="$(basename ${mdoc_file%.mrc.mdoc})"
-  
+  if [[ ${mdoc_file} == *".mrc.mdoc" ]] ; then
+    tomo_base="$(basename ${mdoc_file%.mrc.mdoc})"
+  elif [[ ${mdoc_file} == *".mdoc" ]] ; then
+    tomo_base="$(basename ${mdoc_file%.mdoc})"
+  else
+    vprint "ERROR!! MDOC file '${mdoc_file}' doesn't end in '.mdoc'! Exiting..." "0+" "${main_log} =${warn_log}"
+    exit
+  fi
+
   tomo_dir="${recdir}/${tomo_base}"
   tomo_root="${vars[outdir]}/${tomo_dir}/${tomo_base}"
   
-# #   if [[ "${vars[batch_directive]}" != "" ]]; then
   if [[ ! -z "${vars[batch_directive]}" ]] ; then
     tomogram_3d="${vars[outdir]}/${tomo_dir}/${tomo_base}_newstack_full_rec.mrc"
     etomo_out="${vars[outdir]}/${tomo_dir}/${tomo_base}_std.out"
@@ -4916,7 +4926,7 @@ function create_json() {
     fi
     # END error-code IF-THEN
   else
-    vprint "TESTING: $clean_cmd"  "4+" "$outlog"
+    vprint "TESTING: $clean_cmd\n"  "4+" "$outlog"
   fi
   # END testing IF-THEN
 }
