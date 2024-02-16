@@ -28,7 +28,7 @@ export SNARTOMO_WAIT_TIME=120.0                                   # (seconds) Ho
 export SNARTOMO_RUOTNOCON_SD=3.0                                  # Contours with eTomo residuals greater than this multiple of sigma will be removed
 # 
 # SNARTomoPACE only
-export SNARTOMO_GPUS="0 1"                                        # GPUs to use, delimited with spaces
+export SNARTOMO_GPUS="0"                                          # GPUs to use, delimited with spaces
 export SNARTOMO_TILT_TOLERANCE=0.2                                # Angle difference of last tilt +/- this value will signal end of series
 export SNARTOMO_RAM_WARN=20                                       # Free system memory (GB) before warning printed
 export SNARTOMO_RAM_KILL=10                                       # Free system memory (GB) before exiting
