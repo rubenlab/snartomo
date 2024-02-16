@@ -20,7 +20,7 @@ USAGE:
 
 """ % ((__file__,)*1)
 
-MODIFIED="Modified 2023 Oct 30"
+MODIFIED="Modified 2024 Feb 16"
 MAX_VERBOSITY=8
 
 def print_log_msg(mesg, cutoff, options):
@@ -93,9 +93,9 @@ def main():
   # Remove outliers
   for sort_idx, img in reversed( list( enumerate(idx_array) ) ):
     if dose_array[sort_idx] < dose_cutoff :
-      print_log_msg(f"  Removed image #{img}, dose rate: {dose_array[sort_idx]}", 6, options)
-      idx_array= np.delete(idx_array, sort_idx)
       yrm_array[sort_idx]=" <- REMOVED, LOW DOSE RATE"
+      print_log_msg(f"  Removed image #{img}, dose rate: {dose_array[sort_idx]}{yrm_array[sort_idx]}", 6, options)
+      idx_array= np.delete(idx_array, sort_idx)
       tilt_array= np.delete(tilt_array, sort_idx)
       dose_array= np.delete(dose_array, sort_idx)
       rm_counter+=1
@@ -117,13 +117,16 @@ def main():
   plt.scatter(tilt_array, dose_array)
   plt.plot(tilt_array, fit_curve2, label="dose cutoff")
 
+  ###print(f"dose_array {dose_array}")
+
   for sort_idx, img in reversed( list( enumerate(idx_array) ) ):
     # Residuals have original indexing
     idx0= np.where(idx_array0==img)[0][0]
     
     if residual_array2[idx0] > max_residual :
-      print_log_msg(f"  Removed image #{img}, residual: {residual_array2[idx0]:6.3f}", 6, options)
       yrm_array[idx0]=" <- REMOVED, HIGH RESIDUAL"
+      print_log_msg(f"  Removed image #{img}, residual: {residual_array2[idx0]:6.3f}{yrm_array[idx0]}", 6, options)
+      ###print(f"residual_array2 {residual_array2[idx0]}, max_residual {max_residual}")
       idx_array= np.delete(idx_array, sort_idx)
       tilt_array= np.delete(tilt_array, sort_idx)
       dose_array= np.delete(dose_array, sort_idx)
@@ -133,6 +136,7 @@ def main():
   tilt_rad = np.radians(tilt_array)
   
   # If too many points were removed, this step will fail.
+  ###print(f"dose_array {dose_array}")
   try:
     fit_params3,_ = optimize.curve_fit(cosine_func, tilt_rad, dose_array)
   except TypeError:
@@ -140,6 +144,13 @@ def main():
     np.savetxt(options.good_angles, idx_array0, fmt="%d")
     print_log_msg(f"  Saved all {len(dose_array0)} images to '{options.good_angles}'", 1, options)
     exit(12)
+  except ValueError as ve:
+    warning_threshold= 5
+    print_log_msg(f"WARNING! {ve}", warning_threshold, options)
+    print_log_msg(f"  After removing micrographs, {len(dose_array)} micrographs remain.", warning_threshold, options)
+    np.savetxt(options.good_angles, idx_array0, fmt="%d")
+    print_log_msg(f"  Saved all {len(dose_array0)} images to '{options.good_angles}'", warning_threshold, options)
+    exit(13)
   
   fit_curve3 = fit_params3[0] + fit_params3[1] * np.cos(tilt_rad + fit_params3[2])
 
