@@ -12,7 +12,7 @@
 
 function program_info() {
   echo "Running: SNARTomoFrameCalculator"
-  echo "Modified 2024-02-15"
+  echo "Modified 2024-02-16"
   date
   echo 
 }
@@ -238,14 +238,11 @@ function build_frames_file() {
 ###############################################################################
   
   local dose_per_frame=$(bc -l <<< "${vars[dose_per_img]}"/"${vars[num_frames]}")
-  echo "dose_per_img:   '${vars[dose_per_img]}'"
-  echo "num_frames:     '${vars[num_frames]}'"
-  echo "dose_per_frame: '${dose_per_frame}'"
+#   echo "dose_per_img:   '${vars[dose_per_img]}'"
+#   echo "num_frames:     '${vars[num_frames]}'"
+#   echo "dose_per_frame: '${dose_per_frame}'"
   local dose_str=$(printf "%8.6f" "${dose_per_frame}")
-# #   echo "dose_str: '${dose_str}'"
   local num_frames=$(bc -l <<< "${vars[dose_per_combined]}"/"$dose_per_frame")
-# #   echo "num_frames : '${num_frames}'"
-#   printf '%.*f\n' 0 $num_frames
   local frames_int=$(printf '%.*f\n' 0 $num_frames)
   local frames_rnd=$(printf '%.*f\n' 3 $num_frames)
   vprint "  Merged frames: $frames_int (${vars[dose_per_combined]}/$dose_str=$frames_rnd)" "2+"
