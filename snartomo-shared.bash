@@ -304,6 +304,8 @@ function create_directories() {
       fi
     fi
     # End outdir-exists IF-THEN
+
+    rm -r ${heatwave_json} 2> /dev/null
   fi
   # End overwrite IF-THEN
   
@@ -3573,7 +3575,7 @@ function wrapper_aretomo() {
       
       touch "$tomogram_3d"
     fi
-    # End overwrite IF-THEN
+    # End redo3d IF-THEN
   fi
   # End testing IF-THEN
   
@@ -3794,7 +3796,7 @@ function wrapper_etomo() {
       
       touch $tomogram_3d
     fi
-    # End overwrite IF-THEN
+    # End redo3d IF-THEN
   fi
   # End testing IF-THEN
 }
@@ -4863,6 +4865,10 @@ function create_json() {
   
   # If MDOC files are provided, vars[target_files] will be a dummy file
   if [[ "${do_pace}" == true ]]; then
+    if [[ "${vars[overwrite]}" == true ]]; then
+      heatwave_cmd+=" --new "
+    fi
+
     if [[ "${vars[mdoc_files]}" != "" ]] ; then
       heatwave_cmd+=" --mdoc_files \'${vars[outdir]}/${recdir}/*/*.mdoc\' "
     else
