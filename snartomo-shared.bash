@@ -2002,7 +2002,7 @@ function check_frames() {
       vprint "    Copied to '$fn' (in ${cp_time} sec)" "0+" "=${outlog}"
     else
       vprint "WARNING! Couldn't copy '$fn' to ${temp_local_dir}. Continuing..." "0+" "${outlog} =${warn_log}"
-      vprint "  temp_local_dir '$temp_local_dir'\n" "0+" "${outlog}"
+# # #       vprint "  temp_local_dir '$temp_local_dir'\n" "0+" "${outlog}"
     fi
   }
 

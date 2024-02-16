@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2024-02-15"
+  echo "Modified 2024-02-16"
   date
   echo 
 }
@@ -709,11 +709,11 @@ function check_other_snartomos() {
                 do_continue=false
               fi
               
-              vprint "  GPUs requested here          \t: ${vars[gpus]}" "1+" "${outlog}"
+              vprint "  GPUs requested here           \t: ${vars[gpus]}" "1+" "${outlog}"
               vprint "  GPUs requested by PID #${test_pid}\t: ${their_gpus}" "1+" "${outlog}"
               
               if [[ "${vars[force]}" == false ]] ; then
-                vprint "  Use the '--force' flag to override, if you're sure you know what you're doing.'" "1+" "${outlog}"
+                vprint "  Use the '--force' flag to override, if you're sure you know what you're doing." "1+" "${outlog}"
               fi
               
               if [[ "${do_continue}" == true ]]; then
@@ -1793,7 +1793,7 @@ function file_lock() {
       locked_by="${FUNCNAME[1]} time unknown"
     fi
     
-    vprint "$(date +"$time_format"): WARNING! Time limit ($time_limit sec) reached, file_lock ${file2lock} attempted by ${id_msg}, locked by ${locked_by}" "0+" "${warn_log}"
+    vprint "$(date +"$time_format"): WARNING! Time limit ($time_limit sec) reached, file_lock of '${file2lock}' attempted by ${id_msg}, locked by ${locked_by}" "0+" "${warn_log}"
     
     if [[ "${locked_by}" == "" ]]; then
       vprint "$(date +"$time_format"): WARNING! Error reading ${file2lock} attempted by ${id_msg}" "0+" "${warn_log}"
@@ -2106,7 +2106,7 @@ function distribute_ctffind() {
       if [[ "${cpu_array[${cpu_num}]}" == "FREE" ]]; then
         # Lock micrograph list
         if [[ "${do_parallel}" == true ]]; then
-          file_lock "${ctf_mics}" "20" "${FUNCNAME[0]}"
+          file_lock "${ctf_mics}" "25" "${FUNCNAME[0]}"
           local mic_lock=${lock_file}
         fi
         
