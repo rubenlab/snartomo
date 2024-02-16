@@ -38,10 +38,10 @@ apix=-1.00                                        # Pixel size, Angstroms
 verbosity=4                                       # Verbosity level
 #                                                 #   0: prints nothing
 #                                                 #   1: prints brief overall summary
-#                                                 #   2: prints warnings, more thorough sanity check
+#                                                 #   2: prints one-time warnings, more thorough sanity check
 #                                                 #   3: prints summary for each tomogram 
 #                                                 #   4: prints counter
-#                                                 #   5: prints commands
+#                                                 #   5: prints commands, repeated warnings
 #                                                 #   6: prints summary of CTFFIND, denoising, etc.
 #                                                 #   7: prints full CTFFIND/denoising/IMOD/AreTomo info
 #                                                 #   8: shows file unlocking & locking
@@ -2837,7 +2837,14 @@ function tomogram_parallel() {
   local tot_mdocs=$4
   
   # MDOC might have dots other than extension
-  local tomo_base="$(basename ${orig_mdoc%.mrc.mdoc})"
+  if [[ ${orig_mdoc} == *".mrc.mdoc" ]] ; then
+    local tomo_base="$(basename ${orig_mdoc%.mrc.mdoc})"
+  elif [[ ${orig_mdoc} == *".mdoc" ]] ; then
+    local tomo_base="$(basename ${orig_mdoc%.mdoc})"
+  else
+    vprint "ERROR!! MDOC file '${orig_mdoc}' doesn't end in '.mdoc'! Exiting..." "0+" "${main_log} =${warn_log}"
+    exit
+  fi
   
   tomo_dir="${recdir}/${tomo_base}"
   tomo_root="${vars[outdir]}/${tomo_dir}/${tomo_base}"
@@ -2874,19 +2881,17 @@ function tomogram_parallel() {
   # Sanity check that arrays have same length
   if [[ "${#mdoc_angle_array[*]}" -ne "${#new_subframe_array[*]}" ]] || [[ "${#mdoc_angle_array[*]}" -ne "${#dose_rate_array[*]}" ]] ; then
     local warn_msg="\nWARNING! MDOC file '$new_mdoc' has differing number of entries for TiltAngle (${#mdoc_angle_array[*]}), SubFramePath (${#new_subframe_array[*]}), and DoseRate (${#dose_rate_array[*]})"
-    vprint "$warn_msg" "0+" "${main_log} =${warn_log}"
-    vprint "  Continuing...\n" "0+" "${main_log} =${warn_log}"
+    vprint "$warn_msg" "5+" "${main_log} =${warn_log}"
+    vprint "  Continuing...\n" "5+" "${main_log} =${warn_log}"
   fi
   
   if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]] ; then
     local do_denoise=true  # IF-OR statement is a mouthful
   fi
   
+  # Update arrays and plot CTF data
   update_arrays
-  
-  # Plot CTF data
   plot_tomo_ctfs "${new_mdoc} ">> "${tomo_log}"
-  
   write_angles_lists "${tomo_log}"
   
   # Optionally denoise
