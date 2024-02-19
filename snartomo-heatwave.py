@@ -121,7 +121,9 @@ class MdocTreeView(QtWidgets.QMainWindow):
         self.generic_text="EDIT TEXT"
         self.editable_column=5  # in column #3 (DateTime) and only for depth=1 (tilt series)
         self.incinerate_dir= re.sub('\$IN_DIR', self.options.in_dir, self.options.incinerate_dir)
-        
+        self.did_warn_thumbs= False
+        self.did_warn_ctfs= False
+
         # Do stuff
         self.checkJson()
         self.parseTargetsOrMdocs()
@@ -661,8 +663,17 @@ class MdocTreeView(QtWidgets.QMainWindow):
             curr_target : target file (real or virtual)
         """
         
-        # Strip extensions from MDOC
-        mdoc_base= re.sub( '.mrc.mdoc$', '', os.path.basename(curr_mdoc) )
+        # TFS MDOCs may end in simply '.mdoc' rahter than '.mrc.mdoc'
+        if os.path.basename(curr_mdoc).endswith('.mrc.mdoc'):
+            mdoc_base= re.sub( '.mrc.mdoc$', '', os.path.basename(curr_mdoc) )
+            ###print(f"668 curr_mdoc {os.path.basename(curr_mdoc).endswith('.mrc.mdoc')}")
+        elif os.path.basename(curr_mdoc).endswith('.mdoc'):
+            mdoc_base= re.sub( '.mdoc$', '', os.path.basename(curr_mdoc) )
+            ###print(f"668 curr_mdoc {os.path.basename(curr_mdoc).endswith('.mdoc')}")
+        else:
+            print(f"\nERROR!! Unknown extension for MDOC: {curr_mdoc}")
+            print("  Exiting...\n")
+            exit()
         general_and_tilt = read_mdoc(curr_mdoc)
         
         # Read CTF information from summary file
@@ -717,6 +728,8 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 curr_micthumb_dir,
                 mdoc_base + self.micthumb_suffix + thumbnail_idx + self.thumb_format
                 )
+            ##print(f"720 curr_micthumb_dir '{curr_micthumb_dir}', mdoc_base '{mdoc_base}', self.micthumb_suffix '{self.micthumb_suffix}', mic_thumb_path '{mic_thumb_path}'")
+            ##exit()
 
             ctf_thumb_base= mdoc_base + self.ctfthumb_suffix + thumbnail_idx + self.thumb_format
             ctf_thumb_path=os.path.join(curr_micthumb_dir, ctf_thumb_base)
@@ -730,6 +743,9 @@ class MdocTreeView(QtWidgets.QMainWindow):
             general_and_tilt[1][tilt_key] = self.setPathAndWarn(mic_path, general_and_tilt[1][tilt_key], 'McorrMic', 'Motion-corrected micrograph')
             general_and_tilt[1][tilt_key] = self.setPathAndWarn(tiff_path, general_and_tilt[1][tilt_key], 'TiffFile', 'Compressed TIFF')
             general_and_tilt[1][tilt_key] = self.setPathAndWarn(mic_thumb_path, general_and_tilt[1][tilt_key], 'MicThumbnail', 'Micrograph thumbnail')
+            #print(f"733 MicThumbnail '{self.warn_dict['MicThumbnail']}'")
+            #print(f"734 MicThumbnail '{general_and_tilt[1][tilt_key]['MicThumbnail']}'")
+            #exit()
 
             if self.warn_dict['MicThumbnail'] == True:
                 try:
@@ -737,10 +753,11 @@ class MdocTreeView(QtWidgets.QMainWindow):
                     bin16_micrograph_data = bin_nparray(micrograph_data, 16)
                     #display_nparray(bin16_micrograph_data)
                     save_as_image(bin16_micrograph_data, mic_thumb_path)
+                    general_and_tilt[1][tilt_key]['MicThumbnail'] = mic_thumb_path
                     if self.verbosity >= 6:
-                        print('Created thumbnail from motion-corrected micrograph. Saved it under ' + mic_thumb_path + '.')
+                        print('  Saved thumbnail from motion-corrected micrograph under ' + mic_thumb_path)
                 except:
-                    print('Could not create thumbnail image. Make sure motioncorrected .mrcs exist!')
+                    print('  Could not create thumbnail image. Make sure motion-corrected MRCs exist!')
 
             general_and_tilt[1][tilt_key] = self.setPathAndWarn(ctf_thumb_path, general_and_tilt[1][tilt_key], 'CtfThumbnail', 'Power-spectrum image')
             general_and_tilt[1][tilt_key] = self.setPathAndWarn(denoise_path, general_and_tilt[1][tilt_key], 'DenoiseMic', 'Denoised micrograph')
@@ -815,8 +832,9 @@ class MdocTreeView(QtWidgets.QMainWindow):
         if os.path.exists(curr_path):
             curr_dict[curr_key] = curr_path
             if self.verbosity>=6:
-                print(f" HOORAY! {curr_type} '{curr_path}' found :)")
+                print(f"  HOORAY! {curr_type} '{curr_path}' found :)")
         else:
+            curr_dict[curr_key] = 'null'
             if not self.warn_dict[curr_key] and self.verbosity>=6:
                 print(f"  WARNING! {curr_type} '{curr_path}' not found")
                 self.warn_dict[curr_key] = True
@@ -946,8 +964,9 @@ class MdocTreeView(QtWidgets.QMainWindow):
             self.tree_view.setColumnWidth(stat_idx+3, self.stat_map.column_dict[curr_stat].width)
 
         self.warn_dict['slices']= False
-        did_warn_ctfplot= False
-        
+        self.did_warn_ctfplot= False
+        self.did_warn_doseplot= False
+
         # Loop through target files
         for tgt_idx, curr_target in enumerate(self.temp_targets):
             self.drawTargetData(curr_target)
@@ -1146,7 +1165,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
             ts_parent_item.setCheckState(ts_select)
             self.mic2qt_lut[curr_mdoc]['widget']= ts_parent_item
             
-            # Add CtfByTS and dose-fitting plots
+            # Add CtfByTS and dose-fitting plots (TODO: function if not in dictionary)
             if self.do_show_imgs:
                 if 'CtfBytsPlot' in self.data4json[curr_target][curr_mdoc][0]:
                     ts_item_list= self.addTSImgs(self.data4json[curr_target][curr_mdoc][0]['CtfBytsPlot'], ts_item_list)
@@ -1154,12 +1173,21 @@ class MdocTreeView(QtWidgets.QMainWindow):
                     # Add blank item to preserve columns
                     ts_item_list= self.addTSImgs(None, ts_item_list)
                     
-                    if not did_warn_ctfplot: 
+                    if not self.did_warn_ctfplot:
                         if self.verbosity >= 1: print(f"WARNING! CTF plot not found for '{os.path.basename(curr_mdoc)}'")
-                        did_warn_ctfplot= True
+                        self.did_warn_ctfplot= True
                     
-                ts_item_list= self.addTSImgs(self.data4json[curr_target][curr_mdoc][0]['DosefitPlot'], ts_item_list)
-                        
+                ##ts_item_list= self.addTSImgs(self.data4json[curr_target][curr_mdoc][0]['DosefitPlot'], ts_item_list)
+                if 'DosefitPlot' in self.data4json[curr_target][curr_mdoc][0]:
+                    ts_item_list= self.addTSImgs(self.data4json[curr_target][curr_mdoc][0]['DosefitPlot'], ts_item_list)
+                else:
+                    # Add blank item to preserve columns
+                    ts_item_list= self.addTSImgs(None, ts_item_list)
+
+                    if not self.did_warn_doseplot:
+                        if self.verbosity >= 1: print(f"WARNING! Dose-fitting plot not found for '{os.path.basename(curr_mdoc)}'")
+                        self.did_warn_doseplot= True
+
             # Add extrema
             ts_item_list.append( QtGui.QStandardItem(tilt_string) )
             ts_item_list.append( QtGui.QStandardItem(resolution_string) )
@@ -1184,7 +1212,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         
     def buildStatList(self, ts_parent_item, tilt_data, curr_mdoc):
         """
-        Build stat table for each micrograph
+        Build GUI stat table for each micrograph
         
         Parameters:
             ts_parent_item : Qt widget to which data will be added
@@ -1205,8 +1233,8 @@ class MdocTreeView(QtWidgets.QMainWindow):
         for angle_idx, curr_angle in enumerate(angles_list):
             sorted_angles_list.append(list( tilt_data.keys() )[ sorted_idx_list[angle_idx] ])  # .keys() is not a list and thus cannot be directly subscripted
 
-        did_warn_thumbs= False
-        did_warn_ctfs= False
+        ##did_warn_thumbs= False
+        ##did_warn_ctfs= False
         all_selected= True
         none_selected= True
 
@@ -1216,10 +1244,13 @@ class MdocTreeView(QtWidgets.QMainWindow):
         # Loop through micrographs
         for sorted_idx, tilt_key in enumerate(sorted_angles_list):
             # Initialize row of micrograph stats
-            stat_list, did_warn_thumbs, did_warn_ctfs= self.addMicWidget(tilt_data, tilt_key, curr_mdoc, sorted_idx, did_warn_thumbs, did_warn_ctfs)
-            
+            ###stat_list, self.did_warn_thumbs, self.did_warn_ctfs= self.addMicWidget(tilt_data, tilt_key, curr_mdoc, sorted_idx, self.did_warn_thumbs, self.did_warn_ctfs)
+            stat_list= self.addMicWidget(tilt_data, tilt_key, curr_mdoc, sorted_idx)
+
             # Loop through stats
             for stat_key in self.stat_map.column_dict.keys():
+                ##print(f"1244 self.stat_map.column_dict.keys() : '{self.stat_map.column_dict.keys()}'")
+                ##exit()
                 if stat_key in self.stat_map.column_dict:
                     # Clean up if path
                     if stat_key=='SubFramePath':
@@ -1230,11 +1261,16 @@ class MdocTreeView(QtWidgets.QMainWindow):
                         if stat_format=='str':
                             stat_string = tilt_data[tilt_key][stat_key]
                         else:
-                            stat_value= float(tilt_data[tilt_key][stat_key])
-                            stat_string=f"{stat_value:{stat_format}}"
+                            # DoseRate absent in TFS MDOC files
+                            if stat_key=='DoseRate' and stat_key not in tilt_data[tilt_key]:
+                                stat_string="-1"
+                                ##print(f"1257 stat_key '{stat_key}', stat_string '{stat_string}', tilt_data[tilt_key] '{tilt_data[tilt_key].keys()}'")
+                                ##exit()
+                            else:
+                                stat_value= float(tilt_data[tilt_key][stat_key])
+                                stat_string=f"{stat_value:{stat_format}}"
 
                             # Check against extrama
-                            ###print(f"1227 stat_key '{stat_key}'")
                             if stat_key == 'TiltAngle':
                                 if stat_value < extrema_dict['tilt_min'] : extrema_dict['tilt_min']= stat_value
                                 if stat_value > extrema_dict['tilt_max'] : extrema_dict['tilt_max']= stat_value
@@ -1274,7 +1310,8 @@ class MdocTreeView(QtWidgets.QMainWindow):
 
         return ts_parent_item, ts_select, tilt_string, resolution_string
                     
-    def addMicWidget(self, tilt_data, tilt_key, curr_mdoc, sorted_idx, did_warn_thumbs, did_warn_ctfs):
+    ###def addMicWidget(self, tilt_data, tilt_key, curr_mdoc, sorted_idx, self.did_warn_thumbs, self.did_warn_ctfs):
+    def addMicWidget(self, tilt_data, tilt_key, curr_mdoc, sorted_idx):
         """
         Initializes row of micrograph stats, depending on where images are on or off
         
@@ -1283,13 +1320,13 @@ class MdocTreeView(QtWidgets.QMainWindow):
             tilt_key : key in tilt-series dictionary
             curr_mdoc : MDOC file
             sorted_idx : index number of tilt key, need for position of QStandardItem
-            did_warn_thumbs (bool, updated) 
-            did_warn_ctfs (bool, updated) 
+            ##self.did_warn_thumbs (bool, updated)
+            ##self.did_warn_ctfs (bool, updated)
         
         Returns:
             stat_list : list of Qt widgets
-            did_warn_thumbs : updated boolean
-            did_warn_ctfs  : updated boolean
+            ##self.did_warn_thumbs : updated boolean
+            ##self.did_warn_ctfs  : updated boolean
         """
         
         movie_base= ntpath.basename(tilt_data[tilt_key]['SubFramePath'])
@@ -1323,9 +1360,11 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 self.mic2qt_lut[curr_mdoc][movie_base] = mic_item
                 stat_list= [mic_item]
 
-                if not did_warn_thumbs and self.verbosity>=1 and self.loaded_json:
+                if not self.did_warn_thumbs and self.verbosity>=1 and self.loaded_json:
                     print(f"  WARNING! Micrograph thumbnail '{mic_thumb_path}' not found, skipping...")
-                    did_warn_thumbs=True
+                    ###print(f"    1351 {movie_base} self.did_warn_thumbs '{self.did_warn_thumbs}'")
+                    self.did_warn_thumbs=True
+                    ###print(f"    1353 {movie_base} self.did_warn_thumbs '{self.did_warn_thumbs}'")
 
             ctf_thumb_path= tilt_data[tilt_key]['CtfThumbnail']
             
@@ -1335,9 +1374,9 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 
             else:
                 stat_list.append( QtGui.QStandardItem(f'{sorted_idx+1}: {tilt_key}') )
-                if not did_warn_ctfs and self.verbosity>=1 and self.loaded_json:
+                if not self.did_warn_ctfs and self.verbosity>=1 and self.loaded_json:
                     print(f"  WARNING! CTF image '{ctf_thumb_path}' not found, skipping...")
-                    did_warn_ctfs=True
+                    self.did_warn_ctfs=True
 
         else:
             mic_item= QtGui.QStandardItem(f'{sorted_idx + 1}: {movie_base}')
@@ -1352,8 +1391,9 @@ class MdocTreeView(QtWidgets.QMainWindow):
         #self.mic2qt_lut[curr_mdoc][movie_base] = mic_item
         ##(For some reason, Python forgets the address mic_item after the IF-THEN, so I need to save it to the lookup table right away
         
-        return stat_list, did_warn_thumbs, did_warn_ctfs
-        
+        ###return stat_list, self.did_warn_thumbs, did_warn_ctfs
+        return stat_list
+
     def openMenu(self, position):
         """
         Builds right click menu (Adapted from http://pharma-sas.com/common-manipulation-of-qtreeview-using-pyqt5)
@@ -2549,9 +2589,10 @@ def definedAndExists(curr_key, curr_dict):
     
     # Check first if dictionary has key
     if curr_key in curr_dict:
-        assert isinstance(curr_dict[curr_key], str), f"ERROR!! Is a {type(curr_dict[curr_key])} rather than a string!"
-        if os.path.exists(curr_dict[curr_key]):
-            does_it_exist= True
+        ###assert isinstance(curr_dict[curr_key], str), f"ERROR!! Key '{curr_key}' is a {type(curr_dict[curr_key])} rather than a string!"
+        if isinstance(curr_dict[curr_key], str):
+            if os.path.exists(curr_dict[curr_key]):
+                does_it_exist= True
             
     return does_it_exist
 
