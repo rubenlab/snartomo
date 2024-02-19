@@ -1790,12 +1790,12 @@ function check_gain_format() {
       
       # Build command
       local convert_cmd="${vars[imod_dir]}/tif2mrc ${vars[gain_file]} ${mrc_gain}"
-      
-      # Assume it's a TIFF, and try to convert it
-      vprint "  Attempting conversion..." "1+" "${main_log}"
-      vprint "    Running: $convert_cmd\n" "1+" "${main_log}"
-    
+
       if [[ "${vars[testing]}" == false ]]; then
+        # Assume it's a TIFF, and try to convert it
+        vprint "  Attempting conversion..." "1+" "${main_log}"
+        vprint "    Running: $convert_cmd\n" "1+" "${main_log}"
+
         if [[ "$verbose" -ge 1 ]]; then
           $convert_cmd | sed 's/^/    /'
         else
@@ -1813,6 +1813,8 @@ function check_gain_format() {
         
         # Update gain file
         vars[gain_file]="${mrc_gain}"
+      else
+        vprint "  TESTING: $convert_cmd\n" "1+" "${main_log}"
       fi
       # End testing IF-THEN
     fi
