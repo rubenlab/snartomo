@@ -4911,7 +4911,11 @@ function create_json() {
   vprint "${prestring}Creating JSON file '${heatwave_json}' for GUI" "1+" "$outlog"
   
   if [[ "${vars[testing]}" == false ]]; then
-    vprint "  $clean_cmd"  "5+" "$outlog"
+    if [[ "$verbose" -ge 5 ]]; then
+      vprint "  $clean_cmd"  "5+" "$outlog"
+    elif [[ "$verbose" -ge 2 ]]; then
+      vprint "  $clean_cmd"  "1+" "=$outlog"
+    fi
     eval $clean_cmd
     local status_code=$?
     

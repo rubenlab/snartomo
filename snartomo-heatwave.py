@@ -26,6 +26,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import copy
 import webbrowser
+from datetime import datetime
 
 '''
 Just add this information into the general_and_tilt dictionary. From there the GUI program can use it.
@@ -48,7 +49,7 @@ USAGE = """
   For more info about options, enter: %s --help
 """ % ( (os.path.basename(__file__),)*3 )
 
-MODIFIED="Modified 2024 Feb 13"
+MODIFIED="Modified 2024 Feb 19"
 MAX_VERBOSITY=9
 VIRTUAL_TARGET_FILE='All tilt series'
 
@@ -411,7 +412,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                     curr_target, 
                     ts_dir=self.ts_dir, 
                     tgt_idx=tgt_idx+1, 
-                    msg='Building JSON data for target ')
+                    msg='Building JSON data for target')
                 target_base=os.path.basename(curr_target)
             else:
                 curr_list_mdocs=self.new_mdocs
@@ -596,23 +597,24 @@ class MdocTreeView(QtWidgets.QMainWindow):
     END OF CUMULATIVE DATA FUNCTION STUFF :(
     '''
 
-    def parseTargetFile(self, target_file, ts_dir=None, tgt_idx=None, msg='Parsing target file '):
+    def parseTargetFile(self, target_file, ts_dir=None, tgt_idx=None, msg='Parsing target file'):
         """
         Within a target file, finds MDOC files
         
         Parameters:
             target_file : target file
             ts_dir (optional) : directory in which to look for MDOC
-            tgt_idx : counter for target files for display
+            tgt_idx : (optional) counter for target files for display
+            msg : (optional) message to display
             
         Returns:
             list of MDOCs
         """
         
         if self.verbosity>=2: 
-            msg+=target_file
+            msg= f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}: {msg} {target_file}"
             if tgt_idx:
-                msg+= f" ({tgt_idx}/{len(self.temp_targets)})"
+                msg+= f"({tgt_idx}/{len(self.temp_targets)})"
             print(msg + '...')
 
         # Grep target file for 'tsfile'
