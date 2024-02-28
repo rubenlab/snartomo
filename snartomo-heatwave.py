@@ -2434,8 +2434,12 @@ def expandInputFiles(string2split, extension=None):
     
     for curr_string in list_strings:
         list_expanded= glob.glob(curr_string)
+        list_sorted= sorted(list_expanded)
+        #print(f"2438 list_expanded: {list_expanded}")
+        #print(f"2439 list_sorted: {list_sorted}")
+        #exit()
         
-        for fn in list_expanded:
+        for fn in list_sorted:
             if extension:
                 if os.path.splitext(fn)[1] == extension: 
                     file_list.append(fn)
