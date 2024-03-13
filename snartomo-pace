@@ -19,7 +19,6 @@ function program_info() {
   echo "Running: SNARTomoPACE"
   echo "Modified 2024-03-13"
   date
-  echo 
 }
 
 #################### Filenames ####################
@@ -130,6 +129,7 @@ main
   shared.create_directories
   prepare_logfiles
   program_info
+  shared.check_updates
   print_usage
   shared.check_args
   argparser.print_arguments
@@ -194,20 +194,18 @@ function main() {
   do_pace=true
   check_env
   parse_command_line "${@}"
-  
   check_testing
-  
+
   # Need to create directories first to save log files
   create_directories "${@}"
-  
   prepare_logfiles
-  
+
   print2log "program_info" "1+" "${main_log}"
+  check_updates
   print2log "print_usage" "1+" "${main_log}"
   check_format
   print2log "check_args 0" "0+" "${main_log}"
   print2log "print_arguments" "7+" "${set_file}"
-  
   validate_inputs "${main_log}"
   check_other_snartomos "${main_log}"
   
@@ -221,7 +219,6 @@ function main() {
   # Loop through targets files
   for target_idx in ${!target_array[@]} ; do
     local current_target="${target_array[$target_idx]}"
-    
     initialize_vars
     declare -a mdoc_array=()  # needs to be initialized here
     

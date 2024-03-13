@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2024-02-15"
+  echo "Modified 2024-03-13"
   date
   echo 
 }
@@ -129,6 +129,7 @@ main
   shared.check_testing
   do_real_work
     program_info
+    shared.check_updates
     print_usage
     print_arguments
     validate_inputs
@@ -201,9 +202,14 @@ function do_real_work() {
 
   if [[ "${verbose}" -ge 1 ]]; then
     program_info
+  fi
+
+  check_updates
+  
+  if [[ "${verbose}" -ge 1 ]]; then
     print_usage
   fi
-  
+
   if [[ "${verbose}" -ge 7 ]]; then
     print_arguments
   fi

@@ -103,6 +103,43 @@ function check_testing() {
   # End PACE IF-THEN
 }
 
+function check_updates() {
+###############################################################################
+#   Function:
+#     Checks for updates
+#
+#   Global variables:
+#     SNARTOMO_DIR
+#     main_log
+#     warn_log
+#
+###############################################################################
+
+  # Check whether git is in PATH
+  if [[ -f $(which git) ]] ; then
+    # Go to SNARTomo directory
+    pushd ${SNARTOMO_DIR} 1> /dev/null
+
+    # Check whether there's a ".git" directory
+    if [[ -d ".git" ]]; then
+      # Adapted from https://stackoverflow.com/a/3258271
+      if [[ $(git rev-parse HEAD) = $(git ls-remote $(git rev-parse --abbrev-ref @{u} | sed 's/\// /g') | cut -f1) ]] ; then
+        pushd 1> /dev/null
+        vprint "SNARTomo up-to-date.\n" "1+" "${main_log}"
+      else
+        pushd 1> /dev/null
+        vprint "WARNING! SNARTomo out of date! Continuing..." "1+" "${main_log} =${warn_log}"
+        vprint "  To update, go to '${SNARTOMO_DIR}' and enter: 'git pull'" "1+" "${main_log} =${warn_log}"
+        vprint "  Continuing...\n" "1+" "${main_log} =${warn_log}"
+      fi
+    else
+      pushd 1> /dev/null
+    fi
+    # End git-directory IF-THEN
+  fi
+  # End git-found IF-THEN
+}
+
 function check_args() {
 ###############################################################################
 #   Function:
