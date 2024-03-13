@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2024-02-16"
+  echo "Modified 2024-03-13"
   date
   echo 
 }
@@ -1204,7 +1204,12 @@ function detect_new_movies() {
   # End live IF-THEN
   
   # While loop will finish either when last image has been collected or when time limit reached
-  vprint "$(date +"$time_format"): Found ${movie_counter} movies in total from targets file '${vars[target_file]}'" "1+" "${main_log} =${status_file}"
+  msg="Found ${movie_counter} movies in total from targets file '${vars[target_file]}'"
+  if [[ "${movie_counter}" -eq 0 ]]; then
+    vprint "WARNING! ${msg}" "0+" "${main_log} =${status_file} =${warn_log}"
+  else
+    vprint "$(date +"$time_format"): ${msg}" "1+" "${main_log} =${status_file}"
+  fi
   
   if [[ "${do_parallel}" == false ]] ; then
     vprint "" "1+" "${main_log}"

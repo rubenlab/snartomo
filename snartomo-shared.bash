@@ -3071,7 +3071,12 @@ function clean_up_mdoc() {
   mapfile -t old_subframe_array < <( grep "SubFramePath" "${old_mdoc}" | awk '{print $3}' | sed 's/\r//' )
   
   # Read angles from dose-fitting
-  readarray -t good_angle_array < $good_angles_file
+  if [[ ! -f "${good_angles_file}" ]]; then
+    vprint "WARNING! Angles file '${good_angles_file}' not found" "0+" "${main_log} =${warn_log}"
+    vprint "  Continuing...\n" "0+" "${main_log}"
+  else
+    readarray -t good_angle_array < $good_angles_file
+  fi
   
   # Sort (https://stackoverflow.com/a/11789688)
   IFS=$'\n' sorted_good_angles=($(sort -n <<<"${good_angle_array[*]}"))
@@ -3081,7 +3086,12 @@ function clean_up_mdoc() {
   local movie_file=$(echo ${old_subframe_array[0]##*[/\\]} )
   local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
   local first_movie_file="$(grep -l $stem_movie ${chunk_prefix}*)"  # assuming single hit
-  local first_movie_chunk="$(basename $first_movie_file | sed 's/[^0-9]*//g')"
+# # #   echo "3089 first_movie_file '${first_movie_file}'"
+
+  if [[ "$first_movie_file" != "" ]] ; then
+    local first_movie_chunk="$(basename $first_movie_file | sed 's/[^0-9]*//g')"
+  fi
+# # #   echo "3091 first_movie_chunk: '${first_movie_chunk}'"
   local last_header_chunk=$(( $first_movie_chunk - 1 ))
   
   declare -a good_mdoc_array
@@ -3113,10 +3123,6 @@ function clean_up_mdoc() {
   done
   
   local good_counter=0
-  
-#   # Backup good-angles file
-#   local good_angles_copy="${good_angles_file%.txt}_0-orig.txt"
-#   mv ${good_angles_file} ${good_angles_copy}
   
   # Append micrograph-related chunks
   for mdoc_idx in "${!good_mdoc_array[@]}"; do 
