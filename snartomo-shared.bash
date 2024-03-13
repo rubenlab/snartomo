@@ -128,7 +128,7 @@ function check_updates() {
         vprint "SNARTomo up-to-date.\n" "1+" "${main_log}"
       else
         pushd 1> /dev/null
-        vprint "WARNING! SNARTomo out of date! Continuing..." "1+" "${main_log} =${warn_log}"
+        vprint "WARNING! SNARTomo out of date!" "1+" "${main_log} =${warn_log}"
         vprint "  To update, go to '${SNARTOMO_DIR}' and enter: 'git pull'" "1+" "${main_log} =${warn_log}"
         vprint "  Continuing...\n" "1+" "${main_log} =${warn_log}"
       fi
