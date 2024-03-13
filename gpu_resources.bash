@@ -517,7 +517,6 @@ function power_plot() {
     col_counter=1
 
     # Make sure at least 1 GPU is plotted
-# # #     echo "gpu_array '${#gpu_array[@]}'" ; exit  #### DIAGNOSTIC
     if [[ "${#gpu_array[@]}" -lt 1 ]]; then
       echo "  WARNING! power_plot: Didn't detect GPUs to plot, continuing..."
     fi
@@ -529,7 +528,6 @@ function power_plot() {
       # Search input list for string
       let "col_counter++"
       gpu_label=$(echo $gpu_line | cut -d'=' -f 1)
-# # #       echo "${col_counter} ${gpu_label}"
       echo "'$(realpath ${logfile})' using 1:${col_counter} with lines title '${gpu_line}', \\" >> "${plotfile}"
     done
   fi
@@ -549,10 +547,7 @@ function power_plot() {
     
     # Loop through GPUs
     while read -r gpu_line ; do
-# #       echo "gpu_line '${gpu_line}'" #; exit
-# #       printf "  %s\n" "${gpu_line[@]}" ; exit
       local no_units=$(echo ${gpu_line} | sed 's/ W//g')
-# # #       echo "gpu_line, '${gpu_line}', no_units '${no_units}'" ; exit  #### DIAGNOSTIC
       timept_line+="\t$no_units"
     done <<< $(nvidia-smi -q | grep -A 6 "GPU Power Readings" | grep "Power Draw" --color=never | cut -d: -f2 | sed -e 's/^[[:space:]]*//')
     

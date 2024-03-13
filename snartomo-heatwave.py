@@ -49,7 +49,7 @@ USAGE = """
   For more info about options, enter: %s --help
 """ % ( (os.path.basename(__file__),)*3 )
 
-MODIFIED="Modified 2024 Feb 19"
+MODIFIED="Modified 2024 Mar 13"
 MAX_VERBOSITY=9
 VIRTUAL_TARGET_FILE='All tilt series'
 
@@ -2029,7 +2029,6 @@ class MdocTreeView(QtWidgets.QMainWindow):
                     # Only incinerate if completely deselected
                     if self.mic2qt_lut[curr_mdoc]['widget'].checkState() == 0:
                         self.option_dict= vars(self.options)
-                        ###self.incinerate_dir= re.sub('\$IN_DIR', self.options.in_dir, self.options.incinerate_dir)
                         self.createIncinerateSubdirs()
                     
                         # Move tilt series directory
@@ -3087,7 +3086,7 @@ def parse_command_line():
     patterns.add_argument(
         "--incinerate_dir",
         type=str,
-        default='$IN_DIR/INCINERATE',
+        default='INCINERATE',
         help="Relative path of directory where incinerated files will be moved ('$IN_DIR' will be replaced)")
 
 
