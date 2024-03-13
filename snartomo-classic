@@ -27,7 +27,6 @@ function program_info() {
   echo "Running: SNARTomoClassic"
   echo "Modified 2024-03-13"
   date
-  echo 
 }
 
 function print_usage() {
