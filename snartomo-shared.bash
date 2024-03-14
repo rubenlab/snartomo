@@ -473,17 +473,29 @@ function clean_local_dir() {
   local key=$1
   local outlog=$2
   
-#   vprint "" "1+" "${outlog}"
-#   
-#   echo "412 key '${vars[${key}]}'"
-  
   # This condition shouldn't happen, but better to be safe before delecting directories
   if [[ -z "${vars[${key}]}" ]] ; then
     vprint "WARNING! Parameter '--${key}' should be non-empty" "0+" "${outlog} =${warn_log}"
   else
     if [[ "${do_pace}" == true ]] && [[ "${key}" == "temp_local" ]] ; then
-      mv ${temp_share_dir}/* ${vars[outdir]}/${temp_dir}
+# # #       echo "485: mv ${temp_share_dir}/* ${vars[outdir]}/${temp_dir}"
+      ERROR=$( { mv ${temp_share_dir}/* ${vars[outdir]}/${temp_dir} ; } 2>&1 )
+
+      # Check if error is empty
+      if ! [[ -z "$ERROR" ]] ; then
+        # Ignore permission errors
+        if ! [[ "$ERROR" = *"preserving permissions"* ]] ; then
+          vprint "WARNING! Unknown error while moving contents of ' ${temp_share_dir}' to '${vars[outdir]}/${temp_dir}':" "0+" "${outlog} =${warn_log}"
+          vprint "${ERROR}" "0+" "${outlog} =${warn_log}"
+          vprint "Continuing..." "0+" "${outlog} =${warn_log}"
+          vprint "" "0+" "${outlog}"
+# #         else
+# #           echo "497: preserving permissions error"
+        fi
+      fi
+      # End non-empty error IF-THEN
     fi
+    # End PACE+temp_local IF-THEN
     
     # Delete old subdirectories unless they are recent
     mapfile -t dir_array < <(find ${vars[${key}]} -mindepth 1 -type d 2> /dev/null)
@@ -3622,7 +3634,8 @@ function wrapper_aretomo() {
         echo "  TESTING: ${aretomo_cmd}"
       fi
       
-      touch "$tomogram_3d"
+# # #       echo "3637: touch $tomogram_3d"
+      quiet_touch "$tomogram_3d"
     fi
     # End redo3d IF-THEN
   fi
@@ -3678,6 +3691,45 @@ function wrapper_aretomo() {
       
       echo $are_cmd
   }
+
+function quiet_touch() {
+###############################################################################
+#   Function:
+#     Touches a file while anticipating known errors & warnings.
+#
+#   Positional variables:
+#     1) tomogram
+#
+#   Calls functions:
+#     vprint
+#
+#   Global variables:
+#     outlog
+#     warn_log
+#
+###############################################################################
+
+  local tomogram_3d=$1
+
+  local ERROR=$( { touch $tomogram_3d ; } 2>&1 )
+
+  # Check if error is empty
+  if ! [[ -z "$ERROR" ]] ; then
+    # On samba-mounted disks, touch may give an error, so let's check if it exists
+    if ! [[ -f "$tomogram_3d" ]]; then
+      vprint "WARNING: '$tomogram_3d' doesn't exist:" "0+" "${outlog} =${warn_log}"
+      vprint "${ERROR}" "0+" "${outlog} =${warn_log}"
+      vprint "Continuing..." "0+" "${outlog} =${warn_log}"
+      vprint "" "0+" "${outlog}"
+# #     else
+# #       echo "3725 '$tomogram_3d' exists"
+    fi
+    # End tomo-exists IF-THEN
+  fi
+  # End non-empty error IF-THEN
+
+  return
+}
 
 function mdoc2tomo() {
 ###############################################################################
@@ -3849,7 +3901,7 @@ function wrapper_etomo() {
         echo      "  ${etomo_cmd}"
       fi
       
-      touch $tomogram_3d
+      quiet_touch $tomogram_3d
     fi
     # End redo3d IF-THEN
   fi

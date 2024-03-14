@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2024-03-13"
+  echo "Modified 2024-03-14"
   date
 }
 
@@ -2990,8 +2990,25 @@ function tomogram_parallel() {
 #        sleep 30
     fi
     
-    touch "${tomogram_3d}"
+    quiet_touch "$tomogram_3d"
+#     ERROR=$( { touch $tomogram_3d ; } 2>&1 )
+#
+#     # Check if error is empty
+#     if ! [[ -z "$ERROR" ]] ; then
+#       # On samba-mounted disks, touch may give an error, so let's check if it exists
+#       if ! [[ -f "$tomogram_3d" ]]; then
+#         vprint "WARNING: '$tomogram_3d' doesn't exist:" "0+" "${outlog} =${warn_log}"
+#         vprint "${ERROR}" "0+" "${outlog} =${warn_log}"
+#         vprint "Continuing..." "0+" "${outlog} =${warn_log}"
+#         vprint "" "0+" "${outlog}"
+# # #       else
+# # #         echo "3012: '$tomogram_3d' exists"
+#       fi
+#       # End tomo-exists IF-THEN
+#     fi
+#     # End non-empty error IF-THEN
   fi
+  # End testing IF-THEN
       
   # Append log file (need to lock?)
   cat $tomo_log >> ${rec_log}
