@@ -769,8 +769,9 @@ function validate_inputs() {
   
   ctffind_descr="CTFFIND executables directory"
   check_dir "${vars[ctffind_dir]}" "${ctffind_descr}" "${outlog}"
+  check_exe "$(which gnuplot)" "Gnuplot plotting" "${outlog}"
   check_exe "$(which pdftoppm)" "PDF converter" "${outlog}"
-  
+
   # Can't use JANNI and Topaz simultaenously
   if [[ "${vars[do_janni]}" == true ]] && [[ "${vars[do_topaz]}" == true ]]; then
     validated=false
@@ -1233,13 +1234,18 @@ function validate_inputs() {
       # End special cases IF-THEN
     
     else
-      if [[ "${exe_descr}" == "PDF converter" ]] ; then
+      if [[ "${exe_descr}" == "Gnuplot plotting" ]] ; then
+        vprint "  WARNING! ${exe_descr} not found" "1+" "${outlog} =${warn_log}"
+        vprint "    CTFFIND 1D spectra will not be plotted" "2+" "${outlog} =${warn_log}"
+        vprint "    Install gnuplot to enable this function" "2+" "${outlog} =${warn_log}"
+        return
+      elif [[ "${exe_descr}" == "PDF converter" ]] ; then
         vprint "  WARNING! ${exe_descr} not found" "1+" "${outlog} =${warn_log}"
         vprint "    CTFFIND 1D spectra will not be converted to images" "2+" "${outlog} =${warn_log}"
         vprint "    Install pdftoppm to enable this function" "2+" "${outlog} =${warn_log}"
         return
       fi
-      
+
       if [[ "${vars[testing]}" == true ]]; then
         vprint    "  WARNING! ${exe_descr} not found. Continuing..." "1+" "${outlog} =${warn_log}"
       else
@@ -2422,52 +2428,60 @@ function ctffind_common() {
     
     # Plot 1D profiles
     if [[ -f "$avg_rot" ]]; then
-      if [[ "${do_pace}" == true ]] ; then
-        vprint "    Running: ctffind_plot_results.sh $avg_rot" "5+"
-      fi
-      
-      # If someone else owns /tmp/tmp.txt (hardwired by CTFFIND4), wait for it to be released
-      wait_for_file "/tmp/tmp.txt"
-      
-      # Plot results
-      ${vars[ctffind_dir]}/ctffind_plot_results.sh $avg_rot 1> /dev/null
-      
-      # (Temp file may cause problems if lying around)
-      \rm /tmp/tmp.txt 2> /dev/null
-    else
-      warn_msg="WARNING! CTFFIND4 output $avg_rot does not exist"
-    fi
+      # Make sure that Gnuplot exists
+      if [[ $(type -P gnuplot) ]] ; then
 
-    # Convert PDF to PNG
-    if [[ -f "$rot_pdf" ]]; then
-      # If pdftoppm in $PATH (https://stackoverflow.com/a/6569837), then convert to PNG
-      if [[ $(type -P pdftoppm) ]] ; then
-        local png_cmd="pdftoppm $rot_pdf $png_stem -png -r ${vars[ctf1d_dpi]}"
-      
-        if [[ "${do_pace}" == true ]] || [[ "$verbose" -ge 5 ]] ; then
-          echo "    Running: ${png_cmd}"
+        if [[ "${do_pace}" == true ]] ; then
+          vprint "    Running: ctffind_plot_results.sh $avg_rot" "5+"
         fi
-        
-        # Convert to PNG
-        ${png_cmd} > /dev/null
-        
-#         else
-#           echo "Not found!"
+
+        # If someone else owns /tmp/tmp.txt (hardwired by CTFFIND4), wait for it to be released
+        wait_for_file "/tmp/tmp.txt"
+
+        # Plot results
+        ${vars[ctffind_dir]}/ctffind_plot_results.sh $avg_rot 1> /dev/null
+
+        # (Temp file may cause problems if lying around)
+        \rm /tmp/tmp.txt 2> /dev/null
+
+        # Convert PDF to PNG
+        if [[ -f "$rot_pdf" ]]; then
+          # If pdftoppm in $PATH (https://stackoverflow.com/a/6569837), then convert to PNG
+          if [[ $(type -P pdftoppm) ]] ; then
+            local png_cmd="pdftoppm $rot_pdf $png_stem -png -r ${vars[ctf1d_dpi]}"
+
+            if [[ "${do_pace}" == true ]] || [[ "$verbose" -ge 5 ]] ; then
+              echo "    Running: ${png_cmd}"
+            fi
+
+            # Convert to PNG
+            ${png_cmd} > /dev/null
+
+#             else
+#               echo "Not found!"
+          fi
+          # End pdftoppm iF-THEN
+        else
+          warn_msg="WARNING! CTFFIND4 output '$rot_pdf' does not exist"
+        fi
+        # End pdf IF-THEN
       fi
+      # End gnuplot IF-THEN
     else
-      warn_msg="WARNING! CTFFIND4 output $rot_pdf does not exist"
+      warn_msg="WARNING! CTFFIND4 output '$avg_rot' does not exist"
     fi
+    # End avg_rot IF-THEN
 
     # Write last line of CTF text output to summary
     if [[ -f "$ctf_txt" ]]; then
       echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${curr_summary}
     else
-      warn_msg="WARNING! CTFFIND4 output $ctf_txt does not exist"
+      warn_msg="WARNING! CTFFIND4 output '$ctf_txt' does not exist"
     fi
   
     if [[ "${do_pace}" == false ]] && [[ "$verbose" -ge 5 ]] ; then
       remaining_files=$(ls 2>/dev/null -Ubad -- ${vars[movie_dir]}/*.${movie_ext} | wc -w)
-      echo -e "\n    Finished CTFFIND4 on $cor_mic, micrograph #${mic_counter}, ${remaining_files} remaining"
+      echo -e "\n    Finished CTFFIND4 on '$cor_mic', micrograph #${mic_counter}, ${remaining_files} remaining"
       echo -e   "    $(date)\n"
     fi
 
