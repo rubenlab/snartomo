@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2024-03-14"
+  echo "Modified 2024-03-15"
   date
 }
 
@@ -362,7 +362,6 @@ function parse_command_line() {
   add_argument "testing" "false" "Testing flag" "BOOL"
   add_argument "overwrite" "false" "Flag to overwrite pre-existing output directory" "BOOL"
   add_argument "verbosity" "${verbosity}" "Verbosity level (0..8)" "INT"
-  add_argument "do_json" "false" "Write JSON file" "BOOL"
   add_argument "max_minutes" "${max_minutes}" "Maximum run time, minutes" "INT"
   add_argument "kv" "${SNARTOMO_VOLTAGE}" "Voltage, kV" "FLOAT"
   add_argument "no_redo3d" "false" "Flag to NOT overwrite pre-existing 3D reconstructions" "BOOL"
