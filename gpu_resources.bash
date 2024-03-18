@@ -516,10 +516,10 @@ function power_plot() {
     echo "plot \\" >> "${plotfile}"
     col_counter=1
 
-    # Make sure at least 1 GPU is plotted
-    if [[ "${#gpu_array[@]}" -lt 1 ]]; then
-      echo "  WARNING! power_plot: Didn't detect GPUs to plot, continuing..."
-    fi
+#     # Make sure at least 1 GPU is plotted
+#     if [[ "${#gpu_array[@]}" -lt 1 ]]; then
+#       echo "  WARNING! power_plot: Couldn't plot GPUs, continuing..."
+#     fi
 
     # Loop through GPUs
     for gpu_line in "${gpu_array[@]}"; do
@@ -570,34 +570,36 @@ function buildHeader() {
 #   Function:
 #     Constructs header line
 #   
-#   Positional variables:
-#   
-#   Calls functions:
-#   
 #   Global variables:
 #     gpu_array
 #     hdr_line (MODIFIED)
 #   
 ###############################################################################
   
-  # Build header line
-  for gpu_num in "${!gpu_array[@]}"; do 
-    local gpu_line="${gpu_array[$gpu_num]}"
-    local gpu_id=$(echo ${gpu_line} | cut -d" " -f2)
-    
-    # If all 0s before first colon, then ignore
-    local before_colon=$(echo ${gpu_id} | cut -d: -f1 | sed 's/0//g')
-    if [[ "${before_colon}" == "" ]]; then
-#         echo "before_colon : <blank>"
-      local gpu_label=$(echo ${gpu_id} | cut -d: -f2-)
-      gpu_array[$gpu_num]=${gpu_label}
-    else
-#         echo "before_colon : '${before_colon}'"
-      local gpu_label=${gpu_id}
-    fi
-    
-    hdr_line+="\t$gpu_label"
-  done 
+  # Warn if no GPUs detected (happens randomly, not necessarily fatal)
+  if [[ "${#gpu_array[@]}" -lt 1 ]]; then
+    echo "  WARNING! ${FUNCNAME[1]}: Couldn't find GPUs"
+    echo "    GPU info"
+    nvidia-smi -q | grep "^GPU" | sed 's/^/      /'  # prepends spaces to output
+    echo "    Continuing..."
+  else
+    # Build header line
+    for gpu_num in "${!gpu_array[@]}"; do
+      local gpu_line="${gpu_array[$gpu_num]}"
+      local gpu_id=$(echo ${gpu_line} | cut -d" " -f2)
+
+      # If all 0s before first colon, then ignore
+      local before_colon=$(echo ${gpu_id} | cut -d: -f1 | sed 's/0//g')
+      if [[ "${before_colon}" == "" ]]; then
+        local gpu_label=$(echo ${gpu_id} | cut -d: -f2-)
+        gpu_array[$gpu_num]=${gpu_label}
+      else
+        local gpu_label=${gpu_id}
+      fi
+
+      hdr_line+="\t$gpu_label"
+    done
+  fi
 }
 
 function temperature_plot() {
@@ -658,11 +660,14 @@ function temperature_plot() {
     echo "plot \\" >> "${plotfile}"
     col_counter=1
 
-    # Make sure at least 1 GPU is plotted
-    if [[ "${#gpu_array[@]}" -lt 1 ]]; then
-      echo "  WARNING! temperature_plot: Didn't detect GPUs to plot, continuing..."
-    fi
-
+#     # Warn if no GPUs detected (happens randomly, not necessarily fatal)
+#     if [[ "${#gpu_array[@]}" -lt 1 ]]; then
+#       echo "  WARNING! temperature_plot: Couldn't plot GPUs"
+#       echo "    GPU info"
+#       nvidia-smi -q | grep "^GPU" | sed 's/^/      /'  # prepends spaces to output
+#       echo "    Continuing..."
+#     fi
+#
     for gpu_line in "${gpu_array[@]}"; do
       curr_col=$(echo "${gpu_line}" | cut -d "=" -f 1)
       
@@ -713,7 +718,7 @@ function temperature_plot() {
 # Check whether script is being sourced or executed (https://stackoverflow.com/a/2684300/3361621)
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 #   echo "script ${BASH_SOURCE[0]} is being executed..."
-   power_plot "$@"
+   temperature_plot "$@"
 # else
 #   echo "script ${BASH_SOURCE[0]} is being sourced..."
 fi
