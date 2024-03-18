@@ -108,12 +108,17 @@ function check_updates() {
 #   Function:
 #     Checks for updates
 #
+#   Positional variable:
+#     1) Quiet flag
+#
 #   Global variables:
 #     SNARTOMO_DIR
 #     main_log
 #     warn_log
 #
 ###############################################################################
+
+  local quiet_flag=$1
 
   # Check whether git is in PATH
   if [[ -f $(which git) ]] ; then
@@ -125,7 +130,9 @@ function check_updates() {
       # Adapted from https://stackoverflow.com/a/3258271
       if [[ $(git rev-parse HEAD) = $(git ls-remote $(git rev-parse --abbrev-ref @{u} | sed 's/\// /g') | cut -f1) ]] ; then
         pushd 1> /dev/null
-        vprint "SNARTomo up-to-date.\n" "1+" "${main_log}"
+        if [[ "${quiet_flag}" != true ]]; then
+          vprint "SNARTomo up-to-date.\n" "1+" "${main_log}"
+        fi
       else
         pushd 1> /dev/null
         vprint "WARNING! SNARTomo out of date!" "1+" "${main_log} =${warn_log}"

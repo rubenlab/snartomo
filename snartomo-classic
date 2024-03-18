@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2024-03-13"
+  echo "Modified 2024-03-18"
   date
 }
 
@@ -1182,6 +1182,10 @@ function summary_info() {
 #   Function:
 #     Prints summary info
 #   
+#   Calls functions:
+#     clean_local_dir
+#     check_updates
+#
 #   Global variables:
 #     verbose
 #     tomo_counter
@@ -1201,6 +1205,8 @@ function summary_info() {
     echo
   fi
       
+  check_updates "true"
+
   # Check if there are remaining files (excluding the dummy file)
   let "remaining_files--"
   if [[ "$verbose" -ge 2 ]] && [[ "${vars[testing]}" == false ]] ; then

@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2024-03-15"
+  echo "Modified 2024-03-18"
   date
 }
 
@@ -288,6 +288,7 @@ function main() {
   elapsed_sec=$((${SECONDS}%60))
   printf -v date_string "$(date +"$time_format"): Exiting after ${elapsed_min}m%02ds" "${elapsed_sec}"
   vprint "${date_string}\n" "1+" "${main_log} =${file_log} =${status_file}"
+  check_updates "true"
 }
 
 function check_env() {
