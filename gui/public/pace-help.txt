@@ -1,0 +1,504 @@
+        SERIALEM SETTINGS
+          Either an MDOC file or one or more target files are required.
+
+          --target_files
+              Description: PACE target files (more than one -> must be enclosed in quotes)
+              Type: ANY
+              Default: 
+
+          --mdoc_files
+              Description: Tilt-series MDOC files (more than one -> must be enclosed in quotes)
+              Type: ANY
+              Default: 
+
+        INPUT MOVIE SETTINGS
+          One of these directories is required.
+
+          --eer_dir
+              Description: Input EER directory
+              Type: ANY
+              Default: 
+
+          --mrc_dir
+              Description: Input MRC movie stack directory
+              Type: ANY
+              Default: 
+
+          --tif_dir
+              Description: Input TIFF movie stack directory
+              Type: ANY
+              Default: 
+
+        GLOBAL SETTINGS
+          These settings affect multiple steps.
+
+          --gpus
+              Description: GPUs to use (surrounding quotes & space-delimited if more than one)
+              Type: ANY
+              Default: 0
+
+          --force
+              Description: Force execution even if same GPUs in use
+              Type: BOOL
+              Default: false
+
+          --live
+              Description: Flag to detect new files on-the-fly
+              Type: BOOL
+              Default: false
+
+          --last_tilt
+              Description: Last (not highest) tilt angle in tilt series (required in live mode)
+              Type: FLOAT
+              Default: -999.9
+
+          --outdir
+              Description: Output directory
+              Type: ANY
+              Default: SNARTomo
+
+          --apix
+              Description: Pixel size, A/px
+              Type: FLOAT
+              Default: -1.00
+
+          --testing
+              Description: Testing flag
+              Type: BOOL
+              Default: false
+
+          --overwrite
+              Description: Flag to overwrite pre-existing output directory
+              Type: BOOL
+              Default: false
+
+          --verbosity
+              Description: Verbosity level (0..8)
+              Type: INT
+              Default: 4
+
+          --max_minutes
+              Description: Maximum run time, minutes
+              Type: INT
+              Default: 400
+
+          --kv
+              Description: Voltage, kV
+              Type: FLOAT
+              Default: 300.0
+
+          --no_redo3d
+              Description: Flag to NOT overwrite pre-existing 3D reconstructions
+              Type: BOOL
+              Default: false
+
+          --denoise_gpu
+              Description: Flag to denoise using GPUs
+              Type: BOOL
+              Default: true
+
+        ADVANCED SETTINGS
+          These settings will rarely need to be changed.
+
+          --search_interval
+              Description: Interval to check for files and resources, seconds
+              Type: INT
+              Default: 2
+
+          --tilt_tolerance
+              Description: Angle difference of last tilt +/- this value will signal end of series
+              Type: FLOAT
+              Default: 0.2
+
+          --slow
+              Description: Flag to simulate delays between files during testing
+              Type: BOOL
+              Default: false
+
+          --min_frames
+              Description: Minimum number of frames (EERs only) before printing warning
+              Type: INT
+              Default: 200
+
+          --max_frames
+              Description: Maximum number of frames (EERs only) before printing warning
+              Type: INT
+              Default: 600
+
+          --temp_local
+              Description: Directory to copy EER files locally
+              Type: ANY
+              Default: /tmp/SNARTomo-tapu
+
+          --temp_share
+              Description: Shared-memory directory
+              Type: ANY
+              Default: /dev/shm/SNARTomo-tapu
+
+          --ram_warn
+              Description: Free system memory (GB) before warning printed
+              Type: FLOAT
+              Default: 20
+
+          --ram_kill
+              Description: Free system memory (GB) before exiting
+              Type: FLOAT
+              Default: 10
+
+          --eer_local
+              Description: Flag to copy EER files locally temporarily
+              Type: BOOL
+              Default: false
+
+          --eer_latency
+              Description: Maximum header read time before micrograph is copied locally
+              Type: FLOAT
+              Default: 8
+
+          --temp_wait
+              Description: How long to wait (seconds) for MotionCor2 or CTFFIND4 /tmp files to be removed
+              Type: FLOAT
+              Default: 120.0
+
+          --debug
+              Description: Flag for debugging
+              Type: BOOL
+              Default: false
+
+        EERMERGE SETTINGS
+          Settings if compressing EERs.
+
+          --grouping
+              Description: Number of EER frames to merge
+              Type: INT
+              Default: -1
+
+        MOTIONCOR2 SETTINGS
+          Settings for motion-correction.
+
+          --frame_file
+              Description: Input MotionCor2 frame file
+              Type: ANY
+              Default: motioncor-frame.txt
+
+          --gain_file
+              Description: Input gain file
+              Type: ANY
+              Default: 
+
+          --no_gain
+              Description: Flag when no gain file is to be used
+              Type: BOOL
+              Default: false
+
+          --motioncor_exe
+              Description: MotionCor2 executable
+              Type: ANY
+              Default: /home/tapu/local/motioncor2/1.6.4/MotionCor2_1.6.4_Cuda115_Mar312023
+
+          --max_mic_dose
+              Description: Maximum electron dose (e/A2) above which a warning will be printed
+              Type: FLOAT
+              Default: 10
+
+          --do_dosewt
+              Description: Flag to perform dose-weighting
+              Type: BOOL
+              Default: false
+
+          --mcor_patches
+              Description: Number of patches in x y, surrounding quotes & delimited by spaces
+              Type: ANY
+              Default: 0 0
+
+          --do_outstack
+              Description: Flag to write aligned stacks
+              Type: BOOL
+              Default: false
+
+          --do_splitsum
+              Description: Flag to split frames into even & odd half-sets
+              Type: BOOL
+              Default: false
+
+          --split_sum
+              Description: (DEPRECATED) Split frames into even & odd half-sets (0: no, 1: yes)
+              Type: INT
+              Default: 0
+
+          --reffrm
+              Description: Reference frame (0: first, 1: middle)
+              Type: INT
+              Default: 1
+
+          --thumb_bin
+              Description: Downsampling factor for JPEG thumbnails of micrographs
+              Type: INT
+              Default: 16
+
+        CTFFIND4 SETTINGS
+          Settings for CTF estimation.
+
+          --ctffind_dir
+              Description: CTFFIND executable directory
+              Type: ANY
+              Default: /home/tapu/local/ctffind4/4.1.14/
+
+          --ctf_slots
+              Description: Maximum number of CTFFIND4 processes to run concurrently
+              Type: INT
+              Default: 2
+
+          --cs
+              Description: Spherical aberration constant (F20: 2.0, Krios: 2.7)
+              Type: FLOAT
+              Default: 2.7
+
+          --ac
+              Description: Amplitude contrast (0.07-0.1 for cryo data, 0.14-0.2 for neg.stain data)
+              Type: FLOAT
+              Default: 0.07
+
+          --box
+              Description: Tile size for power-spectrum calculation
+              Type: INT
+              Default: 512
+
+          --res_lo
+              Description: Low-resolution limit for CTF fitting, Angstroms
+              Type: FLOAT
+              Default: 30.0
+
+          --res_hi
+              Description: High-resolution limit for CTF fitting, Angstroms
+              Type: FLOAT
+              Default: 9.0
+
+          --df_lo
+              Description: Minimum defocus value to consider during fitting, Angstroms
+              Type: FLOAT
+              Default: 30000.0
+
+          --df_hi
+              Description: Maximum defocus value to consider during fitting, Angstroms
+              Type: FLOAT
+              Default: 70000.0
+
+          --df_step
+              Description: Defocus search step during fitting, Angstroms
+              Type: FLOAT
+              Default: 500.0
+
+          --ast_step
+              Description: Astigmatism search step during fitting, Angstroms
+              Type: FLOAT
+              Default: 1000
+
+          --ctf1d_dpi
+              Description: Resolution (dpi) of PNG of 1D CTF profile
+              Type: INT
+              Default: 250
+
+          --ctfplot_first
+              Description: Plots first CTF data for first N images in tilt series
+              Type: INT
+              Default: 13
+
+        JANNI SETTINGS
+          Settings for JANNI denoise.
+
+          --do_janni
+              Description: Denoise micrographs using JANNI
+              Type: BOOL
+              Default: false
+
+          --janni_batch
+              Description: Number of patches predicted in parallel
+              Type: INT
+              Default: 4
+
+          --janni_overlap
+              Description: Overlap between patches, pixels
+              Type: INT
+              Default: 24
+
+          --janni_model
+              Description: JANNI 'h5' model file
+              Type: ANY
+              Default: /home/tapu/local/janni/gmodel_janni_20190703.h5
+
+          --janni_env
+              Description: JANNI conda environment
+              Type: ANY
+              Default: janni
+
+        TOPAZ SETTINGS
+          Settings for Topaz denoise.
+
+          --do_topaz
+              Description: Denoise micrographs using Topaz
+              Type: BOOL
+              Default: false
+
+          --topaz_patch
+              Description: Patch size for Topaz denoising
+              Type: INT
+              Default: 2048
+
+          --topaz_time
+              Description: Maximum duration, Topaz sometimes hangs
+              Type: ANY
+              Default: 2h
+
+          --topaz_env
+              Description: Topaz conda environment
+              Type: ANY
+              Default: topaz
+
+        DOSEDISCRIMINATOR SETTINGS
+          Settings for dose-fitting.
+
+          --dosefit_min
+              Description: Minimum dose rate allowed, as a fraction of maximum dose rate
+              Type: FLOAT
+              Default: 0.1
+
+          --dosefit_resid
+              Description: Maximum residual during dose-fitting, as a fraction of maximum dose rate
+              Type: FLOAT
+              Default: 0.1
+
+          --dosefit_verbose
+              Description: Verbosity level for dose-fitting log file (0..8)
+              Type: ANY
+              Default: 6
+
+        IMOD SETTINGS
+          Settings for IMOD: restacking and optional eTomo reconstruction.
+
+          --batch_directive
+              Description: IMOD eTomo batch directive file
+              Type: ANY
+              Default: 
+
+          --imod_slots
+              Description: Maximum number of IMOD reconstructions to run concurrently
+              Type: INT
+              Default: 2
+
+          --imod_dir
+              Description: IMOD executable directory
+              Type: ANY
+              Default: /usr/local/IMOD/bin
+
+        LAUDISERON SETTINGS
+          Settings for micrograph removal in IMOD reconstruction.
+
+          --do_laudiseron
+              Description: Remove micrographs based on alignment residual
+              Type: BOOL
+              Default: false
+
+          --laudiseron_sd
+              Description: Micrographs with residuals greater than this multiple of sigma will be removed
+              Type: FLOAT
+              Default: 3.0
+
+        RUOTNOCON SETTINGS
+          Settings for contour removal in IMOD reconstruction.
+
+          --do_ruotnocon
+              Description: Remove contours based on residual
+              Type: BOOL
+              Default: false
+
+          --ruotnocon_sd
+              Description: Contours with residuals greater than this multiple of sigma will be removed
+              Type: FLOAT
+              Default: 3.0
+
+        ARETOMO SETTINGS
+          Reconstruction will be computed either with AreTomo (default) or IMOD.
+
+          --are_bin
+              Description: Binning factor for reconstruction
+              Type: INT
+              Default: 8
+
+          --are_patches
+              Description: Number of patches in x & y (surrounding quotes & delimited by spaces)
+              Type: ANY
+              Default: 0 0
+
+          --dark_tol
+              Description: Tolerance for dark images (0.0-1.0)
+              Type: FLOAT
+              Default: 0.7
+
+          --vol_zdim
+              Description: z-dimension for volume
+              Type: INT
+              Default: 1600
+
+          --rec_zdim
+              Description: z-dimension for 3D reconstruction
+              Type: INT
+              Default: 1000
+
+          --tilt_cor
+              Description: Tilt-correction flag (1: yes, 0: no)
+              Type: INT
+              Default: 1
+
+          --tilt_axis
+              Description: Estimate for tilt-axis direction, degrees
+              Type: FLOAT
+              Default: 86.0
+
+          --bp_method
+              Description: Reconstruction method (1: weighted backprojection, 0: SART)
+              Type: INT
+              Default: 1
+
+          --flip_vol
+              Description: Flag to flip coordinates axes (1: yes, 0: no)
+              Type: INT
+              Default: 1
+
+          --transfile
+              Description: Flag to generate IMOD XF files (1: yes, 0: no)
+              Type: INT
+              Default: 1
+
+          --out_imod
+              Description: OutImod options for subtomogram averaging
+              Type: INT
+              Default: 0
+
+          --are_time
+              Description: Maximum duration (AreTomo sometimes hangs)
+              Type: ANY
+              Default: 60m
+
+          --aretomo_exe
+              Description: AreTomo executable
+              Type: ANY
+              Default: /home/tapu/local/aretomo/1.3.4/AreTomo_1.3.4_Cuda115_Feb22_2023
+
+        ISONET SETTINGS
+          Settings for IsoNet deconvolution.
+
+          --do_deconvolute
+              Description: Deconvolute using IsoNet
+              Type: BOOL
+              Default: false
+
+          --snr_falloff
+              Description: Signal-to-noise falloff
+              Type: FLOAT
+              Default: 0.7
+
+          --isonet_env
+              Description: IsoNet conda environment
+              Type: ANY
+              Default: isonet

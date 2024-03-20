@@ -1,0 +1,52 @@
+          --bin
+              Description: Downsampling factor
+              Type: INT
+              Default: 1
+
+          --output
+              Description: Output filename stem (w/o extension, default->stem of input)
+              Type: ANY
+              Default: AUTO
+
+          --axis
+              Description: Axis to animate (stack -> 'z')
+              Type: ANY
+              Default: AUTO
+
+          --fps
+              Description: Frames per second
+              Type: FLOAT
+              Default: 25
+
+          --bps
+              Description: Bit rate, bits per second
+              Type: ANY
+              Default: AUTO
+
+          --format
+              Description: Movie format
+              Type: ANY
+              Default: mpg
+
+          --verbosity
+              Description: Verbosity level (0..4)
+              Type: INT
+              Default: 2
+
+        ADVANCED SETTINGS
+          These settings will rarely need to be changed.
+
+          --testing
+              Description: Testing flag
+              Type: BOOL
+              Default: false
+
+          --imod_dir
+              Description: IMOD executable directory
+              Type: ANY
+              Default: /usr/local/IMOD/bin
+
+          --temp_local
+              Description: Directory for temporary files
+              Type: ANY
+              Default: $SNARTOMO_LOCAL
