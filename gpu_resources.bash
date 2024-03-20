@@ -124,7 +124,7 @@ function gpu_chart() {
     line=$(date +"${TIMEFMT}")
     
     while read -r gpu_line ; do
-      gpu_label=$(echo $gpu_line | cut -d':' -f 1)
+# # #       gpu_label=$(echo $gpu_line | cut -d':' -f 1)  #### NOT USED?
       
       # Parse only usage number (e.g., from "GPU 1: 5MiB / 11019MiB")
       memory_used=$(echo $gpu_line | cut -d' ' -f 3)
@@ -179,10 +179,9 @@ function gpu_plot() {
   
   local max_seconds=$1
   local DEFAULT_DELAY=2
-  local WARNED=false
+# # #   local WARNED=false
   local default_unit="MiB"
   declare -a gpu_array
-#   local DO_COUNT=true
   local TIMEFMT='%Y-%m-%d-%H:%M:%S'
   hdr_line="#\t\t"
 
@@ -221,6 +220,7 @@ function gpu_plot() {
       gpu_label=$(echo $gpu_line | cut -d':' -f 1)
       let "gpu_counter++"
       echo "'$(realpath ${logfile})' using 1:${gpu_counter} with lines title '${gpu_label}', \\" >> "${plotfile}"
+# # #       echo "gpu_line: '$gpu_line'"
     done <<< $(gpu_resources)
   fi
   
@@ -470,12 +470,12 @@ function power_plot() {
 #   Adapted from ram_plot()
 ###############################################################################
  
-  local DEFAULT_DELAY=2  # units: seconds
-  local TIMEFMT="%Y-%m-%d-%H:%M:%S" 
-  local default_unit="W"
-  hdr_line="#\t\t"
-  
   local max_seconds=$1
+  local DEFAULT_DELAY=2  # units: seconds
+  local default_unit="W"
+  declare -a gpu_array  #### (do I need to declare this?)
+  local TIMEFMT="%Y-%m-%d-%H:%M:%S"
+  hdr_line="#\t\t"
   
   if [[ "$1" == "" ]]; then
     echo "ERROR!! Duration parameter required!"
@@ -516,19 +516,16 @@ function power_plot() {
     echo "plot \\" >> "${plotfile}"
     col_counter=1
 
-#     # Make sure at least 1 GPU is plotted
-#     if [[ "${#gpu_array[@]}" -lt 1 ]]; then
-#       echo "  WARNING! power_plot: Couldn't plot GPUs, continuing..."
-#     fi
-
     # Loop through GPUs
     for gpu_line in "${gpu_array[@]}"; do
       curr_col=$(echo "${gpu_line}" | cut -d "=" -f 1)
       
       # Search input list for string
+# # #       gpu_label=$(echo $gpu_line | cut -d':' -f 1-)
+      gpu_label="GPU $(( $col_counter - 1 ))"
       let "col_counter++"
-      gpu_label=$(echo $gpu_line | cut -d'=' -f 1)
-      echo "'$(realpath ${logfile})' using 1:${col_counter} with lines title '${gpu_line}', \\" >> "${plotfile}"
+      echo "'$(realpath ${logfile})' using 1:${col_counter} with lines title '${gpu_label}', \\" >> "${plotfile}"
+      echo "gpu_label '$gpu_label'"
     done
   fi
   
@@ -579,7 +576,7 @@ function buildHeader() {
   # Warn if no GPUs detected (happens randomly, not necessarily fatal)
   if [[ "${#gpu_array[@]}" -lt 1 ]]; then
     echo "  WARNING! ${FUNCNAME[1]}: Couldn't find GPUs"
-    echo "    GPU info"
+    echo "    GPU info (${#gpu_array[@]}):"
     nvidia-smi -q | grep "^GPU" | sed 's/^/      /'  # prepends spaces to output
     echo "    Continuing..."
   else
@@ -591,13 +588,13 @@ function buildHeader() {
       # If all 0s before first colon, then ignore
       local before_colon=$(echo ${gpu_id} | cut -d: -f1 | sed 's/0//g')
       if [[ "${before_colon}" == "" ]]; then
-        local gpu_label=$(echo ${gpu_id} | cut -d: -f2-)
-        gpu_array[$gpu_num]=${gpu_label}
+        local gpu_header_label=$(echo ${gpu_id} | cut -d: -f2-)
+        gpu_array[$gpu_num]=${gpu_header_label}
       else
-        local gpu_label=${gpu_id}
+        local gpu_header_label=${gpu_id}
       fi
 
-      hdr_line+="\t$gpu_label"
+      hdr_line+="\t$gpu_header_label"
     done
   fi
 }
@@ -617,12 +614,13 @@ function temperature_plot() {
 #   Adapted from ram_plot()
 ###############################################################################
  
-  local DEFAULT_DELAY=2  # units: seconds
-  local TIMEFMT="%Y-%m-%d-%H:%M:%S" 
-  local default_unit="C"
-  local hdr_line="#\t\t"
-  
   local max_seconds=$1
+  local DEFAULT_DELAY=2  # units: seconds
+  local default_unit="C"
+  declare -a gpu_array  #### (do I need to declare this?)
+  local TIMEFMT="%Y-%m-%d-%H:%M:%S"
+  local hdr_line="#\t\t"
+
   
   if [[ "$1" == "" ]]; then
     echo "ERROR!! Duration parameter required!"
@@ -660,22 +658,15 @@ function temperature_plot() {
     echo "plot \\" >> "${plotfile}"
     col_counter=1
 
-#     # Warn if no GPUs detected (happens randomly, not necessarily fatal)
-#     if [[ "${#gpu_array[@]}" -lt 1 ]]; then
-#       echo "  WARNING! temperature_plot: Couldn't plot GPUs"
-#       echo "    GPU info"
-#       nvidia-smi -q | grep "^GPU" | sed 's/^/      /'  # prepends spaces to output
-#       echo "    Continuing..."
-#     fi
-#
     for gpu_line in "${gpu_array[@]}"; do
       curr_col=$(echo "${gpu_line}" | cut -d "=" -f 1)
       
       # Search input list for string
+# # #       gpu_label=$(echo $gpu_line | cut -d':' -f 1-)
+      gpu_label="GPU $(( $col_counter - 1 ))"
       let "col_counter++"
-      gpu_label=$(echo $gpu_line | cut -d'=' -f 1)
-#         echo "${col_counter} ${gpu_label}"
-      echo "'$(realpath ${logfile})' using 1:${col_counter} with lines title '${gpu_line}', \\" >> "${plotfile}"
+      echo "'$(realpath ${logfile})' using 1:${col_counter} with lines title '${gpu_label}', \\" >> "${plotfile}"
+      echo "gpu_label '$gpu_label'"
     done
   fi
   
@@ -718,7 +709,7 @@ function temperature_plot() {
 # Check whether script is being sourced or executed (https://stackoverflow.com/a/2684300/3361621)
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 #   echo "script ${BASH_SOURCE[0]} is being executed..."
-   temperature_plot "$@"
+   power_plot "$@"
 # else
 #   echo "script ${BASH_SOURCE[0]} is being sourced..."
 fi
