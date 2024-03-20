@@ -1,0 +1,41 @@
+Usage:
+        bash /home/rubsak-admin/local/snartomo/snartomo-framecalc --dose_per_img=-1 --dose_per_ts=-1 --mdoc_file=None --num_frames=-1 --eer_file=None --dose_per_combined=0.15 --frame_file=motioncor-frame.txt --verbosity=2
+          --dose_per_img
+              Description: Dose per image, electrons per square Angstrom
+              Type: FLOAT
+              Default: -1
+
+          --dose_per_ts
+              Description: Dose per tilt series, electrons per square Angstrom (requires MDOC file)
+              Type: FLOAT
+              Default: -1
+
+          --mdoc_file
+              Description: MDOC file, required if dose provided per tilt series or if EER example not provided
+              Type: ANY
+              Default: None
+
+          --num_frames
+              Description: Number of frames per EER movie
+              Type: INT
+              Default: -1
+
+          --eer_file
+              Description: Example EER file, required if neither MDOC file nor number of frames provided
+              Type: ANY
+              Default: None
+
+          --dose_per_combined
+              Description: Dose per combined MotionCor frame, electrons per square Angstrom
+              Type: FLOAT
+              Default: 0.15
+
+          --frame_file
+              Description: Output MotionCor2 frame file
+              Type: ANY
+              Default: motioncor-frame.txt
+
+          --verbosity
+              Description: Verbosity level (0..3)
+              Type: INT
+              Default: 2
