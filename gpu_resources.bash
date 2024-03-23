@@ -525,7 +525,7 @@ function power_plot() {
       gpu_label="GPU $(( $col_counter - 1 ))"
       let "col_counter++"
       echo "'$(realpath ${logfile})' using 1:${col_counter} with lines title '${gpu_label}', \\" >> "${plotfile}"
-      echo "gpu_label '$gpu_label'"
+# # #       echo "gpu_label '$gpu_label'"
     done
   fi
   
@@ -666,7 +666,7 @@ function temperature_plot() {
       gpu_label="GPU $(( $col_counter - 1 ))"
       let "col_counter++"
       echo "'$(realpath ${logfile})' using 1:${col_counter} with lines title '${gpu_label}', \\" >> "${plotfile}"
-      echo "gpu_label '$gpu_label'"
+# # #       echo "gpu_label '$gpu_label'"
     done
   fi
   
