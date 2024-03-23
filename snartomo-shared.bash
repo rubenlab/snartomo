@@ -5034,17 +5034,15 @@ function create_json() {
     elif [[ "$verbose" -ge 2 ]]; then
       vprint "  $clean_cmd"  "1+" "=$outlog"
     fi
-    eval $clean_cmd
+# # #     eval $clean_cmd
+    # Save only stderr (adapted from https://stackoverflow.com/a/962268)
+    ERROR=$( { eval $clean_cmd ; } 2>&1 >/dev/null )
     local status_code=$?
     
     if [[ $status_code -ne 0 ]] ; then
       vprint "  WARNING! JSON-generating command failed" "1+" "$outlog =${warn_log}"
-      
-      if [[ "${verbose}" -lt 5 ]] ; then
-        vprint "  Failed command: $clean_cmd"  "1+" "$outlog =${warn_log}"
-      else
-        vprint "  Failed command: $clean_cmd"  "1+" "=${warn_log}"
-      fi
+      vprint "    Failed command: $clean_cmd"  "1+" "$outlog =${warn_log}"
+      vprint "    Error: $ERROR"  "1+" "$outlog =${warn_log}"
     fi
     # END error-code IF-THEN
   else

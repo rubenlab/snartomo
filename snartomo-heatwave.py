@@ -18,7 +18,7 @@ import inspect
 try:
     import mrcfile
 except ImportError:
-    print("ERROR!! mrcfile must be installed")
+    print("ERROR!! mrcfile must be installed", file=sys.stderr)
     exit(1)
 # Image creation manipulation imports
 import numpy as np
@@ -296,7 +296,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                     test_indir= curr_topdir
                 else:
                     if curr_topdir != test_indir:
-                        print(f"ERROR!! It is assumed the MDOCs have the same top-level directory, e.g., '{test_indir}'!")
+                        print(f"ERROR!! It is assumed the MDOCs have the same top-level directory, e.g., '{test_indir}'!", file=sys.stderr)
                         exit(6)
                 
             if test_indir != self.options.in_dir:
@@ -305,13 +305,13 @@ class MdocTreeView(QtWidgets.QMainWindow):
         
         # Sanity check
         if self.target_files and self.mdoc_files:
-            print(f"\nERROR!! Can't specify both target files ({len(self.new_targets)}) and MDOC files ({len(self.new_mdocs)}) Exiting...\n")
+            print(f"\nERROR!! Can't specify both target files ({len(self.new_targets)}) and MDOC files ({len(self.new_mdocs)}) Exiting...\n", file=sys.stderr)
             exit(7)
         if not self.target_files and not self.mdoc_files and not self.loaded_json:
-            print(f"\nERROR!! Have to specify either target file(s) or MDOC file(s)! Exiting...\n")
+            print(f"\nERROR!! Have to specify either target file(s) or MDOC file(s)! Exiting...\n", file=sys.stderr)
             exit(8)
         elif len(self.new_targets)==0 and len(self.new_mdocs)==0 and not self.loaded_json:
-            print(f"\nERROR!! List of target files and MDOC files ('{self.target_files or self.mdoc_files}') are both empty! Please check filenames...\n")
+            print(f"\nERROR!! List of target files and MDOC files ('{self.target_files or self.mdoc_files}') are both empty! Please check filenames...\n", file=sys.stderr)
             exit(9)
         
         if self.verbosity>=2 and len(self.new_targets)>=1: print(f"Found {len(self.new_targets)} targets file(s)")
@@ -371,7 +371,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 # Sanity check
                 tomo_dir= os.path.basename( os.path.dirname(curr_mdoc) )
                 if not os.path.basename(curr_mdoc).startswith(tomo_dir):
-                    print(f"\nERROR!! It is assumed that the MDOC parent directory ({tomo_dir}) is part of the name of the MDOC ({curr_mdoc})!\n")
+                    print(f"\nERROR!! It is assumed that the MDOC parent directory ({tomo_dir}) is part of the name of the MDOC ({curr_mdoc})!\n", file=sys.stderr)
                     exit(3)
                 ts_dir= re.sub(tomo_dir, '$MDOC_STEM', os.path.dirname(curr_mdoc))
                 
@@ -379,12 +379,12 @@ class MdocTreeView(QtWidgets.QMainWindow):
                     self.ts_dir= ts_dir
                 else:
                     if ts_dir != self.ts_dir:
-                        print(f"ERROR!! It is assumed that the tilt series directories have the same parent directory, e.g., '{self.ts_dir}'!")
+                        print(f"ERROR!! It is assumed that the tilt series directories have the same parent directory, e.g., '{self.ts_dir}'!", file=sys.stderr)
                         exit(4)
             elif curr_mdoc == 'CtfBytsPlot':
                 ctfbyts_tgts= re.sub(os.path.splitext(curr_target)[0], '', os.path.splitext(mdoc_dict[curr_mdoc])[0]) + "*"
                 if not os.path.basename(ctfbyts_tgts).rstrip("*").startswith( os.path.basename(self.ctfbyts_tgts.split('*')[0]) ):
-                    print(f"ERROR!! It is assumed the CTF plots have the same pattern, e.g., '{ctfbyts_tgts}' != '{self.ctfbyts_tgts}'!")
+                    print(f"ERROR!! It is assumed the CTF plots have the same pattern, e.g., '{ctfbyts_tgts}' != '{self.ctfbyts_tgts}'!", file=sys.stderr)
                     exit(5)
                                 
     def buildJson(self):
@@ -671,7 +671,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
             mdoc_base= re.sub( '.mdoc$', '', os.path.basename(curr_mdoc) )
             ###print(f"668 curr_mdoc {os.path.basename(curr_mdoc).endswith('.mdoc')}")
         else:
-            print(f"\nERROR!! Unknown extension for MDOC: {curr_mdoc}")
+            print(f"\nERROR!! Unknown extension for MDOC: {curr_mdoc}", file=sys.stderr)
             print("  Exiting...\n")
             exit()
         general_and_tilt = read_mdoc(curr_mdoc)
@@ -858,7 +858,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                     keep_target= True
                 else:
                     if curr_mdoc != 'CtfBytsPlot':
-                        print(f"ERROR!! Unknown entry type '{curr_mdoc}' in target '{curr_target}'! Exiting... ")
+                        print(f"ERROR!! Unknown entry type '{curr_mdoc}' in target '{curr_target}'! Exiting...", file=sys.stderr)
                         exit(16)
         
             # Remove target
@@ -1503,12 +1503,12 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 try:
                     curr_mdoc= self.mdoc_lut[self.tree_view.model().data(first_column_index)]
                 except KeyError:
-                    print(f"\KeyError!!")
-                    print(f"  len(temp_targets)    : {len(self.temp_targets)}")
-                    print(f"  depth                : {depth}")
-                    print(f"  cell_text            : '{cell_text}'")
-                    print(f"  self.mdoc_lut.keys() : {self.mdoc_lut.keys()}")
-                    print(f"\n  Exiting...\n")
+                    print(f"\KeyError!!", file=sys.stderr)
+                    print(f"  len(temp_targets)    : {len(self.temp_targets)}", file=sys.stderr)
+                    print(f"  depth                : {depth}", file=sys.stderr)
+                    print(f"  cell_text            : '{cell_text}'", file=sys.stderr)
+                    print(f"  self.mdoc_lut.keys() : {self.mdoc_lut.keys()}", file=sys.stderr)
+                    print(f"\n  Exiting...\n", file=sys.stderr)
                     
                     exit(11)
             
@@ -1518,13 +1518,13 @@ class MdocTreeView(QtWidgets.QMainWindow):
             try:
                 curr_mdoc= self.mdoc_lut[self.item_model.itemFromIndex(mdlIdx).parent().text()]
             except KeyError:
-                print(f"\n539 KeyError!!")
-                print(f"\tattempted key : '{self.item_model.itemFromIndex(mdlIdx).parent().text()}'")
-                print(f"\texisting keys : {self.mdoc_lut.keys()}")
+                print(f"\n539 KeyError!!", file=sys.stderr)
+                print(f"\tattempted key : '{self.item_model.itemFromIndex(mdlIdx).parent().text()}'", file=sys.stderr)
+                print(f"\texisting keys : {self.mdoc_lut.keys()}", file=sys.stderr)
                 return
             if verbose: print(f"parent mdoc '{self.mdoc_lut[self.item_model.itemFromIndex(mdlIdx).parent().text()]}'")
         else:
-            print(f"ERROR!! Unknown condition! len(self.temp_targets)={len(self.temp_targets)}, depth={depth}")
+            print(f"ERROR!! Unknown condition! len(self.temp_targets)={len(self.temp_targets)}, depth={depth}", file=sys.stderr)
             return
         
         return os.path.dirname(curr_mdoc)
@@ -1574,7 +1574,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         
         # Try to catch subprocess errors
         if hdr_out.returncode!= 0:
-            print(f"ERROR!! IMOD 'header' command failed! \n\t{hdr_out.stderr.decode('utf-8')}\tExiting...\n")
+            print(f"ERROR!! IMOD 'header' command failed! \n\t{hdr_out.stderr.decode('utf-8')}\tExiting...\n", file=sys.stderr)
             exit(12)
         
         # Split into lines
@@ -1953,7 +1953,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         
         # If more than 1, then throw error
         if len(list_newstacks) > 1: 
-            print(f"ERROR!! Found more than one stack! {list_newstacks}\n  Aborting")
+            print(f"ERROR!! Found more than one stack! {list_newstacks}\n  Aborting", file=sys.stderr)
             return
         else:
             # Back up stack if it exists
@@ -1974,7 +1974,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 
                 # Try to catch subprocess errors
                 if newstack_out.returncode!= 0:
-                    print(f"ERROR!! IMOD 'newstack' command failed! Error code: {newstack_out.returncode}")
+                    print(f"ERROR!! IMOD 'newstack' command failed! Error code: {newstack_out.returncode}", file=sys.stderr)
                     if newstack_out.stdout: print(f"  stdout:\n\t'{newstack_out.stdout.decode('utf-8')}'")
                     if newstack_out.stderr: print(f"  stderr:\n\t'{newstack_out.stderr.decode('utf-8')}'")
                     print(f"\tExiting...\n")
@@ -2592,7 +2592,6 @@ def definedAndExists(curr_key, curr_dict):
     
     # Check first if dictionary has key
     if curr_key in curr_dict:
-        ###assert isinstance(curr_dict[curr_key], str), f"ERROR!! Key '{curr_key}' is a {type(curr_dict[curr_key])} rather than a string!"
         if isinstance(curr_dict[curr_key], str):
             if os.path.exists(curr_dict[curr_key]):
                 does_it_exist= True
@@ -2693,7 +2692,7 @@ def system_call_23(cmd, args, lenient=False, stdout=None, stderr=None, usempi=Fa
             subprocess.run([cmd] + args.split(), stdout=stdout, stderr=stderr)
     except subprocess.CalledProcessError:
         if not lenient:
-            print("\nERROR!! Cannot execute '%s'." % cmdline)
+            print("\nERROR!! Cannot execute '%s'." % cmdline, file=sys.stderr)
             if "OMPI_COMM_WORLD_RANK" in os.environ:
                 print("Maybe try to remove 'OMPI_COMM_WORLD_RANK' from os.environ by using 'usempi=True' in 'system_call_23'.")
             print()
