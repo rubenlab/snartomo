@@ -64,10 +64,19 @@ def main():
   ts_file= options.tilt_list
   ctf_plot= options.ctf_by_ts_plot
   
-  # Read file series (sorting from https://stackoverflow.com/a/23430865)
-  tilt_ctfs= glob.glob(options.tilt_ctfs)
+  # Read file series (might be space-seperated with wild cards)
+  tilt_ctfs=[]  # glob.glob(options.tilt_ctfs)
+  for curr_pattern in options.tilt_ctfs.split():
+    tilt_ctfs+= glob.glob(curr_pattern)
+
+  # Sanity check
+  if len(tilt_ctfs)==0:
+    print(f"\nERROR! list of CTF summaries ('{options.tilt_ctfs}') resulted in zero files")
+    print("  Exiting...\n")
+    exit(5)
+
+  # Sort (adapted from https://stackoverflow.com/a/23430865)
   tilt_ctfs.sort(key=os.path.getmtime)
-  ###print(f"tilt_ctfs ({len(tilt_ctfs)}): {tilt_ctfs}") ; exit()
   
   # Sanity check: Make sure plot extension is legal
   plot_ext= os.path.splitext(ctf_plot)[1].lstrip('.')
@@ -203,7 +212,8 @@ def main():
   angstrom_labels= [50, 25, 15, 10, 7, 5]
   ax[0].scatter(xvalue, resoln, c=color_list, cmap=options.color, s=psiz)
   ax2.set_ticks([1/a for a in angstrom_labels])
-  ax2.set_yticklabels(angstrom_labels)
+  ax2.set_yticklabels(angstrom_labels)  #, fontsize=10)
+  ###plt.get(ax2)
   
   # CCFit plot
   ax[1].set(ylabel='CCFit')
@@ -214,16 +224,25 @@ def main():
   ax[2].yaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))
   ax[2].scatter(xvalue, defocus, c=color_list, cmap=options.color, s=psiz)
   
+  # Use reasonable defaults for font size (don't go smaller than 5, 10 is the default)
+  if len(ts_list) >= 100:
+    fontsize=5
+  if len(ts_list) >= 75:
+    fontsize=6
+  else:
+    fontsize=10
+  ###print(f"232 fontsize: {fontsize}")
+
   # Label with tilt-series name
-  plt.xticks(np.arange( len(ts_list) ),  ts_list)
+  plt.xticks(np.arange( len(ts_list) ), ts_list, fontsize=fontsize)
   plt.xticks(rotation=90)
   
   # Makes margins sensible
   plt.tight_layout()
   
   # Set size
-  plt.gcf().set_size_inches(6.5,6.5)
-  
+  plt.gcf().set_size_inches(options.figuresize, options.figuresize)
+
   # Save plot (need to write it before displaying it, or else it'll be blank)
   plt.savefig(ctf_plot)
   print_log_msg(f"Wrote plot to {ctf_plot}", 2, options)
@@ -337,10 +356,16 @@ def parse_command_line():
 
     parser.add_argument(
         "--pointsize", "-ps",
-        type=int, 
-        default=32, 
+        type=int,
+        default=32,
         help="Point size in plot")
-    
+
+    parser.add_argument(
+        "--figuresize", "-fs",
+        type=int,
+        default=9,
+        help="Figure size of plot, inches")
+
     parser.add_argument(
         "--verbosity", "-v",
         type=int, 
