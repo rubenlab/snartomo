@@ -199,20 +199,23 @@ class MdocTreeView(QtWidgets.QMainWindow):
         mic_tags= ['micrograph movies','TIFF files','motion-corrected micrographs','micrograph thumbnails','power-spectrum thumbnails','denoised micrographs']
         found_dict= {key: 0 for key in ['target_files','target_ctfplots','target_ctfplots','mdocs','selected_mdocs','MdocSelected'] + mdoc_keys + mic_keys }
         num_targets= len( self.data4json.keys() )
-                              
+        disableTF= self.verbosity!=5 or self.debug
+
         # Loop through target files (real or virtual)
         for curr_target in self.data4json.keys():
-            if self.debug: print(f"  Target '{curr_target}' {os.path.exists(curr_target)} {'CtfBytsPlot' in self.data4json[curr_target]} {os.path.exists(self.data4json[curr_target]['CtfBytsPlot'])}")
+            ###if self.debug: print(f"  Target '{curr_target}' {os.path.exists(curr_target)} {'CtfBytsPlot' in self.data4json[curr_target]} {os.path.exists(self.data4json[curr_target]['CtfBytsPlot'])}")
             if os.path.exists(curr_target) : found_dict['target_files']+= 1
+            if self.verbosity>= 5: print(f"\nCounting data from target file '{curr_target}'...")
             if definedAndExists('CtfBytsPlot', self.data4json[curr_target]) : found_dict['target_ctfplots']+= 1
             target_data= self.data4json[curr_target]
             
             # Loop through (possible) MDOC files
-            for curr_mdoc in target_data.keys():
+            ###for curr_mdoc in target_data.keys():
+            for curr_mdoc in tqdm.tqdm(target_data.keys(), unit=' mdoc', disable=disableTF):
                 # Might be the CtfByTS plot
                 if isinstance(target_data[curr_mdoc], list):
                     num_mdocs+= 1
-                    if self.debug : print(f"    MDOC '{curr_mdoc}'")
+                    ###if self.debug : print(f"    MDOC '{curr_mdoc}'")
                     if os.path.exists(curr_mdoc) : found_dict['mdocs']+= 1
                     
                     for curr_key in mdoc_keys:
@@ -247,7 +250,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                                 self.data4json[curr_target][curr_mdoc][0]['MdocSelected'] = 0
                             else:
                                 self.data4json[curr_target][curr_mdoc][0]['MdocSelected'] = 1
-                    if self.debug: print(f"230 {os.path.basename(curr_mdoc)}: MdocSelected={self.data4json[curr_target][curr_mdoc][0]['MdocSelected']}")
+                    if self.debug: print(f"254   MDOC: '{os.path.basename(curr_mdoc)}', MdocSelected={self.data4json[curr_target][curr_mdoc][0]['MdocSelected']}")
                 # End MDOC IF-THEN
             # End MDOC loop
         # End target loop
@@ -346,8 +349,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         
         self.temp_targets= list( self.data4json.keys() )  # .keys() is not a list and thus cannot be directly subscripted
 
-        if self.debug: 
-            print(f"330 self.temp_targets ({len(self.temp_targets)}) {self.temp_targets}")
+        if self.debug: print(f"330 self.temp_targets ({len(self.temp_targets)}) {self.temp_targets}")
         
         for curr_target in self.temp_targets:
             if os.path.exists(curr_target) : self.list_targets.append(curr_target)
@@ -406,9 +408,12 @@ class MdocTreeView(QtWidgets.QMainWindow):
         self.ts_dir=       re.sub('\$IN_DIR', self.options.in_dir, self.options.ts_dir)
         self.ctfbyts_tgts= re.sub('\$IN_DIR', self.options.in_dir, self.options.ctfbyts_tgts)
         
+        if self.debug: print(f"409 buildJson")
+
         # Loop through target files
         for tgt_idx in range( len(self.new_targets) ):
             curr_target=self.new_targets[tgt_idx]
+            if self.verbosity>= 5: print(f"\nBuilding JSON data for target file '{curr_target}'...")
             curr_list_mdocs=[]
             
             if curr_target != VIRTUAL_TARGET_FILE:
@@ -426,7 +431,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
             if not curr_target in self.data4json:
                 self.data4json[curr_target] = {}
             else:
-                if self.debug: print(f"343 data4json already has '{curr_target}'")
+                if self.debug: print(f"431 data4json already has '{curr_target}'")
             
             # Try to find CtfByTS plots
             if self.do_show_imgs:
@@ -436,8 +441,12 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 else:
                     if self.debug : print(f"buildJson Didn't find ctfbyts_plot '{ctfbyts_plot}' '{target_base}'")
             
+            disableTF= self.verbosity!=5 or self.debug
+
             # Loop through tilt series
-            for curr_mdoc in curr_list_mdocs:
+            ###for curr_mdoc in curr_list_mdocs:
+            for curr_mdoc in tqdm.tqdm(curr_list_mdocs, unit=' mdoc', disable=disableTF):
+                if self.debug: print(f"445   curr_mdoc: '{curr_mdoc}'")
                 self.parseMdoc(curr_mdoc, curr_target)
                 
                 # Add MDOC, if necessary
@@ -645,7 +654,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
 
             if os.path.exists(mdoc_path):
                 curr_list_mdocs.append(mdoc_path)
-                if self.verbosity>=7: print(f"  Found MDOC file: {mdoc_path}")
+                if self.verbosity>=6: print(f"  Found MDOC file: {mdoc_path}")
             else:
                 print(f"  WARNING! Couldn't find MDOC file: {mdoc_path}")
         # End line loop
@@ -730,8 +739,6 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 curr_micthumb_dir,
                 mdoc_base + self.micthumb_suffix + thumbnail_idx + self.thumb_format
                 )
-            ##print(f"720 curr_micthumb_dir '{curr_micthumb_dir}', mdoc_base '{mdoc_base}', self.micthumb_suffix '{self.micthumb_suffix}', mic_thumb_path '{mic_thumb_path}'")
-            ##exit()
 
             ctf_thumb_base= mdoc_base + self.ctfthumb_suffix + thumbnail_idx + self.thumb_format
             ctf_thumb_path=os.path.join(curr_micthumb_dir, ctf_thumb_base)
@@ -745,9 +752,6 @@ class MdocTreeView(QtWidgets.QMainWindow):
             general_and_tilt[1][tilt_key] = self.setPathAndWarn(mic_path, general_and_tilt[1][tilt_key], 'McorrMic', 'Motion-corrected micrograph')
             general_and_tilt[1][tilt_key] = self.setPathAndWarn(tiff_path, general_and_tilt[1][tilt_key], 'TiffFile', 'Compressed TIFF')
             general_and_tilt[1][tilt_key] = self.setPathAndWarn(mic_thumb_path, general_and_tilt[1][tilt_key], 'MicThumbnail', 'Micrograph thumbnail')
-            #print(f"733 MicThumbnail '{self.warn_dict['MicThumbnail']}'")
-            #print(f"734 MicThumbnail '{general_and_tilt[1][tilt_key]['MicThumbnail']}'")
-            #exit()
 
             if self.warn_dict['MicThumbnail'] == True:
                 try:
@@ -756,7 +760,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                     #display_nparray(bin16_micrograph_data)
                     save_as_image(bin16_micrograph_data, mic_thumb_path)
                     general_and_tilt[1][tilt_key]['MicThumbnail'] = mic_thumb_path
-                    if self.verbosity >= 6:
+                    if self.verbosity >= 5:
                         print('  Saved thumbnail from motion-corrected micrograph under ' + mic_thumb_path)
                 except:
                     print('  Could not create thumbnail image. Make sure motion-corrected MRCs exist!')
@@ -767,7 +771,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
             # Set selection flag (if starting from scratch, starts as 'True')
             general_and_tilt[1][tilt_key]['MicSelected'] = True
             
-            if self.verbosity==8: print(f"  {sorted_idx}: ZValue {tilt_idx}, {mic_thumb_path}, {ctf_thumb_path}, {ntpath.basename(general_and_tilt[1][tilt_key]['SubFramePath'])}")
+            if self.verbosity==7: print(f"  {sorted_idx}: ZValue {tilt_idx}, {mic_thumb_path}, {ctf_thumb_path}, {ntpath.basename(general_and_tilt[1][tilt_key]['SubFramePath'])}")
         # End micrograph loop
         
         ctfbyts_plot= getLatest( self.options.ctfbyts_1ts, os.path.dirname(curr_mdoc) )
@@ -833,11 +837,11 @@ class MdocTreeView(QtWidgets.QMainWindow):
         
         if os.path.exists(curr_path):
             curr_dict[curr_key] = curr_path
-            if self.verbosity>=6:
+            if self.verbosity>=7:
                 print(f"  HOORAY! {curr_type} '{curr_path}' found :)")
         else:
             curr_dict[curr_key] = 'null'
-            if not self.warn_dict[curr_key] and self.verbosity>=6:
+            if not self.warn_dict[curr_key] and self.verbosity>=7:
                 print(f"  WARNING! {curr_type} '{curr_path}' not found")
                 self.warn_dict[curr_key] = True
                 
@@ -1108,7 +1112,8 @@ class MdocTreeView(QtWidgets.QMainWindow):
             target_item = QtGui.QStandardItem(curr_target)
             target_base=''
         
-        if self.debug: print(f"860 curr_list_mdocs {len(curr_list_mdocs)} {curr_list_mdocs}")
+        if self.verbosity>= 5: print(f"Drawing data for target file '{curr_target}'...")
+        if self.debug: print(f"1110 drawTargetData: curr_list_mdocs ({len(curr_list_mdocs)}) {curr_list_mdocs}")
         
         # Initialize row for target file (real or fake) 
         target_item_list= [target_item]
@@ -1124,13 +1129,15 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 ctfbyts_item= CustomStandardItem(ctfbyts_plot, size=self.imgsize, debug=self.debug, id=curr_target)
                 target_item_list.append(ctfbyts_item)
             else:
-                if self.debug : print(f"  DEBUG buildGUI 244 Didn't find ctfbyts_plot '{ctfbyts_plot}'")
+                if self.debug : print(f"  DEBUG drawTargetData 1126 Didn't find ctfbyts_plot '{ctfbyts_plot}'")
         
+        disableTF= self.verbosity>5 or self.verbosity<2 or self.debug
+
         # Loop through tilt series
-        disableTF= self.verbosity>4 or self.verbosity<2 or self.debug
         for mdoc_idx, curr_mdoc in enumerate( tqdm.tqdm(curr_list_mdocs, unit=' mdoc', disable=disableTF) ):
             # Strip extensions from MDOC
             mdoc_base= re.sub( '.mrc.mdoc$', '', os.path.basename(curr_mdoc) )
+            if self.debug: print(f"1133   mdoc_base {mdoc_base}")
             
             try:
                 slice_jpg= self.data4json[curr_target][curr_mdoc][0]['CentralSlice']
@@ -1289,11 +1296,11 @@ class MdocTreeView(QtWidgets.QMainWindow):
                     stat_list.append(stat_item)
                 # End found stat_key IF-THEN
 
-                if self.verbosity>=8: print(f"  {stat_key} : '{stat_string}'")
+                if self.verbosity>=7: print(f"  {stat_key} : '{stat_string}'")
             # End stat loop
 
             ts_parent_item.appendRow(stat_list)
-            if self.verbosity>=8: print()
+            if self.verbosity>=7: print()
         # End micrograph loop
         
         # Set selection status for tilt series
@@ -2921,10 +2928,10 @@ def parse_command_line():
     2: Found target and MDOC files
     3: (default) Progress bar, warnings for each MDOC
     4: Summary of data types, executable calls
-    5: (not used)
-    6: Warnings for absent metadata
-    7: Found MDOC files
-    8: Stat line for each micrograph
+    5: Warnings for absent metadata
+    6: Found MDOC files
+    7: Stat line for each micrograph
+    8: Found metadata
     9: Dump JSON contents to screen
     """
 
