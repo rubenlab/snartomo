@@ -169,7 +169,9 @@ class MdocTreeView(QtWidgets.QMainWindow):
             else:
                 backup_json= self.json + '.BAK'
                 if self.verbosity>=1 : print(f"Backing up JSON file '{self.json}' to '{backup_json}'...")
-                shutil.copy2(self.json, backup_json)
+
+                # On NFS-mounted drives, might have problems copying attributes
+                shutil.copyfile(self.json, backup_json)  # WAS shutil.copy2(self.json, backup_json)
         else:
             # Check if json is present
             if os.path.exists(self.json):
@@ -482,7 +484,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 self.mdoc_origs[mdoc_orig]['CumulativeData'] = path_exposure_dose
             else:
                 if not self.warn_dict['OrigMdoc']:
-                    if self.verbosity >= 1: print(f"WARNING! Original MDOC not found for '{os.path.basename(mdoc_orig)}', setting dose/exposure to -1")
+                    if self.verbosity >= 1: print(f"WARNING! Original MDOC not found for '{mdoc_orig}', setting dose/exposure to -1")
                     self.warn_dict['OrigMdoc'] = True
         
         # Transfer cumulative values to JSON
