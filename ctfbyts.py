@@ -21,7 +21,7 @@ USAGE="""
 Plots CTF information for a tilt series.
 
 USAGE:
-  %s <CTF_summary> <tilt_series_list> <ctf_by_ts_plot> <options>
+  %s <CTF_summaries> <tilt_series_list> <ctf_by_ts_plot> <options>
   
 <tilt_series_list> will be created if it doesn't exist.
 
@@ -37,7 +37,7 @@ Assumptions:
 
 """ % ((__file__,)*1)
 
-MODIFIED="Modified 2023 Nov 10"
+MODIFIED="Modified 2024 Mar 25"
 MAX_VERBOSITY=8
 
 def print_log_msg(mesg, cutoff, options):
@@ -59,7 +59,7 @@ def print_log_msg(mesg, cutoff, options):
 
 def main():
   options= parse_command_line()
-  print_log_msg("", 2, options)
+  ###print_log_msg("", 2, options)
   
   ts_file= options.tilt_list
   ctf_plot= options.ctf_by_ts_plot
@@ -83,7 +83,7 @@ def main():
   # If TS list exists, read it
   if options.overwrite or not os.path.exists(ts_file):
     ts_list=[]
-    print_log_msg(f"Creating new file: {ts_file}", 2, options)
+    print_log_msg(f"\nCreating new file: {ts_file}", 2, options)
   else:
     with open(ts_file) as file:
       ts_list= [line.rstrip() for line in file]
@@ -150,7 +150,12 @@ def main():
     if num_dupes != 0 : print_log_msg(f"  Ignored {num_dupes} duplicate CTF entries from '{curr_ctf}'", 4, options)
     
     # Unsuccessful CTFFIND runs will have non-numeric information in the table, so we need to clean
-    ctf_lines= clean_up_summary(ctf_lines, [2,3,6,7], verbose=options.verbosity)
+    ctf_lines= clean_up_summary(
+      ctf_lines,
+      [2,3,6,7],
+      verbose=options.verbosity,
+      tilt_series=curr_ts
+      )
     
     # Optionally keep only first N images 
     if options.first > 0 : ctf_lines= ctf_lines[:options.first]
@@ -227,7 +232,7 @@ def main():
   
   print_log_msg("", 2, options)
   
-def clean_up_summary(ctf_lines, column_list, verbose=0):
+def clean_up_summary(ctf_lines, column_list, verbose=0, tilt_series=None):
     """
     Echoes to both stdout nad stderr before exiting
     Adapted from https://stackoverflow.com/a/14981125
@@ -235,22 +240,29 @@ def clean_up_summary(ctf_lines, column_list, verbose=0):
     Arguments:
       CTF-summary data (list of lists)
       list of columns
+      verbosity
+      tilt_series
       
     Returns:
       new list of lists
     """
     
     new_list=[]
-    
+    if verbose>=7:
+      if tilt_series:
+        print(f"CTF-summary data for tilt series '{tilt_series}'")
+      else:
+        print("CTF-summary data for current tilt series")
+
     # Loop through lines
     for curr_line in ctf_lines:
-      if verbose>=7 : print('curr_line', curr_line)
+      if verbose>=7 : print(f"  {' '.join(curr_line)}")
       
       if verbose>=8:
         # Loop through columns
         for col in column_list:
           value= curr_line[col]
-          print(f"column {col}, value {value}, type {type(value)}")
+          print(f"    column {col}, value {value}, type {type(value)}")
         # End column loop
       
       try:
