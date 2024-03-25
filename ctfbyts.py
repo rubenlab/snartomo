@@ -201,10 +201,24 @@ def main():
       color_list= np.concatenate( (color_list, np.arange( len(ctf_lines) ) ) )
     
   # Plot setup
-  psiz= options.pointsize
+  ###psiz= options.pointsize
   fig, ax = plt.subplots(3, sharex=True)
   plt.xlim(-0.5, len(ts_list) - 0.5)
   
+  # Use reasonable defaults for font and point size
+  # For the font, don't go smaller than 5, 10 is the default
+  # For the points, don't go smaller than 16, 32 is the default
+  if len(ts_list) >= 100:
+    fontsize=5
+    psiz=16
+  if len(ts_list) >= 75:
+    fontsize=6
+    psiz=24
+  else:
+    fontsize=10
+    psiz=32
+  ###print(f"232 fontsize: {fontsize}")
+
   # Resolution plot
   ax[0].set(ylabel='Resolution (1/Å)')
   ax2= ax[0].secondary_yaxis('right')
@@ -224,15 +238,6 @@ def main():
   ax[2].yaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))
   ax[2].scatter(xvalue, defocus, c=color_list, cmap=options.color, s=psiz)
   
-  # Use reasonable defaults for font size (don't go smaller than 5, 10 is the default)
-  if len(ts_list) >= 100:
-    fontsize=5
-  if len(ts_list) >= 75:
-    fontsize=6
-  else:
-    fontsize=10
-  ###print(f"232 fontsize: {fontsize}")
-
   # Label with tilt-series name
   plt.xticks(np.arange( len(ts_list) ), ts_list, fontsize=fontsize)
   plt.xticks(rotation=90)
@@ -354,16 +359,16 @@ def parse_command_line():
         default="viridis", 
         help="Color map (other option: gnuplot)")
 
-    parser.add_argument(
-        "--pointsize", "-ps",
-        type=int,
-        default=32,
-        help="Point size in plot")
+    #parser.add_argument(
+        #"--pointsize", "-ps",
+        #type=int,
+        #default=32,
+        #help="Point size in plot")
 
     parser.add_argument(
         "--figuresize", "-fs",
         type=int,
-        default=9,
+        default=10,
         help="Figure size of plot, inches")
 
     parser.add_argument(
