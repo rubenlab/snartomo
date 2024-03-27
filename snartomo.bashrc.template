@@ -88,6 +88,8 @@ else
 
   export SNARTOMO_DIR="$(dirname $BASH_SOURCE)"
   export PATH="$PATH:$SNARTOMO_DIR"
-
   echo -e "\nAdded '$SNARTOMO_DIR' to PATH\n"
+
+  # Conda's Gnuplot gives me a warning if I don't set this variable
+  export GNUPLOT_DRIVER_DIR="$CONDA_PREFIX/libexec/gnuplot/$(gnuplot --version | cut -d' ' -f 2)"
 fi
