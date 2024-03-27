@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2024-03-18"
+  echo "Modified 2024-03-27"
   date
 }
 
@@ -235,7 +235,7 @@ function main() {
     # Parse PACE targets file
     targets_init
     
-    # Read initial EERS
+    # Read initial movies
     movies_init
     last_old_angle=$movie_angle  # need when detecting new movies
     cp "${mc2_movies}" "${init_movies}"
@@ -869,7 +869,7 @@ function movies_init() {
 #     
 ###############################################################################
 
-  update_status "$(date +"$time_format"): Searching for pre-existing EERs"
+  update_status "$(date +"$time_format"): Searching for pre-existing movies"
   
   declare -a init_movie_array
   
@@ -914,7 +914,7 @@ function movies_init() {
         
         # Sanity check: look for duplicates
         if [[ ! " ${init_movie_array[*]} " =~ " ${current_movie} " ]]; then
-          # Make sure that EER exists
+          # Make sure that movie exists
           init_movie_array+=("${current_movie}")
         else
           echo "ERROR!! FOUND DUPLICATE: ${movie_line}"
@@ -926,10 +926,10 @@ function movies_init() {
           if [ $(echo "(${movie_angle} > $min_tilt) && (${movie_angle} < $max_tilt)" | bc -l) -eq 1 ]; then
             # If last tilt series, print results
             if [[ "$(( $mdoc_idx + 1 ))" -eq "${#mdoc_array[@]}" ]]; then
-              vprint "$(date +"$time_format"): Found last EER in last tilt series (#${series_num}): angle: ${movie_angle}" "1+" "${main_log}"
+              vprint "$(date +"$time_format"): Found last movie in last tilt series (#${series_num}): angle: ${movie_angle}" "1+" "${main_log}"
             fi
             
-            # Sanity check: Are there still more EERs in this tilt series?
+            # Sanity check: Are there still more movies in this tilt series?
             local more_angles=$(( ${#new_angles[@]} -  $new_idx))
             if [[ "$more_angles" -gt 0 ]]; then
               vprint "$(date +"$time_format"): WARNING! In '${mdoc_file}', there are $more_angles more angle(s) beyond ${vars[last_tilt]} degrees" "2+" "${main_log} =${warn_log}"
@@ -947,20 +947,20 @@ function movies_init() {
         fi
         # End checking-last IF-THEN
             
-        vprint "$(date +"$time_format"): Found EER in tilt series #${series_num}, MDOC '$(basename $mdoc_file)': ${init_movie_array[-1]}, angle: ${movie_angle}, remaining EERs: ${#init_movie_array[@]}" "0+" "=${file_log}"
+        vprint "$(date +"$time_format"): Found movie in tilt series #${series_num}, MDOC '$(basename $mdoc_file)': ${init_movie_array[-1]}, angle: ${movie_angle}, remaining movies: ${#init_movie_array[@]}" "0+" "=${file_log}"
         
         if [[ "$verbose" -ge 4 ]]; then
-          echo -ne "Found ${movie_counter} pre-existing EERs\r"
+          echo -ne "Found ${movie_counter} pre-existing movies\r"
         fi
         
       done <<< "${new_movies}"
       # End new-entry loop
       
-    # If no EERs found, set angle to dummy value so that while loop isn't broken before all tilt series have been generated
+    # If no movies found, set angle to dummy value so that while loop isn't broken before all tilt series have been generated
     else
       movie_angle="-999.9"
     fi
-    # End new-EERs IF-THEN
+    # End new-movies IF-THEN
   done
   # End tilt-series loop
         
@@ -972,7 +972,7 @@ function movies_init() {
       
   # While loop will finish either when last image has been collected or when time limit reached
   local angle_rounded=$(printf "%.2f" "${movie_angle}")
-  vprint "$(date +"$time_format"): Found initial ${movie_counter} EERs from targets file '${vars[target_file]}', last angle ${angle_rounded}" "1+" "${main_log} =${status_file}"
+  vprint "$(date +"$time_format"): Found initial ${movie_counter} movies from targets file '${vars[target_file]}', last angle ${angle_rounded}" "1+" "${main_log} =${status_file}"
 }
 
 function get_new_entries() {
@@ -1004,7 +1004,7 @@ function get_new_entries() {
 function get_movie_from_mdoc() {
 ###############################################################################
 #   Function:
-#     Gets EER filename from line in MDOC file
+#     Gets movie filename from line in MDOC file
 #     
 #   Positional arguments:
 #     1) line from MDOC file
@@ -1059,7 +1059,7 @@ function parse_targets() {
 function detect_new_movies() {
 ###############################################################################
 #   Function:
-#     Generates list of EERs from growing MDOC files
+#     Generates list of movies from growing MDOC files
 #   
 #   Calls functions:
 #     get_backup_name
@@ -1084,7 +1084,7 @@ function detect_new_movies() {
 
   local last_update="$(date +"$time_format")"
   
-  # Make sure EERs-complete file doesn't exist (It should have been cleaned in main, but...)
+  # Make sure movies-complete file doesn't exist (It should have been cleaned in main, but...)
   rm $movies_done 2> /dev/null
   
   if [[ "${vars[live]}" == true ]] ; then
@@ -1177,7 +1177,7 @@ function detect_new_movies() {
           fi
           # End last-series IF-THEN
         fi
-        # End new-EERs IF-THEN
+        # End new-movies IF-THEN
         
 #         vprint "t=$SECONDS, mdoc_file ${mdoc_file}, movie_angle ${movie_angle}"
       done
@@ -1193,7 +1193,7 @@ function detect_new_movies() {
       fi
 
       sleep "${vars[search_interval]}"
-      update_status "$last_update: Detecting EERs, most recent movie '${current_movie}'"
+      update_status "$last_update: Detecting movies, most recent movie '${current_movie}'"
 #       fi
     done
     # End WHILE loop
@@ -1583,7 +1583,6 @@ function distribute_motioncor() {
       
       
       # Optionally compress EER
-# # #       if [[ "${vars[do_compress]}" == true ]] ; then
       if [[ "${vars[grouping]}" -gt 0 ]] ; then
         compressEer "$num_sections" "${mc2_out}"
       fi
