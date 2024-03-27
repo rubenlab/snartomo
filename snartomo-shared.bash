@@ -485,15 +485,14 @@ function clean_local_dir() {
     vprint "WARNING! Parameter '--${key}' should be non-empty" "0+" "${outlog} =${warn_log}"
   else
     if [[ "${do_pace}" == true ]] && [[ "${key}" == "temp_local" ]] ; then
-# # #       echo "485: mv ${temp_share_dir}/* ${vars[outdir]}/${temp_dir}"
-      ERROR=$( { mv ${temp_share_dir}/* ${vars[outdir]}/${temp_dir} ; } 2>&1 )
+      local mv_err=$( { mv ${temp_share_dir}/* ${vars[outdir]}/${temp_dir} ; } 2>&1 )
 
       # Check if error is empty
-      if ! [[ -z "$ERROR" ]] ; then
+      if ! [[ -z "$mv_err" ]] ; then
         # Ignore permission errors
-        if ! [[ "$ERROR" = *"preserving permissions"* ]] ; then
-          vprint "WARNING! Unknown error while moving contents of ' ${temp_share_dir}' to '${vars[outdir]}/${temp_dir}':" "0+" "${outlog} =${warn_log}"
-          vprint "${ERROR}" "0+" "${outlog} =${warn_log}"
+        if ! [[ "$mv_err" = *"preserving permissions"* ]] ; then
+          vprint "WARNING in '${FUNCNAME[0]}'! Unknown error while moving contents of ' ${temp_share_dir}' to '${vars[outdir]}/${temp_dir}':" "0+" "${outlog} =${warn_log}"
+          vprint "${mv_err}" "0+" "${outlog} =${warn_log}"
           vprint "Continuing..." "0+" "${outlog} =${warn_log}"
           vprint "" "0+" "${outlog}"
 # #         else
@@ -3732,14 +3731,14 @@ function quiet_touch() {
 
   local tomogram_3d=$1
 
-  local ERROR=$( { touch $tomogram_3d ; } 2>&1 )
+  local touch_err=$( { touch $tomogram_3d ; } 2>&1 )
 
   # Check if error is empty
-  if ! [[ -z "$ERROR" ]] ; then
+  if ! [[ -z "$touch_err" ]] ; then
     # On samba-mounted disks, touch may give an error, so let's check if it exists
     if ! [[ -f "$tomogram_3d" ]]; then
-      vprint "WARNING: '$tomogram_3d' doesn't exist:" "0+" "${outlog} =${warn_log}"
-      vprint "${ERROR}" "0+" "${outlog} =${warn_log}"
+      vprint "WARNING in '${FUNCNAME[0]}': '$tomogram_3d' doesn't exist:" "0+" "${outlog} =${warn_log}"
+      vprint "${touch_err}" "0+" "${outlog} =${warn_log}"
       vprint "Continuing..." "0+" "${outlog} =${warn_log}"
       vprint "" "0+" "${outlog}"
 # #     else
@@ -5036,13 +5035,13 @@ function create_json() {
     fi
 # # #     eval $clean_cmd
     # Save only stderr (adapted from https://stackoverflow.com/a/962268)
-    ERROR=$( { eval $clean_cmd ; } 2>&1 >/dev/null )
+    local clean_err=$( { eval $clean_cmd ; } 2>&1 >/dev/null )
     local status_code=$?
     
     if [[ $status_code -ne 0 ]] ; then
-      vprint "  WARNING! JSON-generating command failed" "1+" "$outlog =${warn_log}"
+      vprint "  WARNING in '${FUNCNAME[0]}'! JSON-generating command failed" "1+" "$outlog =${warn_log}"
       vprint "    Failed command: $clean_cmd"  "1+" "$outlog =${warn_log}"
-      vprint "    Error: $ERROR"  "1+" "$outlog =${warn_log}"
+      vprint "    Error: $clean_err"  "1+" "$outlog =${warn_log}"
     fi
     # END error-code IF-THEN
   else
