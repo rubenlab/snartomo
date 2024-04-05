@@ -1184,8 +1184,9 @@ function validate_inputs() {
     if [[ -f "${search_exe}" ]]; then
       vprint "  Found ${exe_descr}: ${search_exe}" "1+" "${outlog}"
       
-      # nvcc isn't a dynamically-linked executable
-      if [[ ${exe_descr} != "CUDA libraries" ]] && [[ ${exe_descr} != "SNARTomo Heatwave" ]] ; then
+      # check linked libraries for dynamically-linked executables (SBGrid executables are simply scripts that redirect)
+# # #       if [[ ${exe_descr} != "CUDA libraries" ]] && [[ ${exe_descr} != "SNARTomo Heatwave" ]] ; then
+      if [[ "$(file $search_exe)" =~ "dynamically linked" ]] ; then
         # Look for library errors (adapted from https://stackoverflow.com/a/42543911)
         local ldd_err=$(ldd $search_exe 2>&1 >/dev/null)
         if ! [ -z "$ldd_err" ] ; then
