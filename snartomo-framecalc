@@ -12,7 +12,7 @@
 
 function program_info() {
   echo "Running: SNARTomoFrameCalculator"
-  echo "Modified 2024-02-16"
+  echo "Modified 2024-04-11"
   date
   echo 
 }
@@ -162,8 +162,11 @@ function check_img_dose() {
       exit
     else
       local ts_mics=$(grep SubFramePath "${vars[mdoc_file]}" | wc -l)
+# #       echo "165 ts_mics '${ts_mics}'"
       vars[dose_per_img]=$(bc -l <<< "${vars[dose_per_ts]}"/"${ts_mics}")
-# #       echo "dose_per_img: '${dose_per_img}'"
+#       echo -e "167 dose_per_img '${vars[dose_per_img]}'\n"
+#       echo    "168"
+#       exit
       local dose_str=$(printf "%.3f" "${vars[dose_per_img]}")
       vprint "  Dose per image: ${dose_str} electrons per square Angstrom, calculated from ${ts_mics} images in MDOC ${vars[mdoc_file]}" "2+"
     fi
@@ -196,11 +199,8 @@ function check_frm_dose() {
         exit
       else
         check_exe "$(which header)" "IMOD header executable"
-# #         header "${vars[eer_file]}"
         local section_line=$(header "${vars[eer_file]}" | grep sections)
         vars[num_frames]=$(echo $section_line | rev | cut -d" " -f1 | rev)
-#         local num_sections=$(echo $section_line | rev | cut -d" " -f1 | rev)
-#         echo "num_sections: '${num_sections}'"
       fi
       
       # If EER file not provided
@@ -210,8 +210,10 @@ function check_frm_dose() {
         echo -e "ERROR!! If neither an EER file nor number of frames is provided, then an MDOC file (--mdoc_file) must be provded!\n"
         exit
       else
-        # Get last entry from MDOC
-        vars[num_frames]=$(grep NumSubFrames "${vars[mdoc_file]}" | tail -n 1 | cut -d" " -f3)
+        # Get last entry from MDOC & remove CRLF
+        vars[num_frames]=$(grep NumSubFrames "${vars[mdoc_file]}" | sed 's/\r//' | tail -n 1 | cut -d" " -f3)
+# #         echo "215 num_frames '${vars[num_frames]}'"
+# #         exit
       fi
       # End MDOC IF-THEN
       
@@ -237,10 +239,11 @@ function build_frames_file() {
 #   
 ###############################################################################
   
-  local dose_per_frame=$(bc -l <<< "${vars[dose_per_img]}"/"${vars[num_frames]}")
 #   echo "dose_per_img:   '${vars[dose_per_img]}'"
 #   echo "num_frames:     '${vars[num_frames]}'"
-#   echo "dose_per_frame: '${dose_per_frame}'"
+#   exit
+  local dose_per_frame=$(bc -l <<< "${vars[dose_per_img]}"/"${vars[num_frames]}")
+# #   echo "dose_per_frame: '${dose_per_frame}'"
   local dose_str=$(printf "%8.6f" "${dose_per_frame}")
   local num_frames=$(bc -l <<< "${vars[dose_per_combined]}"/"$dose_per_frame")
   local frames_int=$(printf '%.*f\n' 0 $num_frames)
