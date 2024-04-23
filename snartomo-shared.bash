@@ -737,7 +737,7 @@ function validate_inputs() {
   imod_descr="IMOD executables directory"
   check_dir "${vars[movie_dir]}" "movie directory" "${outlog}"
   check_dir "${vars[imod_dir]}" "${imod_descr}" "${outlog}"
-  check_exe "$(which nvcc)" "CUDA libraries" "${outlog}"
+  check_exe "$(which nvidia-smi)" "CUDA libraries" "${outlog}"
   check_exe "${vars[motioncor_exe]}" "MotionCor2 executable" "${outlog}"
   
   # Check old MotionCor syntax
