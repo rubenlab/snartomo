@@ -2373,17 +2373,18 @@ function distribute_ctffind() {
     # Make sure output exists
     if [[ ! -f "$ctf_mrc" ]]; then
       warn_msg="WARNING! CTFFIND4 output '$ctf_mrc' does not exist, re-adding to queue..."
-    else
-      update_status "$(date +"$time_format"): Running CTFFIND4, most recent micrograph '$(basename $cor_mic)'"
-    fi
-    
-    # Print only one warning message per micrograph
-    if [[ "${warn_msg}" != "" ]]; then
       vprint "$(date +"$time_format"): $warn_msg" "0+" "${warn_log}"
-      
+	     
       # Exit subprocess if in parallel mode
       if [[ "${do_parallel}" == true ]] ; then
         exit
+      fi
+    else
+      update_status "$(date +"$time_format"): Running CTFFIND4, most recent micrograph '$(basename $cor_mic)'"
+
+      # Print only one warning message per micrograph (not to the screen, only to the warnings log)
+      if [[ "${warn_msg}" != "" ]]; then
+        vprint "$(date +"$time_format"): $warn_msg" "0+" "=${warn_log}"
       fi
     fi
     
