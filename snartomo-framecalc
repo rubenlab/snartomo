@@ -73,7 +73,7 @@ function parse_command_line() {
   add_argument "frame_file" "${frame_file}" "Output MotionCor2 frame file" "ANY"
   add_argument "fast" "false" "If using MDOC, flag to get number of frames from MDOC directly" "BOOL"
   add_argument "eer_dir" "" "EER directory, required if using MDOC, unless '--fast' flag provided" "ANY"
-  add_argument "thorough" "false" "In usign MDOC, flag to show number of frames in all EERs" "BOOL"
+  add_argument "thorough" "false" "If using MDOC, flag to show number of frames in all EERs" "BOOL"
   add_argument "verbosity" "${verbosity}" "Verbosity level (0..3)" "INT"
 
   dynamic_parser "${@}"
