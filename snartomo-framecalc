@@ -6,13 +6,14 @@
 #   Generates MotionCor frames file
 #
 # Changelog:
+#   2024-04-24 (trs) -- if given MDOC file, checks number of frames of all movies unless '--fast' flag given
 #   2022-11-28 (trs) -- created
-#   
+#
 ###############################################################################
 
 function program_info() {
   echo "Running: SNARTomoFrameCalculator"
-  echo "Modified 2024-04-11"
+  echo "Modified 2024-04-24"
   date
   echo 
 }
@@ -70,6 +71,9 @@ function parse_command_line() {
   add_argument "eer_file" "None" "Example EER file, required if neither MDOC file nor number of frames provided" "ANY"
   add_argument "dose_per_combined" "${combined_dose}" "Dose per combined MotionCor frame, electrons per square Angstrom" "FLOAT"
   add_argument "frame_file" "${frame_file}" "Output MotionCor2 frame file" "ANY"
+  add_argument "fast" "false" "If using MDOC, flag to get number of frames from MDOC directly" "BOOL"
+  add_argument "eer_dir" "" "EER directory, required if using MDOC, unless '--fast' flag provided" "ANY"
+  add_argument "thorough" "false" "In usign MDOC, flag to show number of frames in all EERs" "BOOL"
   add_argument "verbosity" "${verbosity}" "Verbosity level (0..3)" "INT"
 
   dynamic_parser "${@}"
@@ -162,11 +166,7 @@ function check_img_dose() {
       exit
     else
       local ts_mics=$(grep SubFramePath "${vars[mdoc_file]}" | wc -l)
-# #       echo "165 ts_mics '${ts_mics}'"
       vars[dose_per_img]=$(bc -l <<< "${vars[dose_per_ts]}"/"${ts_mics}")
-#       echo -e "167 dose_per_img '${vars[dose_per_img]}'\n"
-#       echo    "168"
-#       exit
       local dose_str=$(printf "%.3f" "${vars[dose_per_img]}")
       vprint "  Dose per image: ${dose_str} electrons per square Angstrom, calculated from ${ts_mics} images in MDOC ${vars[mdoc_file]}" "2+"
     fi
@@ -178,7 +178,7 @@ function check_img_dose() {
 function check_frm_dose() {
 ###############################################################################
 #   Function:
-#     FUNCTION
+#     Get number of frames
 #   
 #   Positional variables:
 #   
@@ -210,26 +210,86 @@ function check_frm_dose() {
         echo -e "ERROR!! If neither an EER file nor number of frames is provided, then an MDOC file (--mdoc_file) must be provded!\n"
         exit
       else
-        # Get last entry from MDOC & remove CRLF
-        vars[num_frames]=$(grep NumSubFrames "${vars[mdoc_file]}" | sed 's/\r//' | tail -n 1 | cut -d" " -f3)
-# #         echo "215 num_frames '${vars[num_frames]}'"
-# #         exit
+        if [[ "${vars[fast]}" == true ]]; then
+          # Get last entry from MDOC & remove CRLF
+          vars[num_frames]=$(grep NumSubFrames "${vars[mdoc_file]}" | sed 's/\r//' | tail -n 1 | cut -d" " -f3)
+
+          # Sanity check -- Some TFS MDOCs shows only 1 frame
+          if [[ ${vars[num_frames]} -eq 1 ]] ; then
+            echo -e "\nERROR!! MDOC reports only 1 frame!"
+            echo    "  Restart without fast mode to check EER header."
+            echo -e "  Exiting...\n"
+            exit
+          fi
+        else
+          mapfile -t subframe_array < <( grep "SubFramePath" "${vars[mdoc_file]}" | awk '{print $3}' | sed 's/\r//' )
+          for subfm_idx in "${!subframe_array[@]}"; do
+            # Get path after last backslash
+            local movie_base=$(echo ${subframe_array[${subfm_idx}]##*[/\\]} )
+            local movie_path="${vars[eer_dir]}/${movie_base}"
+
+            # Make sure EER exists
+            if ! [[ -f "${movie_path}" ]]; then
+              # Maybe user didn't provide EER directory
+              if [[ "${vars[eer_dir]}" == "" ]] ; then
+                echo -e "\nERROR!! EER directory (--eer_dir=<PATH>) not provided!"
+                echo -e "  Either EER directory or '--fast' flag must be provided."
+              else
+                echo -e "\nERROR!! Couldn't find EER '${movie_path}'!"
+                echo -e "  Either EERs in MDOC '$(basename ${vars[mdoc_file]})' must exist, or '--fast' flag must be provided."
+              fi
+
+              echo -e "  Exiting...\n"
+              exit
+
+            # Did find EER
+            else
+              if [[ "${vars[thorough]}" == true ]] && [[ "${subfm_idx}" -eq 0 ]]; then
+                vprint "\n  Displaying number of frames for each micrograph" "2+"
+                vprint "    # Micrograph" "2+"
+              fi
+
+              if [[ "${vars[thorough]}" == true ]] || [[ "${subfm_idx}" -eq 0 ]]; then
+                num_frames=$(header "${movie_path}" | grep sections | xargs | rev | cut -d" " -f1 | rev)
+
+                # Remember first value
+                if [[ "${subfm_idx}" -eq 0 ]]; then
+                  vars[num_frames]=$num_frames
+
+                # Freak out if number varies
+                else
+                  if [[ "${vars[num_frames]}" != "$num_frames" ]] ; then
+                    echo -e "\nERROR!! Variable number of frames in micrographs! (${vars[num_frames]}, $num_frames)"
+                    echo -e "  Exiting...\n"
+                    exit
+                  fi
+                fi
+                # End first-micrograph IF-THEN
+              fi
+
+              if [[ "${vars[thorough]}" == true ]]; then
+                vprint "    ${subfm_idx} ${movie_base}: $num_frames" "2+"
+              fi
+            fi
+            # End EER-exists IF-THEN
+          done
+          # End subframe loop
+        fi
+        # End fast-mode IF-THEN
       fi
       # End MDOC IF-THEN
       
     fi
     # End EER IF-THEN
-    
   fi
   
   vprint "  Number of frames: ${vars[num_frames]}" "2+"
-  
 }
 
 function build_frames_file() {
 ###############################################################################
 #   Function:
-#     FUNCTION
+#     Write frames file
 #   
 #   Calls functions:
 #     vprint
@@ -239,17 +299,21 @@ function build_frames_file() {
 #   
 ###############################################################################
   
-#   echo "dose_per_img:   '${vars[dose_per_img]}'"
-#   echo "num_frames:     '${vars[num_frames]}'"
-#   exit
   local dose_per_frame=$(bc -l <<< "${vars[dose_per_img]}"/"${vars[num_frames]}")
-# #   echo "dose_per_frame: '${dose_per_frame}'"
   local dose_str=$(printf "%8.6f" "${dose_per_frame}")
   local num_frames=$(bc -l <<< "${vars[dose_per_combined]}"/"$dose_per_frame")
   local frames_int=$(printf '%.*f\n' 0 $num_frames)
   local frames_rnd=$(printf '%.*f\n' 3 $num_frames)
-  vprint "  Merged frames: $frames_int (${vars[dose_per_combined]}/$dose_str=$frames_rnd)" "2+"
-  
+
+  if [[ $frames_int -eq 0 ]] ; then
+    echo -e "\nERROR!! Unexpected number of frames to merge! (${vars[dose_per_combined]}/$dose_str=$frames_rnd~=$frames_int)"
+
+    echo -e "  Exiting..."
+    exit
+  else
+    vprint "  Merged frames: $frames_int (${vars[dose_per_combined]}/$dose_str=$frames_rnd)" "2+"
+  fi
+
   local frames_line="${vars[num_frames]} $frames_int $dose_str"
   vprint "\nWriting '$frames_line' to ${vars[frame_file]}\n" "1+"
   echo $frames_line > ${vars[frame_file]}
