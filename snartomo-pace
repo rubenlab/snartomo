@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2024-03-27"
+  echo "Modified 2024-04-26"
   date
 }
 
@@ -857,6 +857,7 @@ function movies_init() {
 #     get_backup_name
 #     get_new_entries
 #     get_movie_from_mdoc
+#     found_duplicate_movie
 #     vprint
 #     
 #   Global variables:
@@ -865,6 +866,7 @@ function movies_init() {
 #     mc2_movies
 #     file_log
 #     movie_counter
+#     warn_log
 #     movie_angle (OUTPUT)
 #     
 ###############################################################################
@@ -917,7 +919,12 @@ function movies_init() {
           # Make sure that movie exists
           init_movie_array+=("${current_movie}")
         else
-          echo "ERROR!! FOUND DUPLICATE: ${movie_line}"
+          found_duplicate_movie "${current_movie}" "${mdoc_file}"
+#           echo
+#           echo "ERROR!! Found duplicate movie!"
+#           echo "  Movie '${current_movie}' found in MDOC '${mdoc_file}' but was already processed"
+#           echo "   Exiting..."
+#           echo
           exit
         fi
         
@@ -1018,6 +1025,32 @@ function get_movie_from_mdoc() {
   
   # Cut after the last forward- or backslash
   echo "${eer_unix##*[/\\]}"
+}
+
+function found_duplicate_movie() {
+###############################################################################
+#   Function:
+#     Error if duplicate movie name found when processing MDOCs
+#
+#   Positional variables:
+#     1) movie file
+#     2) MDOC file
+#
+#   Calls functions:
+#     vprint
+#
+#   Global variables:
+#     main_log
+#     warn_log
+#
+###############################################################################
+
+  local current_movie=$1
+  local mdoc_file=$2
+
+  vprint "\n\nERROR!! Found duplicate movie!" "0+" "${main_log} =${warn_log}"
+  vprint "  Movie '${current_movie}' found in MDOC '$(basename ${mdoc_file})' but was already processed" "0+" "${main_log} =${warn_log}"
+  vprint "   Exiting...\n" "0+" "${main_log} =${warn_log}"
 }
 
 function parse_targets() {
@@ -1122,7 +1155,8 @@ function detect_new_movies() {
               # Make sure that movie exists
               new_movie_array+=("${current_movie}")
             else
-              echo "ERROR!! FOUND DUPLICATE: ${movie_line}"
+# #               echo "ERROR!! FOUND DUPLICATE: ${movie_line}"
+              found_duplicate_movie "${current_movie}" "${mdoc_file}"
               exit
             fi
             
