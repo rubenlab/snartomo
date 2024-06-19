@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2024-04-26"
+  echo "Modified 2024-06-19"
   date
 }
 
@@ -2902,25 +2902,30 @@ function tomogram_parallel() {
   
   # Parse MDOC (awk notation from Tat)
   mapfile -t mdoc_angle_array < <( grep "TiltAngle" "${orig_mdoc}" | awk '{print $3}' | sed 's/\r//' )
-  mapfile -t new_subframe_array < <( grep "SubFramePath" "${orig_mdoc}" | awk '{print $3}' | sed 's/\r//' )
+# # #   mapfile -t new_subframe_array < <( grep "SubFramePath" "${orig_mdoc}" | awk '{print $3}' | sed 's/\r//' )
+  mapfile -t new_subframe_array < <( grep "SubFramePath" "${orig_mdoc}" | cut -d' ' -f 3- | sed 's/\r//' )
   mapfile -t dose_rate_array < <( grep "DoseRate" "${orig_mdoc}" | awk '{print $3}' | sed 's/\r//' )
   
+#   printf "2908 new_subframe_array '%s'\n" "${new_subframe_array[@]}"
+#   printf "2909 orig_mdoc '%s'\n" "${orig_mdoc}"
+#   exit
+
   \cp ${orig_mdoc} ${mdoc_copy}
   
   # Fit dose to cosine function
   dose_fit "${tomo_base}" "${mdoc_copy}" "${tomo_log}"
-# #   echo "2690 tomo_log '$tomo_log'" ; exit  ### TESTING
-  
   # Write MDOC file with remaining micrographs
   clean_up_mdoc "${mdoc_copy}" "${new_mdoc}" "${temp_mdoc_dir}"
   
-  # Sanity check that arrays have same length
-  if [[ "${#mdoc_angle_array[*]}" -ne "${#new_subframe_array[*]}" ]] || [[ "${#mdoc_angle_array[*]}" -ne "${#dose_rate_array[*]}" ]] ; then
+# # #   if [ "${#mdoc_angle_array[*]}" != "${#new_subframe_array[*]}" ] || [ "${#mdoc_angle_array[*]}" != "${#dose_rate_array[*]}" ] ; then
+  if [ "${#mdoc_angle_array[*]}" != "${#new_subframe_array[*]}" ] ; then
     local warn_msg="\nWARNING! MDOC file '$new_mdoc' has differing number of entries for TiltAngle (${#mdoc_angle_array[*]}), SubFramePath (${#new_subframe_array[*]}), and DoseRate (${#dose_rate_array[*]})"
-    vprint "$warn_msg" "5+" "${main_log} =${warn_log}"
-    vprint "  Continuing...\n" "5+" "${main_log} =${warn_log}"
+    vprint "$warn_msg" "0+" "${main_log} =${warn_log}"
+    vprint "  Continuing...\n" "0+" "${main_log} =${warn_log}"
   fi
-  
+
+# # #   echo "2944 tomogram_parallel" ; exit  ### TESTING
+
   if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]] ; then
     local do_denoise=true  # IF-OR statement is a mouthful
   fi

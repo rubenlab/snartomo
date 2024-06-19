@@ -2643,7 +2643,8 @@ function dose_fit() {
   rm ${dose_list} 2> /dev/null
 
   # Loop through angles
-  for mdoc_idx in "${!mdoc_angle_array[@]}"; do 
+# # #   printf "2646 new_subframe_array '%s'\n" "${new_subframe_array[@]}" ; exit
+  for mdoc_idx in "${!mdoc_angle_array[@]}"; do
     # Get movie filename
     local movie_file=$(echo ${new_subframe_array[${mdoc_idx}]##*[/\\]} )
     
@@ -2661,6 +2662,8 @@ function dose_fit() {
   # Fit dose to cosine function
   if [[ ! -f "${dose_list}" ]]; then
     vprint "\nWARNING! Dose list '${dose_list}' not found" "0+" "${main_log} =${warn_log}"
+# #     printf "%2d  %5.1f  %6.3f\n" "$mdoc_idx" "${mdoc_angle_array[${mdoc_idx}]}" "${dose_rate_array[${mdoc_idx}]}" ; exit
+# # #     printf "dose_rate_array '%s'\n" "${dose_rate_array[@]}" ; exit
     vprint "  Continuing...\n" "0+" "${main_log}"
   else
     local dosefit_cmd="$(echo dose_discriminator.py \
@@ -3155,13 +3158,13 @@ function clean_up_mdoc() {
   # Find boundaries of MDOC file
   local movie_file=$(echo ${old_subframe_array[0]##*[/\\]} )
   local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
-  local first_movie_file="$(grep -l $stem_movie ${chunk_prefix}*)"  # assuming single hit
-# # #   echo "3089 first_movie_file '${first_movie_file}'"
+  local first_movie_file="$(grep -l $stem_movie ${chunk_prefix}* | head -n 1)"
+# # #   echo "3162 first_movie_file '${first_movie_file}'"
 
   if [[ "$first_movie_file" != "" ]] ; then
     local first_movie_chunk="$(basename $first_movie_file | sed 's/[^0-9]*//g')"
   fi
-# # #   echo "3091 first_movie_chunk: '${first_movie_chunk}'"
+# # #   echo "3167 first_movie_chunk: '${first_movie_chunk}'"
   local last_header_chunk=$(( $first_movie_chunk - 1 ))
   
   declare -a good_mdoc_array
