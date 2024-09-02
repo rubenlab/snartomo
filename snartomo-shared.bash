@@ -3138,7 +3138,7 @@ function clean_up_mdoc() {
     return
   fi
   
-  split_mdoc "${old_mdoc}" "${temp_mdoc_dir}"
+  split_mdoc_single "${old_mdoc}" "${temp_mdoc_dir}"
   
   # Parse MDOC (awk notation from Tat)
   mapfile -t old_subframe_array < <( grep "SubFramePath" "${old_mdoc}" | awk '{print $3}' | sed 's/\r//' )
@@ -3228,6 +3228,46 @@ function clean_up_mdoc() {
   
   # Clean up 
   rm -r $temp_mdoc_dir 2> /dev/null
+}
+
+
+function split_mdoc_single() {
+###############################################################################
+#   Function:
+#     Split MDOC into chunks
+#
+#   Positional variables:
+#     1) MDOC file
+#     2) output directory
+#     3) temporary MDOC file w/o CRLFs
+#
+#   Calls functions:
+#
+#   Global variables:
+#     chunk_prefix (OUTPUT)
+#
+###############################################################################
+
+  local old_mdoc=$1
+  local temp_mdoc_dir=$2
+
+  # Clean up pre-existing files
+  rm -r $temp_mdoc_dir 2> /dev/null
+  mkdir $temp_mdoc_dir
+
+  # Remove CRLF (https://www.cyberciti.biz/faq/sed-remove-m-and-line-feeds-under-unix-linux-bsd-appleosx/)
+  local mdoc_nocrlf="$temp_mdoc_dir/$(basename $old_mdoc).txt"
+  sed 's/\r//' $old_mdoc > ${mdoc_nocrlf}
+  local status_code=$?
+
+  if [[ $status_code -ne 0 ]] ; then
+    echo -e "ERROR!! Status code: '$status_code'\n"
+    exit 10
+  fi
+
+  # Split MDOC (Adapted from https://stackoverflow.com/a/60972105/3361621)
+  chunk_prefix="${temp_mdoc_dir}/chunk"
+  csplit --quiet --prefix=$chunk_prefix --suffix-format=%02d.txt --suppress-matched ${mdoc_nocrlf} /^$/ {*}
 }
 
 function imod_restack() {
@@ -4551,7 +4591,7 @@ function deconvolute_wrapper() {
   #     2) MDOC file
   #   
   #   Calls functions:
-  #     split_mdoc
+  #     split_mdoc_single
   #   
   #   Global variables:
   #     stripped_angle_array
@@ -4584,7 +4624,7 @@ function deconvolute_wrapper() {
     
     if [[ $mdoc_file != "" ]] ; then
       local temp_dir="${io_dir}/tmp_mdoc"
-      split_mdoc "${mdoc_file}" "${temp_dir}"
+      split_mdoc_single "${mdoc_file}" "${temp_dir}"
       local min_mic_stem=$(basename ${mcorr_mic_array[$min_index]%_mic.mrc})
       
       # Get defocus value

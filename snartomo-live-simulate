@@ -18,7 +18,7 @@ chunk_ext="txt"            # extension for chunk files
 
 function program_info() {
   echo "Running: SNARTomoLIVE"
-  echo "Modified 2023-03-22"
+  echo "Modified 2024-09-02"
   date
 }
 
@@ -34,7 +34,7 @@ function main() {
   program_info
   validate_live_inputs
   clean_up
-  split_mdoc
+  split_mdoc_from_list
   mdoc_header
   build_mdoc
   
@@ -198,7 +198,7 @@ function get_mdoc_chunk_dir() {
   echo "${vars[mdoc_dir]}/${chunk_dir}/${mdoc_base%.mrc.mdoc}"
 }
 
-function split_mdoc() {
+function split_mdoc_from_list() {
 ###############################################################################
 #   Function:
 #     Split MDOC files into chunks
@@ -210,6 +210,7 @@ function split_mdoc() {
 #   Global variables:
 #     vars
 #     chunk_dir
+#     chunk_prefix
 #     
 ###############################################################################
 
@@ -227,9 +228,9 @@ function split_mdoc() {
     fi
     
     echo "  Found MDOC: $curr_mdoc"
-    local mdoc_nocrlf="$(get_nocrlf_filename "$curr_mdoc")"
-  
+
     # Remove CRLF (https://www.cyberciti.biz/faq/sed-remove-m-and-line-feeds-under-unix-linux-bsd-appleosx/)
+    local mdoc_nocrlf="$(get_nocrlf_filename "$curr_mdoc")"
     sed 's/\r//' ${curr_mdoc} > ${mdoc_nocrlf}
     local status_code=$?
     
