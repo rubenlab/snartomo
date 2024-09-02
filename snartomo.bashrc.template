@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Modified 2023-10-10
+# Modified 2024-09-02
 
 ##### PLEASE DEFINE THE FOLLOWING #####
 
@@ -83,13 +83,53 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   echo -e "\nERROR! Script '${BASH_SOURCE[0]}' is being executed!"
   echo -e   "  Please run it with: source ${BASH_SOURCE[0]}\n"
 else
-  echo "script ${BASH_SOURCE[0]} is being sourced..."
+  # Check if conda is in your PATH
+  if ! [[ $(type -P conda) ]] ; then
+    # Ensure that exectuable exists
+    if ! [[ -e "${SNARTOMO_CONDA}" ]] ; then
+      echo -e "\nERROR! Conda executable '${SNARTOMO_CONDA}' doesn't not exist!"
+      echo -e   "  Install Anaconda (https://www.anaconda.com/products/distribution) or Miniconda (https://docs.conda.io/en/latest/miniconda.html) and continue...\n"
+      return
+    fi
+  fi
+
+  # If conda isn't initialized, then initialize it
+  if [[ $CONDA_SHLVL -eq 0 ]] ; then
+    echo "Initializing conda..."
+
+    CONDA_BINDIR=$(dirname ${SNARTOMO_CONDA})
+    CONDA_TOPDIR=$(dirname ${CONDA_BINDIR})
+
+    __conda_setup="$('${SNARTOMO_CONDA}' 'shell.bash' 'hook' 2> /dev/null)"
+    if [ $? -eq 0 ]; then
+      eval "$__conda_setup"
+    else
+      if [ -f "${CONDA_TOPDIR}/etc/profile.d/conda.sh" ]; then
+        . "${CONDA_TOPDIR}/etc/profile.d/conda.sh"
+      else
+        export PATH="$CONDA_BINDIR:$PATH"
+      fi
+    fi
+    unset __conda_setup
+  fi
+
+  echo -e "\nScript ${BASH_SOURCE[0]} is being sourced..."
   conda activate ${SNARTOMO_ENV}
 
-  export SNARTOMO_DIR="$(dirname $BASH_SOURCE)"
+  export SNARTOMO_DIR="$( realpath $(dirname $BASH_SOURCE) )"
   export PATH="$PATH:$SNARTOMO_DIR"
-  echo -e "\nAdded '$SNARTOMO_DIR' to PATH\n"
+  echo -e "Added '$SNARTOMO_DIR' to PATH"
 
-  # Conda's Gnuplot gives me a warning if I don't set this variable
+  # Sanity check
+  if [[ "${CONDA_DEFAULT_ENV}" != "${SNARTOMO_ENV}" ]] ; then
+    echo -e "\nERROR! Current conda environment ('${CONDA_DEFAULT_ENV}') is not '${SNARTOMO_CONDA}'!"
+    echo -e   "  Fix $(realpath ${BASH_SOURCE[0]}) or set conda environment manually\n"
+    return
+  else
+    echo "Activated conda environment '${CONDA_DEFAULT_ENV}'"
+  fi
+
+  # Conda's Gnuplot gives me a warning
   export GNUPLOT_DRIVER_DIR="$CONDA_PREFIX/libexec/gnuplot/$(gnuplot --version | cut -d' ' -f 2)"
+  echo
 fi
