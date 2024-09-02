@@ -3230,46 +3230,6 @@ function clean_up_mdoc() {
   rm -r $temp_mdoc_dir 2> /dev/null
 }
 
-
-function split_mdoc() {
-###############################################################################
-#   Function:
-#     Split MDOC into chunks
-#   
-#   Positional variables:
-#     1) MDOC file
-#     2) output directory
-#     3) temporary MDOC file w/o CRLFs
-#   
-#   Calls functions:
-#   
-#   Global variables:
-#     chunk_prefix (OUTPUT)
-#   
-###############################################################################
-  
-  local old_mdoc=$1
-  local temp_mdoc_dir=$2
-  
-  # Clean up pre-existing files
-  rm -r $temp_mdoc_dir 2> /dev/null
-  mkdir $temp_mdoc_dir
-  
-  # Remove CRLF (https://www.cyberciti.biz/faq/sed-remove-m-and-line-feeds-under-unix-linux-bsd-appleosx/)
-  local mdoc_nocrlf="$temp_mdoc_dir/$(basename $old_mdoc).txt"
-  sed 's/\r//' $old_mdoc > ${mdoc_nocrlf}
-  local status_code=$?
-  
-  if [[ $status_code -ne 0 ]] ; then
-    echo -e "ERROR!! Status code: '$status_code'\n"
-    exit 10
-  fi
-  
-  # Split MDOC (Adapted from https://stackoverflow.com/a/60972105/3361621)
-  chunk_prefix="${temp_mdoc_dir}/chunk"
-  csplit --quiet --prefix=$chunk_prefix --suffix-format=%02d.txt --suppress-matched ${mdoc_nocrlf} /^$/ {*}
-}
-
 function imod_restack() {
 ###############################################################################
 #   Function:
