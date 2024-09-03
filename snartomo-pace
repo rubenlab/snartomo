@@ -893,17 +893,34 @@ function movies_init() {
     
     # Read new-angles list as array (https://stackoverflow.com/questions/13823706/capture-multiline-output-as-array-in-bash)
     mapfile -t new_angles < <(get_new_entries "${old_mdoc}" "${mdoc_file}" "false" | grep "TiltAngle" )
+# # #     printf "'%s'\n" "${new_angles[@]}"
     
     # Read new-movie list as array 
     new_movies=$(get_new_entries "${old_mdoc}" "${mdoc_file}" "true" | grep "SubFramePath" )
+# # #     printf "'%s'\n" "${new_movies[@]}"
+
     if [[ "${new_movies}" != "" ]]; then
       new_idx=0
       
       while read -r movie_line ; do
+# #         get_movie_from_mdoc "${movie_line}"
+# #         exit
+
         local current_movie=$(get_movie_from_mdoc "${movie_line}")
-        
-        # Greedy search after last space, and remove CRLF terminator
-        movie_angle="$(echo ${new_angles[${new_idx}]##* } | tr -d '\r')"
+#         echo "907 current_movie: '$current_movie'" ; exit
+#         echo "906 movie_line: '$(echo ${movie_line} | xargs | tr -d '\r')'"
+#         echo "909 new_angles: '$(echo ${new_angles[${new_idx}]} | xargs )'"
+#         echo "910 new_angles: '$(echo ${new_angles[${new_idx}]##* })'"
+
+        # Remove trailing space/CRLF terminator
+        local stripped_angle_line=$(echo ${new_angles[${new_idx}]} | xargs )
+
+        # Greedy search after last space
+        movie_angle="$(echo ${stripped_angle_line##* } | tr -d '\r')"
+# # #         echo "914 movie_angle: '$movie_angle'" ; exit
+
+#         # Greedy search after last space, and remove CRLF terminator
+#         movie_angle="$(echo ${new_angles[${new_idx}]##* } | tr -d '\r')"
         
         # Sometimes angle is blank, and we need it for the termination signal
         if [[ "${movie_angle}" == "" ]]; then
@@ -920,11 +937,6 @@ function movies_init() {
           init_movie_array+=("${current_movie}")
         else
           found_duplicate_movie "${current_movie}" "${mdoc_file}"
-#           echo
-#           echo "ERROR!! Found duplicate movie!"
-#           echo "  Movie '${current_movie}' found in MDOC '${mdoc_file}' but was already processed"
-#           echo "   Exiting..."
-#           echo
           exit
         fi
         
@@ -1018,13 +1030,24 @@ function get_movie_from_mdoc() {
 #     
 ###############################################################################
   
-  local movie_line=$1
+  local mdoc_movie_line=$1
   
   # Convert CRLF terminator
-  local eer_unix="$(echo $movie_line | tr -d '\r')"
-  
+  local eer_unix="$(echo $mdoc_movie_line | tr -d '\r')"
+#   echo "1038 eer_unix: '$eer_unix'"
+#
+#   # Cut after the last forward- or backslash
+#   echo "${eer_unix##*[/\\]}"
+#
+  # Remove trailing space/CRLF terminator
+  local stripped_movie_line=$(echo ${mdoc_movie_line} | xargs )
+  local awk_line=$(echo ${eer_unix} | awk '{$1=$1;print}')
+#   echo "1044 mdoc_movie_line '$mdoc_movie_line'"
+#   echo "1045 stripped_movie_line: '$stripped_movie_line'"
+#   echo "1047 awk: '$awk_line'"
+
   # Cut after the last forward- or backslash
-  echo "${eer_unix##*[/\\]}"
+  echo "${awk_line##*[/\\]}"
 }
 
 function found_duplicate_movie() {
@@ -1160,9 +1183,12 @@ function detect_new_movies() {
               exit
             fi
             
-            # Greedy search after last space, and remove CRLF terminator
-            movie_angle="$(echo ${new_angles[${new_idx}]##* } | tr -d '\r')"
-            
+            # Remove trailing space/CRLF terminator
+            local stripped_angle_line=$(echo ${new_angles[${new_idx}]} | xargs )
+
+            # Greedy search after last space
+            movie_angle="$(echo ${stripped_angle_line##* } | tr -d '\r')"
+
             # Sometimes angle is blank, and we need it for the termination signal
             if [[ "${movie_angle}" == "" ]]; then
               echo "ERROR!! movie_angle is blank!"
