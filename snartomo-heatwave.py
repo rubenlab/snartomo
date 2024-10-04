@@ -49,7 +49,7 @@ USAGE = """
   For more info about options, enter: %s --help
 """ % ( (os.path.basename(__file__),)*3 )
 
-MODIFIED="Modified 2024 Mar 13"
+MODIFIED="Modified 2024 Oct 04"
 MAX_VERBOSITY=9
 VIRTUAL_TARGET_FILE='All tilt series'
 
@@ -199,13 +199,13 @@ class MdocTreeView(QtWidgets.QMainWindow):
         mic_tags= ['micrograph movies','TIFF files','motion-corrected micrographs','micrograph thumbnails','power-spectrum thumbnails','denoised micrographs']
         found_dict= {key: 0 for key in ['target_files','target_ctfplots','target_ctfplots','mdocs','selected_mdocs','MdocSelected'] + mdoc_keys + mic_keys }
         num_targets= len( self.data4json.keys() )
-        disableTF= self.verbosity!=5 or self.debug
+        disableTF= self.verbosity<3 or self.verbosity>5 or self.debug
 
         # Loop through target files (real or virtual)
         for curr_target in self.data4json.keys():
             ###if self.debug: print(f"  Target '{curr_target}' {os.path.exists(curr_target)} {'CtfBytsPlot' in self.data4json[curr_target]} {os.path.exists(self.data4json[curr_target]['CtfBytsPlot'])}")
             if os.path.exists(curr_target) : found_dict['target_files']+= 1
-            if self.verbosity>= 5: print(f"\nCounting data from target file '{curr_target}'...")
+            if not disableTF: print(f"\nCollecting data from target file '{curr_target}'...")
             if definedAndExists('CtfBytsPlot', self.data4json[curr_target]) : found_dict['target_ctfplots']+= 1
             target_data= self.data4json[curr_target]
             
@@ -250,7 +250,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                                 self.data4json[curr_target][curr_mdoc][0]['MdocSelected'] = 0
                             else:
                                 self.data4json[curr_target][curr_mdoc][0]['MdocSelected'] = 1
-                    if self.debug: print(f"254   MDOC: '{os.path.basename(curr_mdoc)}', MdocSelected={self.data4json[curr_target][curr_mdoc][0]['MdocSelected']}")
+                    if self.debug: print(f"253   MDOC #{num_mdocs}: '{os.path.basename(curr_mdoc)}', MdocSelected={self.data4json[curr_target][curr_mdoc][0]['MdocSelected']}")
                 # End MDOC IF-THEN
             # End MDOC loop
         # End target loop
@@ -444,9 +444,8 @@ class MdocTreeView(QtWidgets.QMainWindow):
             disableTF= self.verbosity!=5 or self.debug
 
             # Loop through tilt series
-            ###for curr_mdoc in curr_list_mdocs:
-            for curr_mdoc in tqdm.tqdm(curr_list_mdocs, unit=' mdoc', disable=disableTF):
-                if self.debug: print(f"445   curr_mdoc: '{curr_mdoc}'")
+            for mdoc_idx, curr_mdoc in enumerate( tqdm.tqdm(curr_list_mdocs, unit=' mdoc', disable=disableTF) ):
+                if self.debug: print(f"445   curr_mdoc #{mdoc_idx}: '{curr_mdoc}'")
                 self.parseMdoc(curr_mdoc, curr_target)
                 
                 # Add MDOC, if necessary
@@ -903,7 +902,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         stat_map.add_column('MaxRes',        self.default_width, '6.2f')
         stat_map.add_column('DateTime',      175,                'str' )
         
-        if debug: print(f"DEBUG: The following data ('stat_map.keys') will be displayed: {stat_map.keys}\n")
+        if debug: print(f"DEBUG: The following data ('stat_map.keys') will be displayed: {stat_map.keys}")
         
         return stat_map
         
@@ -1112,7 +1111,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
             target_item = QtGui.QStandardItem(curr_target)
             target_base=''
         
-        if self.verbosity>= 5: print(f"Drawing data for target file '{curr_target}'...")
+        if self.verbosity>= 3: print(f"\nDrawing data for target file '{curr_target}'...")
         if self.debug: print(f"1110 drawTargetData: curr_list_mdocs ({len(curr_list_mdocs)}) {curr_list_mdocs}")
         
         # Initialize row for target file (real or fake) 
@@ -1137,7 +1136,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         for mdoc_idx, curr_mdoc in enumerate( tqdm.tqdm(curr_list_mdocs, unit=' mdoc', disable=disableTF) ):
             # Strip extensions from MDOC
             mdoc_base= re.sub( '.mrc.mdoc$', '', os.path.basename(curr_mdoc) )
-            if self.debug: print(f"1133   mdoc_base {mdoc_base}")
+            if self.debug: print(f"1139   mdoc_base #{mdoc_idx}: {mdoc_base}")
             
             try:
                 slice_jpg= self.data4json[curr_target][curr_mdoc][0]['CentralSlice']
@@ -1161,7 +1160,9 @@ class MdocTreeView(QtWidgets.QMainWindow):
             
             self.mic2qt_lut[curr_mdoc] = {}
             ts_parent_item, ts_select, tilt_string, resolution_string= self.buildStatList(
-                ts_parent_item, self.data4json[curr_target][curr_mdoc][1], curr_mdoc
+                ts_parent_item,
+                self.data4json[curr_target][curr_mdoc][1],
+                curr_mdoc
                 )
             ts_item_list= [ts_parent_item]
             ts_parent_item.setAutoTristate(True)
@@ -1242,8 +1243,6 @@ class MdocTreeView(QtWidgets.QMainWindow):
         for angle_idx, curr_angle in enumerate(angles_list):
             sorted_angles_list.append(list( tilt_data.keys() )[ sorted_idx_list[angle_idx] ])  # .keys() is not a list and thus cannot be directly subscripted
 
-        ##did_warn_thumbs= False
-        ##did_warn_ctfs= False
         all_selected= True
         none_selected= True
 
@@ -1253,13 +1252,10 @@ class MdocTreeView(QtWidgets.QMainWindow):
         # Loop through micrographs
         for sorted_idx, tilt_key in enumerate(sorted_angles_list):
             # Initialize row of micrograph stats
-            ###stat_list, self.did_warn_thumbs, self.did_warn_ctfs= self.addMicWidget(tilt_data, tilt_key, curr_mdoc, sorted_idx, self.did_warn_thumbs, self.did_warn_ctfs)
             stat_list= self.addMicWidget(tilt_data, tilt_key, curr_mdoc, sorted_idx)
 
             # Loop through stats
             for stat_key in self.stat_map.column_dict.keys():
-                ##print(f"1244 self.stat_map.column_dict.keys() : '{self.stat_map.column_dict.keys()}'")
-                ##exit()
                 if stat_key in self.stat_map.column_dict:
                     # Clean up if path
                     if stat_key=='SubFramePath':
@@ -1319,7 +1315,6 @@ class MdocTreeView(QtWidgets.QMainWindow):
 
         return ts_parent_item, ts_select, tilt_string, resolution_string
                     
-    ###def addMicWidget(self, tilt_data, tilt_key, curr_mdoc, sorted_idx, self.did_warn_thumbs, self.did_warn_ctfs):
     def addMicWidget(self, tilt_data, tilt_key, curr_mdoc, sorted_idx):
         """
         Initializes row of micrograph stats, depending on where images are on or off
