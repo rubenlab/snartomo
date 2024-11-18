@@ -3307,19 +3307,31 @@ function imod_restack() {
     local imod_list="${mcorr_list}"
   fi
   
-  # AreTomo and IMOD expect different extensions for stacks
-  if [[ ! -z "${vars[batch_directive]}" ]] ; then
-    reordered_stack="${tomo_root}_newstack.mrc"
-  else
-    reordered_stack="${tomo_root}_newstack.st"
-  fi
+#   # AreTomo and IMOD expect different extensions for stacks
+#   if [[ ! -z "${vars[batch_directive]}" ]] ; then
+#     reordered_stack="${tomo_root}_newstack.mrc"
+#   else
+#     reordered_stack="${tomo_root}_newstack.st"
+#   fi
   
+  reordered_stack="${tomo_root}_newstack.st"
+
+  # AreTomo and IMOD expect different extensions for stacks, and eTomo gets upset if both names exist
+  if [[ ! -z "${vars[batch_directive]}" ]] ; then
+    if [[ ! -e $reordered_stack ]]; then
+      \rm $reordered_stack
+    fi
+
+    reordered_stack="${tomo_root}_newstack.mrc"
+  fi
+
   ctf_stack="${tomo_root}_ctfstack.mrcs"
 
   # Delete pre-existing files (IMOD will back them up otherwise)
   if [[ -f "$reordered_stack" ]]; then
     \rm $reordered_stack
   fi
+
   if [[ -f "$ctf_stack" ]]; then
     \rm $ctf_stack
   fi
