@@ -3318,7 +3318,7 @@ function imod_restack() {
 
   # AreTomo and IMOD expect different extensions for stacks, and eTomo gets upset if both names exist
   if [[ ! -z "${vars[batch_directive]}" ]] ; then
-    if [[ ! -e $reordered_stack ]]; then
+    if [[ -f $reordered_stack ]]; then
       \rm $reordered_stack
     fi
 
