@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2024-06-19"
+  echo "Modified 2024-11-21"
   date
 }
 
@@ -160,8 +160,10 @@ main
       shared.run_motioncor
       shared.check_frames
     distribute_ctffind 
-    ctffind_parallel
-    check_ctf_subprocesses
+      wait4motioncor
+      ctffind_parallel
+      check_ctf_subprocesses
+      check_completion
     compute_tomograms
     tomogram_parallel
       shared.dose_fit
@@ -287,7 +289,7 @@ function main() {
   elapsed_min=$((${SECONDS}/60))
   elapsed_sec=$((${SECONDS}%60))
   printf -v date_string "$(date +"$time_format"): Exiting after ${elapsed_min}m%02ds" "${elapsed_sec}"
-  vprint "${date_string}\n" "1+" "${main_log} =${file_log} =${status_file}"
+  vprint "${date_string}\n" "0+" "${main_log} =${file_log} =${status_file}"
   check_updates "true"
 }
 
@@ -2051,9 +2053,9 @@ function read_init() {
   fi
   # End non-zero CTFs IF-THEN
 
-  if [[ "$verbose" -ge 1 ]]; then
-    echo -ne "Found ${old_counter} pre-existing ${output_type}\r"
-  fi
+#   if [[ "$verbose" -ge 1 ]]; then
+#     echo -ne "Found ${old_counter} pre-existing ${output_type}\r"
+#   fi
     
   # Empty arrays write file with blank line, which can cause problems
   if [[ "${#new_input_array[@]}" -ge 1 ]]; then
@@ -2067,7 +2069,7 @@ function read_init() {
     touch "${output_list}"
   fi
   
-  vprint "\n" "1+"
+# # #   vprint "\n" "1+"
   vprint "$(date +"$time_format"): Found ${old_counter} pre-existing ${output_type} out of ${num_input_files} ${input_format} files" "1+" "${main_log} =${status_file}"
 }
 
@@ -2102,9 +2104,9 @@ function distribute_ctffind() {
 #   
 #   Calls functions:
 #     wait4motioncor
-#     ctffind_parallel
 #     file_lock
 #     mic_to_ctf
+#     ctffind_parallel
 #     check_ctf_subprocesses
 #     check_completion
 #   
@@ -2287,7 +2289,8 @@ function distribute_ctffind() {
       # Read number of motion-corrected micrographs (once)
       if [[ "${mics_found}" == "" ]]; then
         mics_found=$(cat ${mcor_done})
-        vprint "\n$(date +"$time_format"): MotionCor2 completed on ${mics_found} files, waiting for CTFFIND4...\n" "1+" "${main_log}"
+        vprint "\n$(date +"$time_format"): MotionCor2 completed on ${mics_found} files, waiting for CTFFIND4..." "1+" "${main_log}"
+        vprint "" "4+" "${main_log}"
       else
         if [[ "${mics_found}" -eq "${num_ctfs}" ]]; then
           do_break=true
@@ -2669,7 +2672,8 @@ function compute_tomograms() {
     vprint "                       Exiting reconstruction for target file '${vars[target_file]}'..." "0+" "${main_log} =${warn_log}"
     exit
   else
-    vprint "\n$(date +"$time_format"): Finished MotionCor2+CTFFIND4 on $mics_found/$num_ctfs micrographs, computing ${num_mdocs} 3D reconstructions\n" "1+" "${main_log} =${status_file}"
+    vprint "\n$(date +"$time_format"): Finished MotionCor2+CTFFIND4 on $mics_found/$num_ctfs micrographs, computing ${num_mdocs} 3D reconstructions" "1+" "${main_log} =${status_file}"
+    vprint "" "4+" "${main_log} =${status_file}"
   fi
   
   if [[ ! -z "${vars[batch_directive]}" ]] ; then
@@ -2826,7 +2830,8 @@ function compute_tomograms() {
     fi
     
     if [[ $num_tomos -eq $num_mdocs ]] ; then
-      vprint "\n$(date +"$time_format"): Finished computing ${num_tomos} 3D reconstructions.\n" "1+" "${main_log} =${status_file}"
+      vprint "" "4+" "${main_log} =${status_file}"
+      vprint "$(date +"$time_format"): Finished computing ${num_tomos} 3D reconstructions.\n" "1+" "${main_log} =${status_file}"
       break
     
     fi
