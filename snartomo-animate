@@ -12,7 +12,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoAnimate"
-  echo "Modified 2024-02-15"
+  echo "Modified 2024-11-28"
   date
   echo 
 }
@@ -22,7 +22,7 @@ function program_info() {
 shared_libs=snartomo-shared.bash  # Shared libraries
 bin_factor=1                      # Downsampling factor
 frame_rate=25                     # Frame rate of movie
-movie_format=mp4                  # Movie format
+movie_format=avi                  # Movie format
 verbosity=2                       # Verbosity level (Max: 4)
 
 ################ END BATCH HEADER ################
@@ -81,7 +81,7 @@ function main() {
   
   movie_convert
   clean_local_dir "temp_local"
-  vprint "\nDone!\n" "1+"
+  vprint "Done!\n" "1+"
 }
 
 function check_env() {
@@ -129,7 +129,7 @@ function parse_command_line() {
 ###############################################################################
   
   add_argument "bin" "${bin_factor}" "Downsampling factor" "INT"
-  add_argument "output" "" "Output filename stem (w/o extension, default->stem of input)" "ANY"
+  add_argument "output" "" "Output filename (w/ extension, default->stem of input + default_format)" "ANY"
   add_argument "axis" "" "Axis to animate (stack -> 'z')" "ANY"
   add_argument "range" "" "Range of images (single value for central N, quoted & space-delimited for first+last)" "ANY"
   add_argument "options" "" "FFMPEG 'eq' filter options" "ANY"
@@ -312,7 +312,7 @@ function movie_convert() {
   if [[ "${vars[output]}" == "" ]]; then
     local out_mov="$(basename ${out_prefix}.${vars[format]})"
   else
-    local out_mov="${vars[output]}.${vars[format]}"
+    local out_mov="${vars[output]}"
   fi
   
   # Default bit rate is file size divided by frame rate
