@@ -17,8 +17,8 @@ chunk_prefix="chunk"       # prefix for chunk files
 chunk_ext="txt"            # extension for chunk files
 
 function program_info() {
-  echo "Running: SNARTomoLIVE"
-  echo "Modified 2024-09-02"
+  echo "Running: SNARTomoLiveSimulate"
+  echo "Modified 2025-02-17"
   date
 }
 
@@ -95,6 +95,7 @@ function parse_command_line() {
   add_argument "output_movie_dir" "${output_movie_dir}" "Output movie directory" "ANY"
   add_argument "overwrite" "false" "Flag to overwrite pre-existing output directories" "BOOL"
   add_argument "delay" "${delay}" "Delay between micrographs, seconds" "FLOAT"
+  add_argument "debug" "false" "Flag to print debugging information" "BOOL"
 
   dynamic_parser "${@}"
 #   print_vars
@@ -220,12 +221,12 @@ function split_mdoc_from_list() {
   
   # Loop through MDOCs
   for curr_mdoc in ${mdoc_array[@]} ; do
-    # Make sure string ends in "*.mrc/mdoc"
-    if [[ $curr_mdoc != *.mrc.mdoc ]] ; then
-      echo -e "\nERROR!! Supposed MDOC file '$curr_mdoc' doesn't end in '.mdoc.mrc'"
-      echo -e   "  Exiting...\n"
-      exit
-    fi
+#     # Make sure string ends in "*.mrc/mdoc"
+#     if [[ $curr_mdoc != *.mrc.mdoc ]] ; then
+#       echo -e "\nERROR!! Supposed MDOC file '$curr_mdoc' doesn't end in '.mdoc.mrc'"
+#       echo -e   "  Exiting...\n"
+#       exit
+#     fi
     
     echo "  Found MDOC: $curr_mdoc"
 
@@ -239,6 +240,7 @@ function split_mdoc_from_list() {
       exit 3
     fi
     
+# # #     if [[ "${vars[debug]}" == true ]]; then echo "  243: curr_mdoc: '$curr_mdoc'" ; fi
     local curr_tsdir="$(get_mdoc_chunk_dir $(basename $curr_mdoc) )"
     mkdir -p ${curr_tsdir}
     
@@ -288,13 +290,6 @@ function mdoc_header() {
     
     for filenum in {00..02} ; do
       local chunk_file="${curr_tsdir}/${chunk_prefix}${filenum}.${chunk_ext}"
-#       local chunk_file="${chunk_dir}/${series_num}${tsdir_suffix}/${chunk_prefix}${filenum}.${chunk_ext}"
-#       
-#       ### TESTING
-#       echo "290 OLD '${chunk_file}'"
-#       echo "291 NEW '${curr_tsdir}/${chunk_prefix}${filenum}.${chunk_ext}'"
-#       exit
-#       
       (cat $chunk_file ; echo) >> ${out_mdoc}
     done
   done
@@ -326,16 +321,34 @@ function build_mdoc() {
   
   echo "Generating movies"
   
-  # Get last entry in MDOC
-  local mdoc_nocrlf=$(get_nocrlf_filename "${mdoc_array[0]}")
-  
-  local last_z=$(search_mdoc_file $mdoc_nocrlf 'ZValue')
-  local last_idx=$(( $last_z + 3 ))
-  
+#   local mdoc_nocrlf=$(get_nocrlf_filename "${mdoc_array[0]}")
+#   local high_z=$(search_mdoc_file $mdoc_nocrlf 'ZValue')
+#   echo "Old: $high_z"
+
+  # Get highest entry in MDOC
+  local high_z=-1
+  for curr_mdoc in ${mdoc_array[@]} ; do
+    local mdoc_nocrlf="$(get_nocrlf_filename "$curr_mdoc")"
+    last_z=$(search_mdoc_file $mdoc_nocrlf 'ZValue')
+    if [[ "${last_z}" -gt "${high_z}" ]] ; then
+      local high_z=$last_z
+    fi
+  done
+# # #   echo "New: $high_z" ; exit
+  local last_idx=$(( $high_z + 3 ))
+
   for curr_idx in $(seq 3 ${last_idx}) ; do
     for series_num in ${!mdoc_array[@]} ; do
       local curr_mdoc=${mdoc_array[series_num]}
       
+      # Sanity check
+      test_bn=$(basename $curr_mdoc)
+      local status_code=$?
+      if [[ $status_code -ne 0 ]] ; then
+        echo -e "\nERROR!!"
+        exit
+      fi
+
       # Get output MDOC filename
       local out_mdoc="${vars[mdoc_dir]}/$(basename $curr_mdoc)"
       
@@ -344,56 +357,73 @@ function build_mdoc() {
       local curr_tsdir="$(get_mdoc_chunk_dir $(basename $curr_mdoc) )"
       local chunk_file="${curr_tsdir}/${chunk_prefix}${pad_idx}.${chunk_ext}"
       
-      # For printing to screen
-      let "img_counter++"
-      local date_time=$(search_mdoc_file $chunk_file 'DateTime')
-      local imgnum=$(search_mdoc_file $chunk_file 'ZValue')
-      local tilt_angle=$(search_mdoc_file $chunk_file 'TiltAngle')
-      local movie_name=$(search_mdoc_file $chunk_file 'SubFramePath')
-    
-      if [[ $status_code -ne 0 ]] ; then
-        echo -e "ERROR!!\n"
-        echo "status_code : $status_code"
-        echo "chunk_file : '$chunk_file'"
-        exit 4
-      fi
-      
-      local out_movie="${vars[output_movie_dir]}/$movie_name"
-      
-      # If not creating links...
-      if [[ -z "${vars[input_movie_dir]}" ]] ; then
-        # Create fake movie
-        touch "${out_movie}"
-        local status_code=$?
-        
-        if [[ $status_code -ne 0 ]] ; then
-          echo -e "ERROR!!\n"
-          echo "status_code : $status_code"
-          exit 5
+      # Variable number of images, chunk file may not exist
+      if [[ -f "$chunk_file" ]]; then
+        # For printing to screen
+        local date_time=$(search_mdoc_file $chunk_file 'DateTime')
+        local imgnum=$(search_mdoc_file $chunk_file 'ZValue')
+        local tilt_angle=$(search_mdoc_file $chunk_file 'TiltAngle')
+        local movie_name=$(search_mdoc_file $chunk_file 'SubFramePath')
+
+        # Sanity check
+        if [[ "${movie_name}" == "" ]] ; then
+          echo "  WARNING! ZValue=$((curr_idx - 3)) does not exist for MDOC ${curr_mdoc}"
+
+          if [[ "${vars[debug]}" == true ]] ; then
+            echo "  363: movie_name : '$movie_name'"
+            echo "  364: chunk_file : '$chunk_file'"
+            exit
+          else
+            echo
+          fi
+        else
+          let "img_counter++"
+          local out_movie="${vars[output_movie_dir]}/$movie_name"
+
+          # If not creating links...
+          if [[ -z "${vars[input_movie_dir]}" ]] ; then
+            # Create fake movie
+            touch "${out_movie}"
+            local status_code=$?
+
+            if [[ $status_code -ne 0 ]] ; then
+              echo -e "ERROR!!\n"
+              echo "status_code : $status_code"
+              exit 5
+            fi
+
+          # If creating links...
+          else
+            local in_movie="${vars[input_movie_dir]}/$movie_name"
+
+            # Look for movie in input directory
+            if ! [[ -f "$in_movie" ]]; then
+              echo -e "\nERROR!! File '${in_movie}' does not exist!"
+              echo      "  movie_name: '$movie_name'"
+              echo      "  chunk_file: '$chunk_file'"
+              echo -e   "  Exiting...\n"
+              exit
+            fi
+
+            local full_movie=$(realpath ${in_movie})
+            ln -s ${full_movie} ${out_movie}
+          fi
+
+          echo "  ${date_time}: cumulative #${img_counter}, tilt series #$((series_num + 1)), ZValue #${imgnum}, TiltAngle: ${tilt_angle}, movie: $movie_name"
+
+          # Append to MDOC
+          (cat $chunk_file ; echo) >> ${out_mdoc}
+
+          # Delay
+          sleep "${vars[delay]}"
         fi
-      
-      # If creating links...
+        # Non-empty movie IF-THEN
       else
-        local in_movie="${vars[input_movie_dir]}/$movie_name"
-        
-        # Look for movie in input directory
-        if ! [[ -f "$in_movie" ]]; then
-          echo -e "\nERROR!! File '${in_movie}' does not exist!"
-          echo -e   "  Exiting...\n"
-          exit
+        if [[ "${vars[debug]}" == true ]]; then
+          echo "  WARNING! Can't find entry in MDOC '$curr_mdoc', may have fewer than $(( $high_z + 1 )) images"
         fi
-        
-        local full_movie=$(realpath ${in_movie})
-        ln -s ${full_movie} ${out_movie}
       fi
-      
-      echo "  ${date_time}: cumulative #${img_counter}, tilt series #$((series_num + 1)), ZValue #${imgnum}, TiltAngle: ${tilt_angle}, movie: $movie_name"
-      
-      # Append to MDOC
-      (cat $chunk_file ; echo) >> ${out_mdoc}
-      
-      # Delay
-      sleep "${vars[delay]}"
+      # Chunk-file IF-THEN
     done
   done
 }
@@ -415,6 +445,14 @@ function search_mdoc_file() {
   
   # For movie file, get basename
   if [[ "${search_target}" == "SubFramePath" ]]; then
+    # Sanity check
+    test_bn=$(basename ${hit##*[/|\\]} 2> /dev/null)
+    local status_code=$?
+    if [[ $status_code -ne 0 ]] ; then
+      echo -e "\n  ERROR!! search_mdoc_file:437: Searching '$search_target' from '$mdoc_file'" >&2
+      return
+    fi
+
     # Substitute backslash with forward slash (https://stackoverflow.com/a/18053055/3361621)
     hit=$(basename ${hit##*[/|\\]})
     status_code=$?
