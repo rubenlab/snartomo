@@ -1813,6 +1813,12 @@ function get_version_number() {
   local exe2check=$1
   
   local version_number=$(basename $(realpath $exe2check) | cut -d_ -f2)
+
+  # realpath basename from SBGrid is '.duplicate'
+  if [[ "${version_number}" == ".duplicate" ]] ; then
+    local version_number=$(basename $exe2check | cut -d_ -f2)
+  fi
+
   two_decimals=$(echo $version_number  | cut -d. -f1-2)
   third_decimal=$(echo $version_number  | cut -d. -f3-4)
 }
@@ -1976,7 +1982,7 @@ function check_frames() {
   
   # Get number of frames
   if [[ "${vars[testing]}" == false ]]; then
-    # Optionally copy EERs locally 
+    # Optionally copy EERs locally
     if [[ "${vars[eer_local]}" == true ]] ; then
       copy_local "${outlog}"
     fi
@@ -2289,7 +2295,6 @@ function run_motioncor() {
   elif [[ "${two_decimals}" == "1.4" ]] && [[ "${third_decimal}" -ge 6 ]] ; then
     use_logdir=true
   fi
-  
     
   if [[ "${use_logdir}" == true ]] ; then
     mc_command+=" -LogDir ${vars[outdir]}/$micdir/${mc2_logs}/ "
