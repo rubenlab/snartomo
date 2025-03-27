@@ -727,7 +727,7 @@ function validate_inputs() {
   else
     read_mdoc "${outlog}"
   
-    # Local copying is noted in paralleized process, so need to write a file.
+    # Local copying is noted in parallelized process, so need to write a file.
     if [[ "${vars[eer_local]}" == "true" ]] && [[ "${do_pace}" == true ]] ; then
       touch "${do_cp_note}"
     fi
@@ -826,12 +826,10 @@ function validate_inputs() {
     try_conda "IsoNet executable" "${vars[isonet_env]}" "${outlog}"
   fi
   
-#   if [[ "${do_pace}" == false ]] || [[ "${vars[do_ruotnocon]}" == true ]] || [[ "${vars[do_laudiseron]}" == true ]] ; then
-#     check_python "${outlog}"
-#   fi
   check_python "${outlog}"
   check_exe "$(which convert)" "ImageMagick convert executable" "${outlog}"
   check_exe "$(which snartomo-heatwave.py)" "SNARTomo Heatwave" "${outlog}"
+  check_gpus "${outlog}"
   
   # Summary
   if [[ "$validated" == false ]]; then
@@ -855,7 +853,6 @@ function validate_inputs() {
   #   
   #   Global variables:
   #     vars
-  #     verbose (by vprint)
   #     validated
   #     
   ###############################################################################
@@ -919,7 +916,7 @@ function validate_inputs() {
     #   
     #   Global variables:
     #     vars
-    #     verbose (by vprint)
+    #     verbose
     #     bad_counter
     #     
     ###############################################################################
@@ -1044,7 +1041,6 @@ function validate_inputs() {
     #   
     #   Global variables:
     #     vars
-    #     verbose (by vprint)
     #     
     ###############################################################################
       
@@ -1101,7 +1097,6 @@ function validate_inputs() {
   #   Global variables:
   #     validated
   #     vars
-  #     verbose
   #     imod_descr
   #     ctffind_descr
   #     
@@ -1695,7 +1690,6 @@ function validate_inputs() {
   #
   #   Global variables:
   #     validated
-  #     verbose
   #     
   ###############################################################################
     
@@ -1722,17 +1716,6 @@ function validate_inputs() {
     # Loop through libraries
     for curr_lib in ${lib_array[@]}; do
       check_library_python "${curr_lib}" "${outlog}"
-#       # Try to import, and store status code
-#       python -c "import ${curr_lib}" 2> /dev/null
-#       local status_code=$?
-#       
-#       # If it fails, then save
-#       if [[ "$status_code" -ne 0 ]]; then
-#         vprint "    Couldn't find: '${curr_lib}'" "7+" "${outlog}"
-#         not_found+=("${curr_lib}")
-#       else
-#         vprint "    Found: '${curr_lib}'" "7+" "${outlog}"
-#       fi
     done
     # End library loop
     
@@ -1774,6 +1757,49 @@ function validate_inputs() {
       not_found+=("${curr_lib}")
     else
       vprint "    Found Python library: '${curr_lib}'" "7+" "${outlog}"
+    fi
+  }
+
+  function check_gpus() {
+  ###############################################################################
+  #   Function:
+  #     Checks whether specified GPUs exist
+  #
+  #   Positional arguments:
+  #     1) output log file
+  #
+  #   Calls functions:
+  #     vprint
+  #
+  #   Global variables:
+  #     validated
+  #     verbose
+  #
+  ###############################################################################
+
+    local outlog=$1
+
+    # List GPUs (adapted from https://askubuntu.com/a/1134128)
+    local gpu_list=$(nvidia-smi --list-gpus | cut -d ":" -f 1 | cut -d ' ' -f 2)
+    declare -a missing_gpus
+
+    vprint "  Checking GPUs..." "5+" "${outlog}"
+    for test_gpu in ${vars[gpus]} ; do
+      # Look for exact string in array (adapted from https://stackoverflow.com/a/15394738)
+      if [[ " ${gpu_list[*]} " =~ [[:space:]]${test_gpu}[[:space:]] ]]; then
+        vprint "    Found GPU:       '$test_gpu'" "5+" "${outlog}"
+      else
+        missing_gpus+=("${test_gpu}")
+        vprint "    Didn't find GPU: '$test_gpu'" "5+" "${outlog}"
+      fi
+    done
+
+    # Check is missing array is empty
+    if [ ${#missing_gpus[@]} -gt 0 ]; then
+      validated=false
+      vprint "  ERROR!! Missing GPUs: ${vars[gpus]}" "1+" "${outlog}"
+    else
+      vprint "  Found GPUs: ${vars[gpus]}" "1+" "${outlog}"
     fi
   }
 
