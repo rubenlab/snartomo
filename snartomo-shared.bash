@@ -1796,8 +1796,15 @@ function validate_inputs() {
 
     # Check is missing array is empty
     if [ ${#missing_gpus[@]} -gt 0 ]; then
-      validated=false
-      vprint "  ERROR!! Missing GPUs: ${vars[gpus]}" "1+" "${outlog}"
+# #       echo "1799 ${missing_gpus[@]}"
+# #       printf "1800 missing_gpus '%s'\n" "${missing_gpus[@]}" ; exit
+
+      if [[ "${vars[testing]}" == true ]]; then
+        vprint "  WARNING! Missing GPUs: '$(echo ${missing_gpus[@]})'. Continuing..." "1+" "${outlog}"
+      else
+        validated=false
+        vprint "  ERROR!! Missing GPUs: '$(echo ${missing_gpus[@]})'" "1+" "${outlog}"
+      fi
     else
       vprint "  Found GPUs: ${vars[gpus]}" "1+" "${outlog}"
     fi
