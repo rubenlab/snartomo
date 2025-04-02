@@ -193,8 +193,14 @@ function dynamic_parser(){
                     usage+="arg1 arg2 .. argN "
                     has_arguments=true
                 else
-                    tmp_usage+="--${key,,}=$(echo "${vars[${key}]}" | sed "s|${regex_split}|\1|g") "
-                    diag_usage="--${key,,}=$(echo "${vars[${key}]}" | sed "s|${regex_split}|\1|g") "
+                    local value=$(echo "${vars[${key}]}" | sed "s|${regex_split}|\1|g")
+                    if [[ "${value}" == '' ]] ; then
+                        tmp_usage+="--${key,,}='' "
+                        diag_usage="--${key,,}='' "
+                    else
+                        tmp_usage+="--${key,,}=${value} "
+                        diag_usage="--${key,,}=${value} "
+                    fi
                 fi
                     
 #                 echo "var_idx ${var_idx} key ${key} var_sequence[var_idx]"
