@@ -3577,9 +3577,7 @@ function wrapper_aretomo() {
 #   Global variables:
 #     tomo_root
 #     vars
-#     reordered_stack
 #     tomogram_3d (OUTPUT)
-#     angles_list
 #     verbose
 #     
 ###############################################################################
@@ -3669,7 +3667,15 @@ function wrapper_aretomo() {
           elif [[ "$status_code" -eq 2 ]]; then
             echo    "WARNING! AreTomo output $tomogram_3d does not exist!"
             echo    "         Exit status code was: $status_code"
-            echo    "         Maybe an input was missing or illegal (check length)"
+
+            # Check length of stack
+            stack_mics=$(${vars[imod_dir]}/header $reordered_stack | grep sections | rev | cut -d' ' -f1 | rev)
+            if [[ $stack_mics -ne $num_mics ]] ; then
+              echo -e "         Number of micrographs in stack ($stack_mics) different from number in rawtilt file ($num_mics), skipping...\n"
+            else
+              echo    "         Maybe an input was missing or illegal?"
+            fi
+
           elif [[ "$status_code" -eq 127 ]]; then
             echo    "WARNING! AreTomo output $tomogram_3d does not exist!"
             echo    "         Exit status code was: $status_code"
