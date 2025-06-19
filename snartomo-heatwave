@@ -1,0 +1,11 @@
+#!/bin/bash
+
+SNARTOMO_DIR="$( realpath $(dirname $BASH_SOURCE) )"
+
+if [[ "$(which python)" == "${CONDA_PREFIX}"*  ]]; then
+# # #   echo "Running python ($(which python)) from conda environment ${CONDA_PREFIX}"
+  exec "${SNARTOMO_DIR}/snartomo-heatwave.py" "$@"
+else
+# # #   echo "Not running python ($(which python)) from conda environment ${CONDA_PREFIX}"
+  exec "${CONDA_PREFIX}/bin/python" "${SNARTOMO_DIR}/snartomo-heatwave.py" "$@"
+fi

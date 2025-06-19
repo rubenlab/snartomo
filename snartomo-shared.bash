@@ -1739,12 +1739,8 @@ function validate_inputs() {
     fi
     
     # Check the following libraries
-    declare -a lib_array=("sys" "numpy" "scipy" "matplotlib" "os" "argparse" "datetime")
+    declare -a lib_array=("sys" "numpy" "scipy" "matplotlib" "os" "argparse" "datetime" "PyQt5")
     declare -a not_found=()
-    
-#     if [[ "${vars[do_deconvolute]}" == true ]]; then
-#       lib_array+=("IsoNet")
-#     fi
     
     # Loop through libraries
     for curr_lib in ${lib_array[@]}; do
@@ -1752,6 +1748,11 @@ function validate_inputs() {
     done
     # End library loop
     
+    # Maybe we're not using the correct Python
+    if ! [[ "$(which python)" == "${CONDA_PREFIX}"*  ]]; then
+      vprint "  WARNING! Default Python is from another location: $(which python)" "1+" "${outlog} =${warn_log}"
+    fi
+
     if [[ "${#not_found[@]}" > 0 ]] ; then
       validated=false
       vprint "  ERROR!! Couldn't find the following Python libraries: ${not_found[*]}" "0+" "${outlog} =${warn_log}"
@@ -1781,7 +1782,7 @@ function validate_inputs() {
     local outlog=$2
     
     # Try to import, and store status code
-    python -c "import ${curr_lib}" 2> /dev/null
+    ${CONDA_PREFIX}/bin/python -c "import ${curr_lib}" 2> /dev/null
     local status_code=$?
     
     # If it fails, then save
@@ -2737,7 +2738,7 @@ function dose_fit() {
 # # #     printf "dose_rate_array '%s'\n" "${dose_rate_array[@]}" ; exit
     vprint "  Continuing...\n" "0+" "${main_log}"
   else
-    local dosefit_cmd="$(echo dose_discriminator.py \
+    local dosefit_cmd="$(echo ${CONDA_PREFIX}/bin/python dose_discriminator.py \
       ${dose_list} \
       --min_dose ${vars[dosefit_min]} \
       --max_residual ${vars[dosefit_resid]} \
@@ -2993,7 +2994,7 @@ function plot_tomo_ctfs() {
     fi
     
     # Plot single-tilt-series CTF summary
-    local ctfbyts_cmd=$(echo ctfbyts.py \
+    local ctfbyts_cmd=$(echo ${CONDA_PREFIX}/bin/python ctfbyts.py \
       ${tomo_ctfs} \
       ${single_ts_list} \
       ${single_ts_plot} \
@@ -3001,14 +3002,13 @@ function plot_tomo_ctfs() {
       --verbosity=$verbose | xargs)
     \rm ${single_ts_list} 2> /dev/null
     
-    
     if [[ "$verbose" -ge 2 ]]; then
       echo -e "\n  Running: $ctfbyts_cmd"
     fi
     $ctfbyts_cmd
     
     # Plot cumulative CTF summary
-    local ctfbyts_cmd=$(echo ctfbyts.py \
+    local ctfbyts_cmd=$(echo ${CONDA_PREFIX}/bin/python ctfbyts.py \
       ${tomo_ctfs} \
       ${tgt_ts_list} \
       ${tgt_ctf_plot} \
@@ -4109,10 +4109,10 @@ function sort_sanity() {
   
   # Sanity check
   if ! [ -z $SNARTOMO_DIR ] ; then
-    sort_exe="python ${SNARTOMO_DIR}/sort_residuals.py"
+    sort_exe="${CONDA_PREFIX}/bin/python ${SNARTOMO_DIR}/sort_residuals.py"
   else
     if [[ -f "./sort_residuals.py" ]]; then
-      sort_exe="python ./sort_residuals.py"
+      sort_exe="${CONDA_PREFIX}/bin/python ./sort_residuals.py"
     else
       if [[ "${test_contour}" != true ]]; then
         echo -e "\nERROR!! Can't find 'sort_residuals.py'!"
@@ -4121,7 +4121,7 @@ function sort_sanity() {
         exit
       else
         echo -e "\nWARNING! Can't find 'sort_residuals.py'"
-        sort_exe="python sort_residuals.py"
+        sort_exe="${CONDA_PREFIX}/bin/python sort_residuals.py"
         exit
       fi
       # End testing IF-THEN
@@ -5081,7 +5081,7 @@ function create_json() {
   local outlog=$1
   local prestring=$2
   
-  local heatwave_cmd="snartomo-heatwave.py --no_gui --json ${heatwave_json} "
+  local heatwave_cmd="${CONDA_PREFIX}/bin/python snartomo-heatwave.py --no_gui --json ${heatwave_json} "
   
   # If MDOC files are provided, vars[target_files] will be a dummy file
   if [[ "${do_pace}" == true ]]; then
