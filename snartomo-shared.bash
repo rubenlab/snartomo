@@ -2738,7 +2738,7 @@ function dose_fit() {
 # # #     printf "dose_rate_array '%s'\n" "${dose_rate_array[@]}" ; exit
     vprint "  Continuing...\n" "0+" "${main_log}"
   else
-    local dosefit_cmd="$(echo ${CONDA_PREFIX}/bin/python dose_discriminator.py \
+    local dosefit_cmd="$(echo ${CONDA_PREFIX}/bin/python ${SNARTOMO_DIR}/dose_discriminator.py \
       ${dose_list} \
       --min_dose ${vars[dosefit_min]} \
       --max_residual ${vars[dosefit_resid]} \
