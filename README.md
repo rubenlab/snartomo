@@ -16,4 +16,5 @@ See the wiki at: https://github.com/rubenlab/snartomo/wiki
 
 ## Recent news
 
-2023-11-30 – added SNARTomoHeatwave documentation
+  * 2025-06-19 – BASH wrapper for snartomo-heatwave run without '.py' extension in case of competing Python in $PATH
+  * 2024-11-29 – AreTomo2 and MotionCor3 are compatible, AreTomo3 untested
