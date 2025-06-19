@@ -547,7 +547,10 @@ function vprint() {
 #     do_pace
 #     time_format
 #     vars
-#     
+#
+#   Calls functions:
+#     check_vprint_status
+#
 ###############################################################################
   
   local string2print=$1
@@ -641,6 +644,9 @@ function vprint() {
         else
           # Log file name might be empty after stripping '='
           echo -e "${string2print}" | tee -a "${log_file}"
+          local status_code=$?
+# # #           local leading_whitespace="${string2print/[^[:space:]]*/}"
+          check_vprint_status "$status_code" "${string2print/[^[:space:]]*/}"
         fi
       
       # Don't echo to screen
@@ -649,7 +655,9 @@ function vprint() {
         if [[ "$log_file" != "" ]] ; then
           # Only redirect to log file
           echo -e "${string2print}" >> "${log_file}"
-          
+          local status_code=$?
+          check_vprint_status "$status_code" "${string2print/[^[:space:]]*/}"
+
           local status_code=$?
           if [[ "${status_code}" != 0 ]] ; then
             echo "status_code : '${status_code}'"
@@ -672,6 +680,31 @@ function vprint() {
     # End print-to-file IF-THEN
   done
   # End log-file loop
+}
+
+function check_vprint_status() {
+###############################################################################
+#   Function:
+#     Checks output for vprint for ability to write to log file
+#
+#   Positional variables:
+#     1) status code
+#     2) text to prepend
+#
+#   Global variables:
+#     warned_vprint
+#
+###############################################################################
+
+  local status_code=$1
+  local prepend_text=$2
+
+  if [[ $status_code -ne 0 ]] ; then
+    if [[ $warned_vprint != true ]] ; then
+      warned_vprint=true
+      echo -e "${prepend_text}WARNING! Error code '$status_code', can't write to log file '${log_file}'\n"
+    fi
+  fi
 }
 
 function validate_inputs() {
