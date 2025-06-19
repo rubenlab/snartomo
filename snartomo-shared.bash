@@ -2749,7 +2749,7 @@ function dose_fit() {
       --log_verbose ${vars[dosefit_verbose]} | xargs)"
     
     vprint "\n  $dosefit_cmd\n" "1+" "=${tomo_log}"
-    local fit_status=$(${SNARTOMO_DIR}/$dosefit_cmd 2>&1)
+    local fit_status=$($dosefit_cmd 2>&1)
     
     if ! [ -e "${good_angles_file}" ] ; then
       if [[ "$fit_status" == *"Error"* ]] ; then
