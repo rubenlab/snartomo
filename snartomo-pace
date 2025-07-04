@@ -108,7 +108,7 @@ mc2_mics=list-mics-mc2.txt  # this file WON'T be subtracted from as CTFFIND proc
 ctf_mics=list-mics-ctf.txt  # this file WILL  be subtracted from as CTFFIND proceeds
 ctf_list=list-ctfs.txt
 mdoc_list=list-mdocs.txt
-tomo_list=list-tomos.txt
+# # # tomo_list=list-tomos.txt
 cpu_status=status-cpu.txt
 recon_status=status-recon.txt
 movies_done=DONE-movies.txt
@@ -530,7 +530,7 @@ function prepare_logfiles() {
 #     ctf_mics
 #     ctf_list
 #     mdoc_list
-#     tomo_list
+# # #     tomo_list
 #     cpu_status
 #     recon_status
 #     movies_done
@@ -566,7 +566,7 @@ function prepare_logfiles() {
   ctf_list=${temp_share_dir}/${ctf_list}
   cpu_status=${temp_share_dir}/${cpu_status}
   mdoc_list=${temp_share_dir}/${mdoc_list}
-  tomo_list=${temp_share_dir}/${tomo_list}
+# # #   tomo_list=${temp_share_dir}/${tomo_list}
   recon_status=${temp_share_dir}/${recon_status}
   movies_done=${temp_share_dir}/${movies_done}
   mcor_done=${temp_share_dir}/${mcor_done}
@@ -2629,11 +2629,9 @@ function compute_tomograms() {
 #     mdoc_list
 #     vars
 #     main_log
-#     imgdir
-#     dose_imgdir
-#     ctfdir
+#     tomogram_3d
 #     verbose
-#     tomo_list
+# # #     tomo_list
 #     etomo_out
 #     
 #   Calls functions:
@@ -2641,6 +2639,7 @@ function compute_tomograms() {
 #     tomogram_parallel
 #   
 #   Adapted from SNARTomoClassic
+#   TODO: Split into smaller functions
 #     
 ###############################################################################
   
@@ -2770,6 +2769,7 @@ function compute_tomograms() {
           fi
           
 #         else
+#           # TESTING
 #           echo "mdoc_file is empty"
         fi
         # End if non-empty IF-THEN
@@ -2782,6 +2782,8 @@ function compute_tomograms() {
     done
     # End slot loop
     
+    local failed_tomos=0  # needed for dry runs only
+
     # Check if subprocess is finished
     for mdoc_key in "${!new_tomos[@]}" ; do
       local temp_mdoc="${new_tomos[${mdoc_key}]}"
@@ -2793,18 +2795,17 @@ function compute_tomograms() {
         # Remove temp file
         rm "${temp_mdoc}"
         
-        # Get filename based on MDOC name
+        # Get tomo filename "tomogram_3d" based on MDOC name
         mdoc2tomo "${mdoc_key}"
         
-        # If tomo doesn't exist...
+        # Check if tomo exists
         if [[ -e $tomogram_3d ]]; then
           # Add to in-core cumulative array
           tomo_array+=("${mdoc_key}")
-          
-          # Append to list
-          echo "${mdoc_key}" >> "${tomo_list}"
+
+# #           # Append to tomo list
+# #           echo "${mdoc_key}" >> "${tomo_list}"
           update_status "$(date +"$time_format"): Reconstructing tomograms, most recent reconstruction '$(basename $tomogram_3d)'"
-          
         else
           vprint   "WARNING! Reconstruction '$tomogram_3d' does not exist!" "1+" "${main_log} =${warn_log}"
           # TODO: etomo_out only defined for eTomo option
@@ -2814,17 +2815,21 @@ function compute_tomograms() {
           # Don't look for this output
           let "num_mdocs--"
         fi
+        # End tomogram-exists IF-THEN
         
+#       # TESTING
 #       else
 #         echo "Doesn't exist: '${mdoc_key}' '${temp_mdoc}'"
       fi
+      # End MDOC-exists IF-THEN
     done
+    # End MDOC loop
     
     # Get number of tomograms
-    local num_tomos="${#tomo_array[@]}"
+    local tomo_counter="${#tomo_array[@]}"
 
     if [[ "$verbose" -ge 4 ]]; then
-      echo -ne "Accumulated ${num_tomos} tomograms\r"
+      echo -ne "Accumulated ${tomo_counter} tomograms\r"
     fi
           
     # In parallel mode, check every N seconds
@@ -2834,19 +2839,18 @@ function compute_tomograms() {
       sleep 0.04
     fi
     
-    if [[ $num_tomos -eq $num_mdocs ]] ; then
+    if [[ $tomo_counter -eq $num_mdocs ]] ; then
       vprint "" "4+" "${main_log} =${status_file}"
-      vprint "$(date +"$time_format"): Finished computing ${num_tomos} 3D reconstructions.\n" "1+" "${main_log} =${status_file}"
+      vprint "$(date +"$time_format"): Finished computing ${tomo_counter} 3D reconstructions.\n" "1+" "${main_log} =${status_file}"
       break
-    
     fi
   done
   # End WHILE loop
   
   echo "${#tomo_array[@]}" > "${rec_done}"
   
-  if (( $num_tomos < $num_mdocs )) ; then
-    vprint "\n$(date +"$time_format"): WARNING! Computed only ${num_tomos}/$num_mdocs 3D reconstructions within time limit.\n" "1+" "${main_log} =${warn_log} =${status_file}"
+  if (( $tomo_counter < $num_mdocs )) ; then
+    vprint "\n$(date +"$time_format"): WARNING! Computed only ${tomo_counter}/$num_mdocs 3D reconstructions within time limit.\n" "1+" "${main_log} =${warn_log} =${status_file}"
   fi
 }
 
@@ -2889,11 +2893,8 @@ function tomogram_parallel() {
 #     warn_log
 #     tomo_mic_dir
 #     micdir
-#     cor_ext
 #     tomo_dns_dir
 #     denoisedir
-#     ctfdir
-#     verbose
 #     file_log
 #     rec_log
 #     num_bad_residuals : from ruotnocon_wrapper
@@ -2938,29 +2939,22 @@ function tomogram_parallel() {
   
   # Parse MDOC (awk notation from Tat)
   mapfile -t mdoc_angle_array < <( grep "TiltAngle" "${orig_mdoc}" | awk '{print $3}' | sed 's/\r//' )
-# # #   mapfile -t new_subframe_array < <( grep "SubFramePath" "${orig_mdoc}" | awk '{print $3}' | sed 's/\r//' )
   mapfile -t new_subframe_array < <( grep "SubFramePath" "${orig_mdoc}" | cut -d' ' -f 3- | sed 's/\r//' )
   mapfile -t dose_rate_array < <( grep "DoseRate" "${orig_mdoc}" | awk '{print $3}' | sed 's/\r//' )
   
-#   printf "2908 new_subframe_array '%s'\n" "${new_subframe_array[@]}"
-#   printf "2909 orig_mdoc '%s'\n" "${orig_mdoc}"
-#   exit
-
   \cp ${orig_mdoc} ${mdoc_copy}
   
   # Fit dose to cosine function
   dose_fit "${tomo_base}" "${mdoc_copy}" "${tomo_log}"
+
   # Write MDOC file with remaining micrographs
   clean_up_mdoc "${mdoc_copy}" "${new_mdoc}" "${temp_mdoc_dir}"
   
-# # #   if [ "${#mdoc_angle_array[*]}" != "${#new_subframe_array[*]}" ] || [ "${#mdoc_angle_array[*]}" != "${#dose_rate_array[*]}" ] ; then
   if [ "${#mdoc_angle_array[*]}" != "${#new_subframe_array[*]}" ] ; then
     local warn_msg="\nWARNING! MDOC file '$new_mdoc' has differing number of entries for TiltAngle (${#mdoc_angle_array[*]}), SubFramePath (${#new_subframe_array[*]}), and DoseRate (${#dose_rate_array[*]})"
     vprint "$warn_msg" "0+" "${main_log} =${warn_log}"
     vprint "  Continuing...\n" "0+" "${main_log} =${warn_log}"
   fi
-
-# # #   echo "2944 tomogram_parallel" ; exit  ### TESTING
 
   if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]] ; then
     local do_denoise=true  # IF-OR statement is a mouthful
@@ -3066,22 +3060,6 @@ function tomogram_parallel() {
     fi
     
     quiet_touch "$tomogram_3d"
-#     ERROR=$( { touch $tomogram_3d ; } 2>&1 )
-#
-#     # Check if error is empty
-#     if ! [[ -z "$ERROR" ]] ; then
-#       # On samba-mounted disks, touch may give an error, so let's check if it exists
-#       if ! [[ -f "$tomogram_3d" ]]; then
-#         vprint "WARNING: '$tomogram_3d' doesn't exist:" "0+" "${outlog} =${warn_log}"
-#         vprint "${ERROR}" "0+" "${outlog} =${warn_log}"
-#         vprint "Continuing..." "0+" "${outlog} =${warn_log}"
-#         vprint "" "0+" "${outlog}"
-# # #       else
-# # #         echo "3012: '$tomogram_3d' exists"
-#       fi
-#       # End tomo-exists IF-THEN
-#     fi
-#     # End non-empty error IF-THEN
   fi
   # End testing IF-THEN
       

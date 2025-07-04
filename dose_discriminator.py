@@ -20,7 +20,7 @@ USAGE:
 
 """ % ((__file__,)*1)
 
-MODIFIED="Modified 2024 Feb 16"
+MODIFIED="Modified 2025 Jul 04"
 MAX_VERBOSITY=8
 
 def print_log_msg(mesg, cutoff, options):
@@ -52,6 +52,16 @@ def main():
     os.remove(options.log_file)
   
   unsorted_array= np.loadtxt(options.dose_list)
+
+  if unsorted_array.ndim < 2:
+    if unsorted_array.size == 0:
+      print_log_msg(f"WARNING! No images present in '{options.dose_list}'", 1, options)
+    else:
+      print_log_msg(f"WARNING! Only 1 image present in '{options.dose_list}'", 1, options)
+      np.savetxt(options.good_angles, [ unsorted_array[0] ], fmt="%d")
+      print_log_msg(f"  Saved to '{options.good_angles}'", 1, options)
+    exit(16)
+
   sorted_array= unsorted_array[unsorted_array[:, 1].argsort()]
 
   # These arrays will be updated
@@ -72,6 +82,14 @@ def main():
 
   # Fit all points
   tilt_rad= np.radians(tilt_array)
+
+  # Trap for too few micrographs
+  if len(dose_array) < 3:
+    print_log_msg(f"WARNING! Only {len(dose_array)} images present in '{options.dose_list}'", 1, options)
+    np.savetxt(options.good_angles, idx_array0, fmt="%d")
+    print_log_msg(f"  Saved all {len(dose_array0)} images to '{options.good_angles}'", 1, options)
+    exit(14)
+
   fit_params1,_ = optimize.curve_fit(cosine_func, tilt_rad, dose_array)
   fit_curve1 = fit_params1[0] + fit_params1[1] * np.cos(tilt_rad + fit_params1[2])
   residual_array1= abs(dose_array - cosine_func(tilt_rad, *fit_params1))

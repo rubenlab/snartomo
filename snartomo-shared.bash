@@ -2715,7 +2715,6 @@ function dose_fit() {
   rm ${dose_list} 2> /dev/null
 
   # Loop through angles
-# # #   printf "2646 new_subframe_array '%s'\n" "${new_subframe_array[@]}" ; exit
   for mdoc_idx in "${!mdoc_angle_array[@]}"; do
     # Get movie filename
     local movie_file=$(echo ${new_subframe_array[${mdoc_idx}]##*[/\\]} )
@@ -2734,8 +2733,6 @@ function dose_fit() {
   # Fit dose to cosine function
   if [[ ! -f "${dose_list}" ]]; then
     vprint "\nWARNING! Dose list '${dose_list}' not found" "0+" "${main_log} =${warn_log}"
-# #     printf "%2d  %5.1f  %6.3f\n" "$mdoc_idx" "${mdoc_angle_array[${mdoc_idx}]}" "${dose_rate_array[${mdoc_idx}]}" ; exit
-# # #     printf "dose_rate_array '%s'\n" "${dose_rate_array[@]}" ; exit
     vprint "  Continuing...\n" "0+" "${main_log}"
   else
     local dosefit_cmd="$(echo ${CONDA_PREFIX}/bin/python ${SNARTOMO_DIR}/dose_discriminator.py \
@@ -2749,19 +2746,24 @@ function dose_fit() {
       --log_verbose ${vars[dosefit_verbose]} | xargs)"
     
     vprint "\n  $dosefit_cmd\n" "1+" "=${tomo_log}"
-    local fit_status=$($dosefit_cmd 2>&1)
+    local fit_output=$($dosefit_cmd 2>&1)
     
     if ! [ -e "${good_angles_file}" ] ; then
-      if [[ "$fit_status" == *"Error"* ]] ; then
+      if [[ "$fit_output" == *"Error"* ]] || [[ "$fit_output" == *"ERROR"* ]] ; then
         vprint "\nERROR!!" "0+" "${main_log} =${warn_log}"
-        vprint "${fit_status}\n" "0+" "${main_log} =${warn_log}"
-        vprint "Conda environments: initial '$init_conda', current '$CONDA_DEFAULT_ENV'" "0+" "${main_log} =${warn_log}"
-        vprint "  Maybe this is the wrong environment?\n" "0+" "${main_log} =${warn_log}"
-        exit
-      elif [[ "$fit_status" == *"xcb"* ]] ; then
+        vprint "${fit_output}\n" "0+" "${main_log} =${warn_log}"
+        vprint "Attempted command: ${dosefit_cmd}\n" "0+" "${main_log} =${warn_log}"
+
+        # Check environment
+        if [[ "$CONDA_DEFAULT_ENV" != "$SNARTOMO_ENV" ]] ; then
+          vprint "Conda environments: initial '$init_conda', current '$CONDA_DEFAULT_ENV'" "0+" "${main_log} =${warn_log}"
+          vprint "  Maybe this is the wrong environment?\n" "0+" "${main_log} =${warn_log}"
+          fi
+        return  ### exit
+      elif [[ "$fit_output" == *"xcb"* ]] ; then
         vprint "\nWARNING! Library problem during dose-fitting. See '${tomo_log}' for more details. Contuinuing..." "1+" "${warn_log}"
         vprint   "Dose-fitting output: " "0+" "=${tomo_log}"
-        vprint   "  $fit_status" "0+" "=${tomo_log}"
+        vprint   "  $fit_output" "0+" "=${tomo_log}"
         vprint "\nCheck the output of 'ldd ${CONDA_PREFIX}/plugins/platforms/libqxcb.so' for 'not found errors' and modify LD_LIBRARY_PATH" "0+" "=${tomo_log}"
         ldd ${CONDA_PREFIX}/plugins/platforms/libqxcb.so >> $tomo_log
         
@@ -2770,15 +2772,15 @@ function dose_fit() {
       else
         vprint "\nERROR!! Dose-fitting failed for unknown reason!" "0+" "${main_log} =${warn_log}"
         vprint   "Output: " "0+" "${main_log} =${warn_log}"
-        vprint   "  $fit_status" "0+" "${main_log} =${warn_log}"
+        vprint   "  $fit_output" "0+" "${main_log} =${warn_log}"
         vprint "\nExiting...\n" "0+" "${main_log} =${warn_log}"
         exit
       fi
       # End error IF-THEN
-    elif [[ "$fit_status" == *"WARNING"* ]] ; then
-      vprint "$fit_status" "1+" "${tomo_log}"
+    elif [[ "$fit_output" == *"WARNING"* ]] ; then
+      vprint "$fit_output" "1+" "${tomo_log}"
     else
-      vprint "$fit_status" "1+" "=${tomo_log}"
+      vprint "$fit_output" "1+" "=${tomo_log}"
     fi
     # End file-not-found IF-THEN
     
@@ -2822,10 +2824,6 @@ function write_angles_lists() {
   
   local outlog=$1
 
-#   echo "2683 good_angles_file '$good_angles_file'"
-#   echo "2684 found_mdoc '$found_mdoc'"
-#   exit
-  
   # Need in Classic mode w/o MDOC
   if [[ $found_mdoc == "" ]] ; then
     sort_array_keys
@@ -2892,14 +2890,10 @@ function write_angles_lists() {
     
     \rm $good_angles_file 2> /dev/null
     
-# # #     printf "2654 stripped_angle_array '%s'\n" "${stripped_angle_array[@]}"
-    
     # Sort by angle (Adapted from https://stackoverflow.com/a/54560296)
     for KEY in ${!stripped_angle_array[@]}; do
       echo "${stripped_angle_array[$KEY]}:::$KEY"
     done | sort -n | awk -F::: '{print $2}' >> $good_angles_file
-    
-# # #     echo -e "\n2661 $good_angles_file (${#stripped_angle_array[@]}):" ; nl $good_angles_file ; exit ### TESTING
   }
 
 function plot_tomo_ctfs() {
@@ -2994,7 +2988,7 @@ function plot_tomo_ctfs() {
     fi
     
     # Plot single-tilt-series CTF summary
-    local ctfbyts_cmd=$(echo ${CONDA_PREFIX}/bin/python ctfbyts.py \
+    local ctfbyts_cmd=$(echo ${CONDA_PREFIX}/bin/python ${SNARTOMO_DIR}/ctfbyts.py \
       ${tomo_ctfs} \
       ${single_ts_list} \
       ${single_ts_plot} \
@@ -3008,7 +3002,7 @@ function plot_tomo_ctfs() {
     $ctfbyts_cmd
     
     # Plot cumulative CTF summary
-    local ctfbyts_cmd=$(echo ${CONDA_PREFIX}/bin/python ctfbyts.py \
+    local ctfbyts_cmd=$(echo ${CONDA_PREFIX}/bin/python ${SNARTOMO_DIR}/ctfbyts.py \
       ${tomo_ctfs} \
       ${tgt_ts_list} \
       ${tgt_ctf_plot} \
@@ -3220,83 +3214,82 @@ function clean_up_mdoc() {
     vprint "  Continuing...\n" "0+" "${main_log}"
   else
     readarray -t good_angle_array < $good_angles_file
-  fi
   
-  # Sort (https://stackoverflow.com/a/11789688)
-  IFS=$'\n' sorted_good_angles=($(sort -n <<<"${good_angle_array[*]}"))
-  unset IFS
-  
-  # Find boundaries of MDOC file
-  local movie_file=$(echo ${old_subframe_array[0]##*[/\\]} )
-  local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
-  local first_movie_file="$(grep -l $stem_movie ${chunk_prefix}* | head -n 1)"
-# # #   echo "3162 first_movie_file '${first_movie_file}'"
+    # Sort (https://stackoverflow.com/a/11789688)
+    IFS=$'\n' sorted_good_angles=($(sort -n <<<"${good_angle_array[*]}"))
+    unset IFS
 
-  if [[ "$first_movie_file" != "" ]] ; then
-    local first_movie_chunk="$(basename $first_movie_file | sed 's/[^0-9]*//g')"
-  fi
-# # #   echo "3167 first_movie_chunk: '${first_movie_chunk}'"
-  local last_header_chunk=$(( $first_movie_chunk - 1 ))
-  
-  declare -a good_mdoc_array
-  
-  # Loop through movies
-  for mdoc_idx in "${sorted_good_angles[@]}"; do 
-    # Get movie filename
-    local movie_file=$(echo ${old_subframe_array[${mdoc_idx}]##*[/\\]} )
-    
-    # Get motion-corrected micrograph name
+    # Find boundaries of MDOC file
+    local movie_file=$(echo ${old_subframe_array[0]##*[/\\]} )
     local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
-    local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
-    
-    # Check that motion-corrected micrograph exists
-    if [[ -f "$mc2_mic" ]]; then
-      good_mdoc_array+=($mdoc_idx)
+    local first_movie_file="$(grep -l $stem_movie ${chunk_prefix}* | head -n 1)"
+
+    if [[ "$first_movie_file" != "" ]] ; then
+      local first_movie_chunk="$(basename $first_movie_file | sed 's/[^0-9]*//g')"
     fi
-  done
-  # End angles loop
-  
-  # Build new MDOC
-  rm $new_mdoc 2> /dev/null
-  touch $new_mdoc
-  
-  # MDOC header may contain variable number of CR-delimited blocks before first micrograph
-  for filenum in $(seq 0 $last_header_chunk) ; do
-    cat "${chunk_prefix}$(printf '%02d' $filenum).txt" >> $new_mdoc
-    echo >> $new_mdoc
-  done
-  
-  local good_counter=0
-  
-  # Append micrograph-related chunks
-  for mdoc_idx in "${!good_mdoc_array[@]}"; do 
-    local old_idx="${good_mdoc_array[mdoc_idx]}"
-    local curr_chunk="${chunk_prefix}$(printf '%02d' $(( $old_idx + $last_header_chunk + 1 )) ).txt"
-    
-    # Remove regex characters (https://stackoverflow.com/a/28563120)
-    local zvalue_line="$(\grep '\[ZValue' ${curr_chunk} | sed -e 's/[]$.*[\^]/\\&/g' )"
-    local zvalue_orig="$(echo $zvalue_line | sed 's/[^0-9]*//g')"
-    
-    # Replace ZValue
-    local new_line=$(echo ${zvalue_line/$zvalue_orig/$good_counter})
-    
-    # Save stderr in case there's an error
-    local sed_err=$( (sed -i "s/${zvalue_line}/${new_line}/" $curr_chunk) 2>&1 )
-    
-    # If error (e.g., permission error), then make sure change actually appeared
-    if [[ "$sed_err" != "" ]] ; then
-      if ! grep -q "${new_line}" "$curr_chunk" ; then
-        vprint "WARNING! $sed_err" "0+" "${main_log} =${warn_log}"
+    local last_header_chunk=$(( $first_movie_chunk - 1 ))
+
+    declare -a good_mdoc_array
+
+    # Loop through movies
+    for mdoc_idx in "${sorted_good_angles[@]}"; do
+      # Get movie filename
+      local movie_file=$(echo ${old_subframe_array[${mdoc_idx}]##*[/\\]} )
+
+      # Get motion-corrected micrograph name
+      local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
+      local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
+
+      # Check that motion-corrected micrograph exists
+      if [[ -f "$mc2_mic" ]]; then
+        good_mdoc_array+=($mdoc_idx)
       fi
-    fi
-    
-    let "good_counter++"
-    
-    # Append
-    cat $curr_chunk >> $new_mdoc
-    echo >> $new_mdoc
-  done
-  
+    done
+    # End angles loop
+
+    # Build new MDOC
+    rm $new_mdoc 2> /dev/null
+    touch $new_mdoc
+
+    # MDOC header may contain variable number of CR-delimited blocks before first micrograph
+    for filenum in $(seq 0 $last_header_chunk) ; do
+      cat "${chunk_prefix}$(printf '%02d' $filenum).txt" >> $new_mdoc
+      echo >> $new_mdoc
+    done
+
+    local good_counter=0
+
+    # Append micrograph-related chunks
+    for mdoc_idx in "${!good_mdoc_array[@]}"; do
+      local old_idx="${good_mdoc_array[mdoc_idx]}"
+      local curr_chunk="${chunk_prefix}$(printf '%02d' $(( $old_idx + $last_header_chunk + 1 )) ).txt"
+
+      # Remove regex characters (https://stackoverflow.com/a/28563120)
+      local zvalue_line="$(\grep '\[ZValue' ${curr_chunk} | sed -e 's/[]$.*[\^]/\\&/g' )"
+      local zvalue_orig="$(echo $zvalue_line | sed 's/[^0-9]*//g')"
+
+      # Replace ZValue
+      local new_line=$(echo ${zvalue_line/$zvalue_orig/$good_counter})
+
+      # Save stderr in case there's an error
+      local sed_err=$( (sed -i "s/${zvalue_line}/${new_line}/" $curr_chunk) 2>&1 )
+
+      # If error (e.g., permission error), then make sure change actually appeared
+      if [[ "$sed_err" != "" ]] ; then
+        if ! grep -q "${new_line}" "$curr_chunk" ; then
+          vprint "WARNING! $sed_err" "0+" "${main_log} =${warn_log}"
+        fi
+      fi
+
+      let "good_counter++"
+
+      # Append
+      cat $curr_chunk >> $new_mdoc
+      echo >> $new_mdoc
+    done
+  fi
+  # End good-angles IF-THEN
+
   # Clean up 
   rm -r $temp_mdoc_dir 2> /dev/null
 }
@@ -3747,7 +3740,6 @@ function wrapper_aretomo() {
         echo "  TESTING: ${aretomo_cmd}"
       fi
       
-# # #       echo "3637: touch $tomogram_3d"
       quiet_touch "$tomogram_3d"
     fi
     # End redo3d IF-THEN
@@ -3895,7 +3887,7 @@ function wrapper_etomo() {
 #   Function:
 #     Wrapper for etomo
 #     Default behavior is to BACK UP pre-existing reconstruction (can be overridden).
-#   
+#
 #   Positonal arguments:
 #     1) Prefix for output filenames, including directory
 #     
