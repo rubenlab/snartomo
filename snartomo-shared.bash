@@ -544,8 +544,6 @@ function vprint() {
 #   
 #   Global variables:
 #     verbose
-#     do_pace
-#     time_format
 #     vars
 #
 #   Calls functions:
@@ -1720,9 +1718,11 @@ function validate_inputs() {
   #   
   #   Calls functions:
   #     vprint
+  #     check_library_python
   #
   #   Global variables:
   #     validated
+  #     outlog
   #     
   ###############################################################################
     
@@ -1770,10 +1770,11 @@ function validate_inputs() {
   #     1) Python library
   #     2) output log
   #     
-  #   Global variable:
+  #   Global variables:
   #     not_found
+  #     warn_log
   #     
-  #   Call function:
+  #   Calls function:
   #     vprint
   #   
   ###############################################################################
@@ -3406,7 +3407,7 @@ function imod_restack() {
   
   if [[ "${vars[testing]}" == false ]]; then
     # Check if output already exists (TODO: not necessary, checked above)
-    if [[ ! -e $reordered_stack ]]; then
+# # #     if [[ ! -e $reordered_stack ]]; then
       vprint "  Running: ${restack_cmd}\n" "3+" "=${outlog}"
       
       if [[ "$verbose" -ge 7 ]]; then
@@ -3449,12 +3450,12 @@ function imod_restack() {
       fi
       # End sanity-check IF-THEN
       
-    # If pre-existing output (shouldn't exist, since we deleted any pre-existing stack above)
-    else
-      vprint "  IMOD restack output $reordered_stack already exists" "0+" "=${outlog}"
-      vprint "    Skipping...\n" "0+" "=${outlog}"
-    fi
-    # End pre-existing IF-THEN
+#     # If pre-existing output (shouldn't exist, since we deleted any pre-existing stack above)
+#     else
+#       vprint "  IMOD restack output $reordered_stack already exists" "0+" "=${outlog}"
+#       vprint "    Skipping...\n" "0+" "=${outlog}"
+#     fi
+#     # End pre-existing IF-THEN
   
     # Stack CTF power spectra (TODO: sanity check)
     vprint "  Running: ${ctf_cmd}\n" "3+" "=${outlog}"
@@ -3826,8 +3827,6 @@ function quiet_touch() {
       vprint "${touch_err}" "0+" "${outlog} =${warn_log}"
       vprint "Continuing..." "0+" "${outlog} =${warn_log}"
       vprint "" "0+" "${outlog}"
-# #     else
-# #       echo "3725 '$tomogram_3d' exists"
     fi
     # End tomo-exists IF-THEN
   fi
@@ -3899,12 +3898,13 @@ function wrapper_etomo() {
 #     
 #   Calls functions:
 #     vprint
+#     quiet_touch
 #   
 #   Global variables:
 #     vars
 #     tomo_dir
-#     tomogram_3d (OUTPUT)
 #     verbose
+#     tomogram_3d : defined here
 # 
 ###############################################################################
   
@@ -4095,7 +4095,7 @@ function sort_sanity() {
 #     2) residual cutoff, units of sigma
 #   
 #   Global variables:
-#     sort_exe
+#     sort_exe : defined here
 #   
 ###############################################################################
   
@@ -4180,28 +4180,28 @@ function ruotnocon_wrapper() {
   #     8) (optional) IMOD executable directory
   #   
   #   Calls functions:
-  #     extract_residuals
   #     split_wimp
   #     find_bad_contours
   #     remove_contours
   #     backup_copy
   #   
   #   Global variables:
-  #     temp_contour_dir : defined here
-  #     num_chunks
   #     verbose
-  #     contour_imod_dir
+  #     num_chunks : from split_wimp()
+  #     contour_resid_file : defined here
+  #     temp_contour_dir : defined here
+  #     contour_imod_dir : defined here
   #     num_bad_residuals : defined here
   #   
   ###############################################################################
     
     local fid_file=$1
-    local contour_resid_file=$2
+    contour_resid_file=$2
     local out_fid_file=$3
     local num_sd=$4
     local contour_plot=$5
     temp_contour_dir=$6
-    local test_contour=$7
+    test_contour=$7
     contour_imod_dir=$8
     
     if [[ $# -lt 3 ]]; then
@@ -4326,9 +4326,9 @@ function ruotnocon_wrapper() {
     #   
     #   Global variables:
     #     temp_contour_dir
-    #     num_chunks
     #     verbose
-    #     chunk_array
+    #     num_chunks : defined here
+    #     chunk_array : defined here
     #   
     ###############################################################################
 
@@ -4359,8 +4359,8 @@ function ruotnocon_wrapper() {
     #     sort_sanity
     #     
     #   Global variables:
-    #     sort_exe
-    #     test_contour
+    #     sort_exe : from sort_sanity()
+    #     test_contour : from ruotnocon_run()
     #     contour_resid_file
     #     verbose
     #     bad_residuals (defined here)

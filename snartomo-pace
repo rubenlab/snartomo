@@ -1606,9 +1606,6 @@ function distribute_motioncor() {
     ali_out="${vars[outdir]}/${micdir}/${mc2_logs}/${stem_movie}_mic.out"
     ali_err="${vars[outdir]}/${micdir}/${mc2_logs}/${stem_movie}_mic.err"
     mc2_tempfile="/tmp/MotionCor2_FreeGpus.txt"
-# #       
-# #     get_version_number "${vars[motioncor_exe]}"
-# #     echo "1537 two_decimals '${two_decimals}', third_decimal '${third_decimal}'" ; exit
 
     if [[ "${vars[testing]}" == false ]]; then
       # Check whether copying locally
@@ -1630,7 +1627,6 @@ function distribute_motioncor() {
       vprint "$(date +"$time_format"): Starting MotionCor2 on '$(basename ${fn})' on GPU #${gpu_num}, movies remaining: ${remaining_movies}" "0+" "=${file_log}"
       vprint "$(run_motioncor ${fn} $gpu_num)" "4+" "=${mc2_out}" 
       
-# # #       run_motioncor ${fn} $gpu_num ; exit ### TESTING
       local mc2_cmd=$(run_motioncor ${fn} $gpu_num)
       
       if [[ "$verbose" -le 8 ]]; then
@@ -1676,7 +1672,7 @@ function distribute_motioncor() {
     fi
     # End testing IF-THEN
     
-    # Make sure process is actually gone (TODO: Move to function)
+    # Make sure process is actually gone
     if [[ "$mc2_pid" -gt 0 ]]; then
       mc2_time=0
       local wait_incr=0.25
@@ -1819,7 +1815,6 @@ function file_lock() {
   lock_file="${temp_share_dir}/LOCK-${file2lock}"
   
   if [[ -f ${lock_file} ]] ; then
-    
     local end=$(($SECONDS+${time_limit}))
     while [[ "$SECONDS" -lt "$end" ]]; do
       if [[ -f ${lock_file} ]]; then
@@ -1835,7 +1830,7 @@ function file_lock() {
         break
       fi
     done
-    # End WHILE loop
+#     # End WHILE loop
 #   else
 #     if [[ "${id_msg}" != "" ]] ; then
 #       echo "$SECONDS: LOCK DOESN'T EXIST ${id_msg}"
@@ -2626,9 +2621,11 @@ function compute_tomograms() {
 #   Global variables:
 #     mcor_done
 #     ctf_done
-#     mdoc_list
-#     vars
 #     main_log
+#     vars
+#     mdoc_list
+#     mdoc_array
+#     recon_status
 #     tomogram_3d
 #     verbose
 # # #     tomo_list
@@ -2639,7 +2636,6 @@ function compute_tomograms() {
 #     tomogram_parallel
 #   
 #   Adapted from SNARTomoClassic
-#   TODO: Split into smaller functions
 #     
 ###############################################################################
   
@@ -2808,6 +2804,7 @@ function compute_tomograms() {
           update_status "$(date +"$time_format"): Reconstructing tomograms, most recent reconstruction '$(basename $tomogram_3d)'"
         else
           vprint   "WARNING! Reconstruction '$tomogram_3d' does not exist!" "1+" "${main_log} =${warn_log}"
+
           # TODO: etomo_out only defined for eTomo option
           cat ${etomo_out} | grep -Ev 'quit|Beginning|ABORT|failures|^$' | sed 's/^/         /' | tee -a ${main_log} ${warn_log}
           vprint "         Continuing...\n" "1+" "${main_log} =${warn_log}"
@@ -3131,9 +3128,9 @@ function tomogram_parallel() {
           echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${tomo_ctfs}
         fi
   #       
-  #       ### DIAGNOSTIC
+  #       ### TESTING
   #       else
-  #         echo "2758 : $mc2_mic doesn't exist"
+  #         echo "3133 : $mc2_mic doesn't exist"
       fi
     done
     # End angles loop
