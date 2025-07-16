@@ -241,8 +241,7 @@ function create_directories() {
 #     Writes command line to commands file
 #     Writes settings to settings file
 #   
-#   Calls functions:
-#     check_local_dir
+#   Calls function:
 #     print_arguments
 #   
 #   Global variables:
@@ -3877,8 +3876,6 @@ function mdoc2tomo() {
   else
     tomogram_3d="${tomo_root}_aretomo.mrc"
   fi
-  
-# #   echo $tomogram_3d
 }
 
 function wrapper_etomo() {
@@ -3887,11 +3884,13 @@ function wrapper_etomo() {
 #     Wrapper for etomo
 #     Default behavior is to BACK UP pre-existing reconstruction (can be overridden).
 #
-#   Positonal arguments:
-#     1) Prefix for output filenames, including directory
-#     
+#   Assumed parameters for eTomo:
+#     rootname        : ${tomo_base}_newstack
+#     I/O directory   : ${vars[outdir]}/${tomo_dir}
+#     batch directive : ${vars[batch_directive]}
+#
 #   Positional variables:
-#     1) file stem (including relative path)
+#     1) file stem
 #     2) number of images in tilt series
 #     3) (boolean) flag to remove bad micrographs
 #     4) additional batchruntomo parameters
@@ -4138,6 +4137,7 @@ function ruotnocon_wrapper() {
 #   
 #   Global variables:
 #     vars
+#     imgdir
 #     contour_imgdir
 #   
 ###############################################################################
@@ -4191,6 +4191,7 @@ function ruotnocon_wrapper() {
   #     contour_resid_file : defined here
   #     temp_contour_dir : defined here
   #     contour_imod_dir : defined here
+  #     new_wimp : defined here
   #     num_bad_residuals : defined here
   #   
   ###############################################################################
@@ -4282,6 +4283,12 @@ function ruotnocon_wrapper() {
       
       if [[ ${status_code} -ne 0 ]] ; then
         echo -e "  ERROR!! Exiting with status code: '${status_code}'\n"
+
+        # Maybe zscale command failed
+        if [[ "$zscale" == "" ]] ; then
+          echo    "    zscale command:"
+          echo -e "      ${contour_imod_dir}/imodinfo -a ${fid_file} | grep scale | grep -v refcurscale | rev | cut -d" " -f1 | rev"
+        fi
         exit
       fi
       
