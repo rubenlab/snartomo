@@ -21,7 +21,7 @@ function check_vars() {
   var_array+=("SNARTOMO_REC_ZDIM" "SNARTOMO_TILT_AXIS" "SNARTOMO_DARKTOL")
   var_array+=("SNARTOMO_TILTCOR" "SNARTOMO_BP_METHOD" "SNARTOMO_FLIPVOL")
   var_array+=("SNARTOMO_TRANSFILE" "SNARTOMO_ARETOMO_PATCH" "SNARTOMO_ARETOMO_TIME")
-  var_array+=("ISONET_ENV" "SNARTOMO_SNRFALLOFF" "SNARTOMO_SHARE" "IMOD_BIN")
+  var_array+=("ISONET_ENV" "SNARTOMO_SNRFALLOFF" "SNARTOMO_SHARE" "IMOD_BIN" "SNARTOMO_RUOTNOCON_NM")
   
   if [[ "${do_pace}" == true ]]; then
     var_array+=("SNARTOMO_GPUS" "SNARTOMO_RAM_KILL" "SNARTOMO_TILT_TOLERANCE" "SNARTOMO_RAM_WARN" "SNARTOMO_IMOD_SLOTS")
@@ -1747,14 +1747,14 @@ function validate_inputs() {
     done
     # End library loop
     
-    # Maybe we're not using the correct Python
-    if ! [[ "$(which python)" == "${CONDA_PREFIX}"*  ]]; then
-      vprint "  WARNING! Default Python is from another location: $(which python)" "1+" "${outlog} =${warn_log}"
-    fi
-
     if [[ "${#not_found[@]}" > 0 ]] ; then
       validated=false
       vprint "  ERROR!! Couldn't find the following Python libraries: ${not_found[*]}" "0+" "${outlog} =${warn_log}"
+
+      # Maybe we're not using the correct Python
+      if ! [[ "$(which python)" == "${CONDA_PREFIX}"*  ]]; then
+        vprint "  WARNING! Default Python is from another location: $(which python)" "1+" "${outlog} =${warn_log}"
+      fi
     else
       vprint "  Python version and libraries OK" "1+" "${outlog}"
     fi
@@ -1782,7 +1782,7 @@ function validate_inputs() {
     local outlog=$2
     
     # Try to import, and store status code
-    ${CONDA_PREFIX}/bin/python -c "import ${curr_lib}" 2> /dev/null
+    python -c "import ${curr_lib}" 2> /dev/null
     local status_code=$?
     
     # If it fails, then save
@@ -2735,7 +2735,7 @@ function dose_fit() {
     vprint "\nWARNING! Dose list '${dose_list}' not found" "0+" "${main_log} =${warn_log}"
     vprint "  Continuing...\n" "0+" "${main_log}"
   else
-    local dosefit_cmd="$(echo ${CONDA_PREFIX}/bin/python ${SNARTOMO_DIR}/dose_discriminator.py \
+    local dosefit_cmd="$(echo python ${SNARTOMO_DIR}/dose_discriminator.py \
       ${dose_list} \
       --min_dose ${vars[dosefit_min]} \
       --max_residual ${vars[dosefit_resid]} \
@@ -2988,7 +2988,7 @@ function plot_tomo_ctfs() {
     fi
     
     # Plot single-tilt-series CTF summary
-    local ctfbyts_cmd=$(echo ${CONDA_PREFIX}/bin/python ${SNARTOMO_DIR}/ctfbyts.py \
+    local ctfbyts_cmd=$(echo python ${SNARTOMO_DIR}/ctfbyts.py \
       ${tomo_ctfs} \
       ${single_ts_list} \
       ${single_ts_plot} \
@@ -3002,7 +3002,7 @@ function plot_tomo_ctfs() {
     $ctfbyts_cmd
     
     # Plot cumulative CTF summary
-    local ctfbyts_cmd=$(echo ${CONDA_PREFIX}/bin/python ${SNARTOMO_DIR}/ctfbyts.py \
+    local ctfbyts_cmd=$(echo python ${SNARTOMO_DIR}/ctfbyts.py \
       ${tomo_ctfs} \
       ${tgt_ts_list} \
       ${tgt_ctf_plot} \
@@ -3885,9 +3885,9 @@ function wrapper_etomo() {
 #     Default behavior is to BACK UP pre-existing reconstruction (can be overridden).
 #
 #   Assumed parameters for eTomo:
-#     rootname        : ${tomo_base}_newstack
+#     rootname        : ${tomo_base}${newstack_ext}
 #     I/O directory   : ${vars[outdir]}/${tomo_dir}
-#     batch directive : ${vars[batch_directive]}
+#     batch directive : ${vars[batch_directive]}  (full path)
 #
 #   Positional variables:
 #     1) file stem
@@ -3902,6 +3902,7 @@ function wrapper_etomo() {
 #   Global variables:
 #     vars
 #     tomo_dir
+#     newstack_ext
 #     verbose
 #     tomogram_3d : defined here
 # 
@@ -3914,8 +3915,8 @@ function wrapper_etomo() {
   
   local do_reconstruct=true
   local etomo_out="${vars[outdir]}/${tomo_dir}/${tomo_base}_std.out"
-  local etomo_cmd="batchruntomo -RootName ${tomo_base}_newstack -CurrentLocation ${vars[outdir]}/${tomo_dir} -DirectiveFile ${vars[batch_directive]} ${more_flags}"
-  tomogram_3d="${vars[outdir]}/${tomo_dir}/${tomo_base}_newstack_full_rec.mrc"
+  local etomo_cmd="batchruntomo -RootName ${tomo_base}${newstack_ext} -CurrentLocation ${vars[outdir]}/${tomo_dir} -DirectiveFile ${vars[outdir]}/${tomo_dir}/${vars[batch_directive]} ${more_flags}"
+  tomogram_3d="${vars[outdir]}/${tomo_dir}/${tomo_base}${newstack_ext}_full_rec.mrc"
   
   if [[ "${vars[testing]}" == false ]]; then
     # Check if output already exists
@@ -3937,9 +3938,10 @@ function wrapper_etomo() {
     fi
     
     if [[ "${do_reconstruct}" == true ]] ; then
-      vprint "\n  $(date)" "3+"
+# # #       vprint "\n  $(date)" "3+"
       vprint   "  Computing tomogram reconstruction 'batchruntomo' from $num_mics micrographs" "3+"
-      vprint "\n  Running: ${etomo_cmd}" "3+"
+      vprint "" "7+"
+      vprint "    Running: ${etomo_cmd}\n" "3+"
 
       # Full screen output
       if [[ "$verbose" -ge 7 ]]; then
@@ -4001,8 +4003,8 @@ function wrapper_etomo() {
     else
       if [[ "$verbose" -ge 3 ]]; then
         echo -e "  TESTING: $etomo_cmd\n"
-      elif [[ "$verbose" -eq 2 ]]; then
-        echo      "  ${etomo_cmd}"
+      elif [[ "${do_pace}" == true ]]; then
+        echo    "  ${etomo_cmd}"
       fi
       
       quiet_touch $tomogram_3d
@@ -4026,7 +4028,7 @@ function wrapper_etomo() {
   #   
   #   Global variables:
   #     tomo_dir
-  #     sort_exe
+  #     sort_exe : from sort_sanity()
   #     vars
   #     imgdir
   #     good_angles_file
@@ -4039,7 +4041,7 @@ function wrapper_etomo() {
   
     # Sanity check for Python script
     sort_sanity
-    
+
     local sort_cmd="$(echo ${sort_exe} \
       ${vars[outdir]}/${tomo_dir}/taSolution.log \
       --skip=4 \
@@ -4047,7 +4049,7 @@ function wrapper_etomo() {
       --plot ${vars[outdir]}/${imgdir}/${resid_imgdir}/${tomo_base}_residuals.png | xargs)"
     
     vprint "\n  Finding micrographs with residuals exceeding ${vars[laudiseron_sd]}*SD..." "4+"
-    vprint   "    ${sort_cmd}\n" "4+"
+    vprint   "\n    ${sort_cmd}\n" "4+"
     
     IFS=' ' read -r -a bad_residuals <<< $($sort_cmd)
     unset IFS
@@ -4100,10 +4102,10 @@ function sort_sanity() {
   
   # Sanity check
   if ! [ -z $SNARTOMO_DIR ] ; then
-    sort_exe="${CONDA_PREFIX}/bin/python ${SNARTOMO_DIR}/sort_residuals.py"
+    sort_exe="python ${SNARTOMO_DIR}/sort_residuals.py"
   else
     if [[ -f "./sort_residuals.py" ]]; then
-      sort_exe="${CONDA_PREFIX}/bin/python ./sort_residuals.py"
+      sort_exe="python ./sort_residuals.py"
     else
       if [[ "${test_contour}" != true ]]; then
         echo -e "\nERROR!! Can't find 'sort_residuals.py'!"
@@ -4112,7 +4114,7 @@ function sort_sanity() {
         exit
       else
         echo -e "\nWARNING! Can't find 'sort_residuals.py'"
-        sort_exe="${CONDA_PREFIX}/bin/python sort_residuals.py"
+        sort_exe="python sort_residuals.py"
         exit
       fi
       # End testing IF-THEN
@@ -4137,6 +4139,7 @@ function ruotnocon_wrapper() {
 #   
 #   Global variables:
 #     vars
+#     newstack_ext
 #     imgdir
 #     contour_imgdir
 #   
@@ -4145,7 +4148,7 @@ function ruotnocon_wrapper() {
   local tomo_dir=$1
   local tomo_base=$2
   
-  local fid_file="${vars[outdir]}/${tomo_dir}/${tomo_base}_newstack.fid"
+  local fid_file="${vars[outdir]}/${tomo_dir}/${tomo_base}${newstack_ext}.fid"
   
   ruotnocon_run \
     "${fid_file}" \
@@ -4367,6 +4370,7 @@ function ruotnocon_wrapper() {
     #     
     #   Global variables:
     #     sort_exe : from sort_sanity()
+    #     vars
     #     test_contour : from ruotnocon_run()
     #     contour_resid_file
     #     verbose
@@ -4381,11 +4385,20 @@ function ruotnocon_wrapper() {
       
       local sort_cmd="${sort_exe} ${contour_resid_file} --sd ${num_sd} --plot ${contour_plot}"
       
-      if [[ ${verbose} -ge 4 ]] ; then
-        echo "  Finding contours with residuals exceeding ${num_sd}*SD..."
-        echo "    ${sort_cmd}"
+      # ruotnocon_nm is a new parameter, so don't require it
+      if [[ -v "vars[ruotnocon_nm]" ]] ; then
+        sort_cmd="${sort_cmd} --nm ${vars[ruotnocon_nm]}"
+        if [[ ${verbose} -ge 4 ]] ; then
+          echo "  Finding contours with residuals exceeding ${vars[ruotnocon_nm]}nm..."
+          echo "    ${sort_cmd}"
+        fi
+      else
+        if [[ ${verbose} -ge 4 ]] ; then
+          echo "  Finding contours with residuals exceeding ${num_sd}*SD..."
+          echo "    ${sort_cmd}"
+        fi
       fi
-      
+
       # Read space-delimited list into array
       if [[ "${test_contour}" != true ]]; then
         IFS=' ' read -r -a bad_residuals <<< $($sort_cmd)
@@ -5080,7 +5093,7 @@ function create_json() {
   local outlog=$1
   local prestring=$2
   
-  local heatwave_cmd="${CONDA_PREFIX}/bin/python snartomo-heatwave.py --no_gui --json ${heatwave_json} "
+  local heatwave_cmd="python snartomo-heatwave.py --no_gui --json ${heatwave_json} "
   
   # If MDOC files are provided, vars[target_files] will be a dummy file
   if [[ "${do_pace}" == true ]]; then

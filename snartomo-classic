@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2024-03-18"
+  echo "Modified 2024-07-17"
   date
 }
 
@@ -375,6 +375,7 @@ function parse_command_line() {
   add_section "RUOTNOCON SETTINGS" "Settings for contour removal in IMOD reconstruction."
   add_argument "do_ruotnocon" "false" "Remove contours based on residual" "BOOL"
   add_argument "ruotnocon_sd" "${SNARTOMO_RUOTNOCON_SD}" "Contours with residuals greater than this multiple of sigma will be removed" "FLOAT"
+  add_argument "ruotnocon_nm" "${SNARTOMO_RUOTNOCON_NM}" "Residual cutoff in nanometers, lower of this and the sigma cutoff will be used" "FLOAT"
 
   # IMOD
   add_section "IMOD SETTINGS" "Settings for IMOD: restacking and optional eTomo reconstruction."
@@ -999,16 +1000,17 @@ function compute_tomogram() {
 #   Global variables:
 #     vars
 #     mcorr_mic_array
-#     tomo_dir (OUTPUT)
-#     new_mdoc (OUTPUT)
 #     mdoc_array
 #     good_angles_file
 #     recdir
 #     prev_name
-#     tomo_root (OUTPUT)
 #     tomo_dns_dir
 #     micdir
 #     tomogram_3d
+#     tomo_dir (OUTPUT)
+#     tomo_root (OUTPUT)
+#     new_mdoc (OUTPUT)
+#     newstack_ext (OUTPUT)
 #     
 ###############################################################################
   
@@ -1119,9 +1121,14 @@ function compute_tomogram() {
   # Restack micrographs from lowest angle (most negative) to highest
   imod_restack
   
+  newstack_ext="_newstack"  # needed for compatibility in wrapper_etomo()
+
   if [[ "${vars[batch_directive]}" == "" ]]; then
     wrapper_aretomo "${num_mics}" "${vars[gpus]}"
   else
+    # Copy updated ADOC to tomo directory (for compatibility)
+    cp "${vars[outdir]}/${vars[batch_directive]}" "${tomo_dir}/"
+
     # If splitting eTomo (laudiseron or ruotnocon)
     if [[ "${vars[do_ruotnocon]}" == true ]] || [[ "${vars[do_laudiseron]}" == true ]] ; then
       

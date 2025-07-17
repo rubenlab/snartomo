@@ -26,7 +26,8 @@ export SNARTOMO_MAXFRAMES=1200                                    # Maximum numb
 export SNARTOMO_EER_WAIT=8                                        # (seconds) EER files are copied locally if header takes longer than this time
 export SNARTOMO_WAIT_TIME=120.0                                   # (seconds) How long to wait for MotionCor2 or CTFFIND4 /tmp files to be removed
 export SNARTOMO_RUOTNOCON_SD=3.0                                  # Contours with eTomo residuals greater than this multiple of sigma will be removed
-# 
+export SNARTOMO_RUOTNOCON_NM=999.9                                # Residual cutoff in nanometers, lower of this and the sigma cutoff will be used#
+
 # SNARTomoPACE only
 export SNARTOMO_GPUS="0"                                          # GPUs to use, delimited with spaces
 export SNARTOMO_TILT_TOLERANCE=0.2                                # Angle difference of last tilt +/- this value will signal end of series

@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os
 import numpy as np
 import argparse
 import matplotlib
@@ -16,8 +17,8 @@ USAGE:
 
 """ % ((__file__,)*1)
 
-MODIFIED="Modified 2022 Nov 10"
-MAX_VERBOSITY=3
+MODIFIED="Modified 2025 Jul 17"
+MAX_VERBOSITY=5
 
 def main():
   options= parse_command_line()
@@ -31,23 +32,34 @@ def main():
   
   # Parse header line
   h2c= {k: v for v, k in enumerate(header_line)}
-  #print(f"'{h2c}'")  # '{0: '#', 1: 'X', 2: 'Y', 3: 'Z', 4: 'obj', 5: 'cont', 6: 'resid-nm', 7: 'Weights'}'
 
   contour_data= np.loadtxt(options.angles_log, skiprows=options.skip+1)
   residual_array= contour_data[:, h2c['resid-nm'] ]
   sigma_residual= np.std(residual_array)
   min_residual= np.min(residual_array)
-  #min_residual= np.mean(residual_array)
-  #min_residual= 0
-  #print('min_residual', type(min_residual), min_residual )
 
   # Sort
   sorted_array= contour_data[residual_array.argsort()]
   worst_countour= int(sorted_array[-1][0])
   worst_idx= np.argmax(residual_array)
   
+  # Default cutoff is based on sigma
+  use_cutoff_sd= True
   residual_cutoff= min_residual + options.sd * sigma_residual
+
+  # If a cutoff in nm was provided, use that one, UNLESS it's already lower than the minimum
+  if options.nm:
+    if options.nm > min_residual and options.nm < residual_cutoff:
+      use_cutoff_sd= False
+    else:
+      if options.verbose>=3: print(f"  Cutoff in nm ({options.nm}) less than minimum ({min_residual})")
   
+  if use_cutoff_sd:
+    if options.verbose>=3: print(f"  Finding contours with residuals exceeding {options.sd}*SD...")
+  else:
+    residual_cutoff= options.nm
+    if options.verbose>=3: print(f"  Finding contours with residuals exceeding {options.nm} nm...")
+
   # If residual exceeds the threshold...
   if sorted_array[-1][ h2c['resid-nm'] ] >= (residual_cutoff) :
     # Print just the contour number
@@ -55,7 +67,7 @@ def main():
       print( worst_countour )
     
     # Print all contours exceeding threshold
-    elif options.verbose==2:
+    elif options.verbose==2 or options.verbose==3 :
       # Reverse array
       reversed_array= sorted_array[::-1]
       
@@ -71,11 +83,10 @@ def main():
           break  # no need to continue loop
       # End array loop
       
-      ###print(f"'{list_bad}'")
       print(list_bad)
       
     # Print more detailed information
-    elif options.verbose==3:
+    elif options.verbose==4:
       print(f"Minimum: {min_residual:.2f}, sigma: {sigma_residual:.2f}nm, cutoff: minimum + {options.sd:.2f}*sigma = {residual_cutoff:.2f}")
       print("Indices exceeding cutoff:")
       
@@ -90,12 +101,11 @@ def main():
           break  # no need to continue loop
       
     # Print everything
-    elif options.verbose>=4:
+    elif options.verbose>=5:
       print(sorted_array, type(sorted_array), sorted_array.shape, sigma_residual )
 
   # Remove row from array
   contour_data= np.delete(contour_data, worst_idx, axis=0)
-  #print(contour_data)
   
   # Write to file
   if options.overwrite or options.outfile:
@@ -112,17 +122,18 @@ def main():
   if options.plot:
     plt.scatter( x, np.sort(residual_array) )
     
-    #print( h2c.keys() )
     for idx in range(len(residual_array)):
       plt.annotate( int(sorted_array[idx][0]), (x[idx]-0.7, sorted_array[idx][ h2c['resid-nm'] ]+np.ndarray.max(residual_array)/60), fontsize=6)
-      #print( int(sorted_array[idx][0]), x[idx], sorted_array[idx][ h2c['resid-nm'] ] )
     
     plt.xlabel('Index number (sorted)')
     plt.ylabel('Residual (nm)')
     plt.hlines(residual_cutoff, x[0], x[-1])
-    #plt.title( os.path.splitext( os.path.basename(options.plot) )[0], fontsize=16)
+
+    # If filename is at least one directory deep, use the parent directory and filename as the title
+    if options.angles_log.count(os.sep) >= 1:
+      plt.title( os.sep.join(options.angles_log.split(os.sep)[-2:]) )
+
     plt.savefig(options.plot)
-    ###plt.show()
   
 def parse_command_line():
     """
@@ -152,6 +163,12 @@ def parse_command_line():
         default=3, 
         help="Sigma cutoff, values above this threshold times sigma will be excluded")
     
+    parser.add_argument(
+        "--nm", "--nm_cutoff",
+        type=float,
+        default=None,
+        help="Residual cutoff in nanometers, lower of this and the sigma cutoff will be used")
+
     parser.add_argument(
         "--outfile", "-o",
         type=str, 
