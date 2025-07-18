@@ -3,7 +3,7 @@
 SNARTOMO_DIR="$( realpath $(dirname $BASH_SOURCE) )"
 source "${SNARTOMO_DIR}/snartomo-shared.bash"
 verbose=0
-check_python "" "('sys' 'numpy' 'scipy' 'matplotlib' 'os' 'argparse' 'datetime' 'PyQt5')"
+check_python "" "('sys' 'numpy' 'matplotlib' 'os' 'argparse' 'datetime' 'PyQt5')"
 
 if [[ "$validated" == false ]] ; then
   echo -e "   Exiting...\n"
