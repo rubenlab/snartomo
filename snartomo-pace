@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2025-07-17"
+  echo "Modified 2025-07-18"
   date
 }
 
@@ -208,7 +208,7 @@ function main() {
   check_format
   print2log "check_args 0" "0+" "${main_log}"
   print2log "print_arguments" "7+" "${set_file}"
-  validate_inputs "${main_log}"
+  validate_inputs "${main_log}" "('sys' 'numpy' 'scipy' 'matplotlib' 'os' 'argparse' 'datetime' 'PyQt5')"
   check_other_snartomos "${main_log}"
   
   # Read target files as array

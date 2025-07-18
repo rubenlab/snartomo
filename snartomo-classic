@@ -25,7 +25,7 @@
 function program_info() {
   echo 
   echo "Running: SNARTomoClassic"
-  echo "Modified 2024-07-17"
+  echo "Modified 2025-07-18"
   date
 }
 
@@ -213,7 +213,7 @@ function do_real_work() {
     print_arguments
   fi
   
-  validate_inputs
+  validate_inputs "${main_log}" "('sys' 'numpy' 'scipy' 'matplotlib' 'os' 'argparse' 'datetime' 'PyQt5')"
   initialize_vars
 
   create_directories "${@}"

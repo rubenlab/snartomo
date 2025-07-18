@@ -1,11 +1,13 @@
 #!/bin/bash
 
 SNARTOMO_DIR="$( realpath $(dirname $BASH_SOURCE) )"
+source "${SNARTOMO_DIR}/snartomo-shared.bash"
+verbose=0
+check_python "" "('sys' 'numpy' 'scipy' 'matplotlib' 'os' 'argparse' 'datetime' 'PyQt5')"
 
-if [[ "$(which python)" == "${CONDA_PREFIX}"*  ]]; then
-# # #   echo "Running python ($(which python)) from conda environment ${CONDA_PREFIX}"
-  exec "${SNARTOMO_DIR}/snartomo-heatwave.py" "$@"
+if [[ "$validated" == false ]] ; then
+  echo -e "   Exiting...\n"
 else
-# # #   echo "Not running python ($(which python)) from conda environment ${CONDA_PREFIX}"
-  exec "${CONDA_PREFIX}/bin/python" "${SNARTOMO_DIR}/snartomo-heatwave.py" "$@"
+  exec "$python_exe" "${SNARTOMO_DIR}/snartomo-heatwave.py" "$@"
 fi
+

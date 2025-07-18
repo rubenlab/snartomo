@@ -494,8 +494,6 @@ function clean_local_dir() {
           vprint "${mv_err}" "0+" "${outlog} =${warn_log}"
           vprint "Continuing..." "0+" "${outlog} =${warn_log}"
           vprint "" "0+" "${outlog}"
-# #         else
-# #           echo "497: preserving permissions error"
         fi
       fi
       # End non-empty error IF-THEN
@@ -735,6 +733,7 @@ function validate_inputs() {
 ###############################################################################
   
   local outlog=$1
+  declare -a lib_array=$2
   validated=true
 
   vprint "\nValidating..." "1+" "${outlog}"
@@ -814,6 +813,9 @@ function validate_inputs() {
     vprint "  ERROR!! Can't use JANNI and Topaz simultaneously!" "0+" "${outlog}"
   fi
   
+  # Need to check Python before try_conda
+  check_python "${outlog}"
+
   if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
     if [[ "${vars[do_janni]}" == true ]]; then
       vprint "  Denoising using JANNI" "1+" "${outlog}"
@@ -855,12 +857,11 @@ function validate_inputs() {
     vprint "  Deconvoluting using IsoNet" "1+" "${outlog}"
     try_conda "IsoNet executable" "${vars[isonet_env]}" "${outlog}"
   fi
-  
-  check_python "${outlog}"
+
   check_exe "$(which convert)" "ImageMagick convert executable" "${outlog}"
   check_exe "$(which snartomo-heatwave.py)" "SNARTomo Heatwave" "${outlog}"
   check_gpus "${outlog}"
-  
+
   # Summary
   if [[ "$validated" == false ]]; then
     vprint "Missing required inputs, exiting...\n" "0+" "${outlog}"
@@ -1414,6 +1415,7 @@ function validate_inputs() {
   #   
   #   Global variables:
   #     vars
+  #     python_exe
   #     validated
   #     
   ###############################################################################
@@ -1422,6 +1424,14 @@ function validate_inputs() {
     local conda_env=$2
     local outlog=$3
     
+    # Sanity check that we know which Python to use
+    if [ -z "$python_exe" ] ; then
+      echo -e "\nERROR!! Python executable not found!"
+      echo      "  Maybe run check_python() first."
+      echo -e   "Exiting...\n"
+      exit
+    fi
+
     if [[ "${vars[testing]}" == "false" ]]; then
       vprint "    Current conda environment: ${CONDA_DEFAULT_ENV}" '5+' "${outlog}"
       vprint "    Temporarily activating conda environment: ${conda_env}" "5+" "${outlog}"
@@ -1448,7 +1458,7 @@ function validate_inputs() {
         
         # Check libraries
         declare -a not_found=()
-        check_library_python "IsoNet" "${outlog}"
+        check_python_library "$python_exe" "IsoNet" "${outlog}"
         
         # Look for element in array (adapted from https://www.baeldung.com/linux/check-bash-array-contains-value)
         if [[ $(echo ${not_found[@]} | fgrep -w "IsoNet") ]] ; then
@@ -1710,87 +1720,203 @@ function validate_inputs() {
   function check_python() {
   ###############################################################################
   #   Function:
-  #     Checks Python version and libraries
-  #   
+  #     Checks version and libraries for each Python in PATH until success
+  #
   #   Positional arguments:
   #     1) output log file
-  #   
+  #     2) (OPTIONAL) library array
+  #
   #   Calls functions:
   #     vprint
-  #     check_library_python
+  #     check_python_single
   #
   #   Global variables:
   #     validated
-  #     outlog
-  #     
+  #     verbose
+  #     lib_array : needed in subroutine
+  #     python_status : defined here
+  #     python_exe : defined here
+  #
   ###############################################################################
-    
+
     local outlog=$1
-    
-    # Check Python version
-    local python_version=$(python --version | cut -d' ' -f2 | cut -d'.' -f1)
-    
-    if [[ "$python_version" -le 2 ]]; then
-      validated=false
-      vprint "  ERROR!! Python needs to be version 3 or higher!" "0+" "${outlog}"
-    else
-      vprint "  Python version OK" "6+" "${outlog}"
+
+    # Receive optional library list
+    if [[ "$2" != "" ]] ; then
+      declare -a lib_array=$2
     fi
-    
-    # Check the following libraries
-    declare -a lib_array=("sys" "numpy" "scipy" "matplotlib" "os" "argparse" "datetime" "PyQt5")
+
+    vprint "  Checking Python executables..." "5+" "${outlog}"
+
+    # Get all Python executables in PATH (adapted from https://stackoverflow.com/a/78084517)
+    for dir in $(echo $PATH | tr ':' '\n'); do
+      readarray -d '' py_array < <(find "$dir" -type f -executable -name 'python*' -print0 2> /dev/null)
+      for curr_python in "${py_array[@]}" ; do
+        python_status="OK"  # default unless overridden later
+        vprint "    $curr_python:" "6+" "${outlog}"
+        check_python_single "$curr_python" "${outlog}"
+        vprint "    $curr_python: $python_status" "5=" "${outlog}"
+
+        # Once successful Python executable found, stop
+        if [[ "$python_status" == "OK" ]] ; then
+          python_exe=$curr_python
+          vprint "  Python version and libraries OK: $python_exe" "1+" "${outlog}"
+          return
+        fi
+      done
+      # End Python loop
+    done
+    # End directory loop
+
+    # If you reached here, then no valid Python was found
+    vprint "  ERROR!! Python versions and libraries not OK:" "0+" "${outlog}"
+    validated=false
+    local old_verbosity=$verbose
+    [ "$verbose" -lt 5 ] && verbose=5
+
+    # Re-run loop in verbose mode
+    for dir in $(echo $PATH | tr ':' '\n'); do
+      readarray -d '' py_array < <(find "$dir" -type f -executable -name 'python*' -print0 2> /dev/null)
+      for curr_python in "${py_array[@]}" ; do
+        vprint "    $curr_python:" "6+" "${outlog}"
+        check_python_single "$curr_python" "${outlog}"
+        vprint "    $curr_python: $python_status" "5=" "${outlog}"
+      done
+      # End Python loop
+    done
+    # End directory loop
+
+    # Restore verbosity
+    verbose=$old_verbosity
+  }
+
+  function check_python_single() {
+  ###############################################################################
+  #   Function:
+  #     Checks Python version and libraries
+  #
+  #   Positional arguments:
+  #     1) output log file
+  #
+  #   Calls functions:
+  #     vprint
+  #     check_python_library
+  #
+  #   Global variables:
+  #     python_status
+  #     lib_array
+  #     not_found : defined here
+  #
+  ###############################################################################
+
+    local curr_python=$1
+    local outlog=$2
+
+    # Check if executable
+    if ! [[ -x "$curr_python" ]] ; then
+      python_status="Not an exectuable"
+      vprint "      FAIL: $python_status" "6+" "${outlog}"
+      return
+    else
+      vprint "      OK: Is an exectuable" "6+" "${outlog}"
+    fi
+
+    # Check if it's a Python script
+    local python_output=$(file $curr_python)
+    if [[ "$python_output" == *"script"* ]] ; then
+      if [[ "${python_output}" == *"${curr_python}"*  ]]; then
+          # Remove everything before '$curr_python: '
+          python_status=$(echo ${python_output##*$curr_python: })
+      else
+        python_status=${python_output}
+      fi
+      return
+    fi
+
+    # Try to check Python version
+    $curr_python --version >/dev/null 2>&1
+    local status_code=$?
+
+    # Run again, combining stdout & stderr (I don't know how to save the output and exit code in one go)
+    local python_output=$($curr_python --version 2>&1)
+    if [[ "$status_code" -ne 0 ]] ; then
+      # Strip out redundant Python path if present
+      if [[ "${python_output}" == *"${curr_python}"*  ]]; then
+        if [[ "${python_output}" == *"${curr_python}: "*  ]]; then
+          # Remove everything before '$curr_python: '
+          python_status=$(echo ${python_output##*$curr_python: })
+        else
+          # Shorten full path to basename
+          python_status=$(echo ${python_output} | sed "s|${curr_python}|$(basename $curr_python)|")
+        fi
+      else
+        python_status=${python_output}
+      fi
+
+      vprint "      FAIL: $python_status" "6+" "${outlog}"
+      return
+    fi
+    # End error IF-THEN
+
+# # #     local python_version=$(echo $python_output | cut -d' ' -f2 | cut -d'.' -f1)  # major only
+    local python_version=$(echo $python_output | cut -d' ' -f2)  # decimal
+
+    # Check major version number
+    if [[ "$(echo $python_version | cut -d'.' -f1)" -le 2 ]]; then
+      python_status="Python version (${python_version}) needs to be version 3 or higher"
+      vprint "      FAIL: $python_status" "6+" "${outlog}"
+      return
+    else
+      vprint "      OK: Python version ${python_version}" "6+" "${outlog}"
+    fi
+
+    vprint "      Checking libraries..." "7+" "${outlog}"
     declare -a not_found=()
-    
+
     # Loop through libraries
     for curr_lib in ${lib_array[@]}; do
-      check_library_python "${curr_lib}" "${outlog}"
+      check_python_library "$curr_python" "${curr_lib}" "${outlog}"
     done
     # End library loop
-    
-    if [[ "${#not_found[@]}" > 0 ]] ; then
-      validated=false
-      vprint "  ERROR!! Couldn't find the following Python libraries: ${not_found[*]}" "0+" "${outlog} =${warn_log}"
 
-      # Maybe we're not using the correct Python
-      if ! [[ "$(which python)" == "${CONDA_PREFIX}"*  ]]; then
-        vprint "  WARNING! Default Python is from another location: $(which python)" "1+" "${outlog} =${warn_log}"
-      fi
-    else
-      vprint "  Python version and libraries OK" "1+" "${outlog}"
+    if [[ "${#not_found[@]}" > 0 ]] ; then
+      python_status="Couldn't find the following Python libraries: ${not_found[*]}"
     fi
   }
 
-  function check_library_python() {
+  function check_python_library() {
   ###############################################################################
   #   Function:
-  #     Checks for Python library by trying to import it
+  #     Checks for a given Python version a given library by trying to import it
   #   
   #   Positional variables:
-  #     1) Python library
-  #     2) output log
+  #     1) Python executable
+  #     2) Python library
+  #     3) output log
   #     
   #   Global variables:
+  #     python_status
   #     not_found
-  #     warn_log
   #     
   #   Calls function:
   #     vprint
   #   
   ###############################################################################
 
-    local curr_lib=$1
-    local outlog=$2
+    local curr_python=$1
+    local curr_lib=$2
+    local outlog=$3
     
     # Try to import, and store status code
-    python -c "import ${curr_lib}" 2> /dev/null
+    $curr_python -c "import ${curr_lib}" 2> /dev/null
     local status_code=$?
     
     # If it fails, then save
     if [[ "$status_code" -ne 0 ]]; then
-      vprint "    Couldn't find Python library: '${curr_lib}'" "7+" "${outlog} =${warn_log}"
       not_found+=("${curr_lib}")
+      vprint "        FAIL: Couldn't find Python library: '${curr_lib}'" "7+" "${outlog}"
     else
-      vprint "    Found Python library: '${curr_lib}'" "7+" "${outlog}"
+      vprint "        OK: Found Python library: '${curr_lib}'" "7+" "${outlog}"
     fi
   }
 
@@ -2686,16 +2812,17 @@ function dose_fit() {
 #   Global variables:
 #     dose_list (OUTPUT)
 #     tomo_root
+#     vars
 #     good_angles_file (OUTPUT)
 #     mdoc_angle_array
 #     new_subframe_array
 #     dose_rate_array
+#     stem_movie
+#     micdir
+#     cor_ext
 #     main_log
 #     warn_log
-#     vars
-#     micdir
-#     stem_movie
-#     cor_ext
+#     python_exe
 #     verbose
 #   
 ###############################################################################
@@ -2735,7 +2862,7 @@ function dose_fit() {
     vprint "\nWARNING! Dose list '${dose_list}' not found" "0+" "${main_log} =${warn_log}"
     vprint "  Continuing...\n" "0+" "${main_log}"
   else
-    local dosefit_cmd="$(echo python ${SNARTOMO_DIR}/dose_discriminator.py \
+    local dosefit_cmd="$(echo $python_exe ${SNARTOMO_DIR}/dose_discriminator.py \
       ${dose_list} \
       --min_dose ${vars[dosefit_min]} \
       --max_residual ${vars[dosefit_resid]} \
@@ -2917,6 +3044,7 @@ function plot_tomo_ctfs() {
 #     ts_list
 #     ctf_plot
 #     verbose
+#     python_exe
 #     
 ###############################################################################
   
@@ -2988,7 +3116,7 @@ function plot_tomo_ctfs() {
     fi
     
     # Plot single-tilt-series CTF summary
-    local ctfbyts_cmd=$(echo python ${SNARTOMO_DIR}/ctfbyts.py \
+    local ctfbyts_cmd=$(echo $python_exe ${SNARTOMO_DIR}/ctfbyts.py \
       ${tomo_ctfs} \
       ${single_ts_list} \
       ${single_ts_plot} \
@@ -3002,7 +3130,7 @@ function plot_tomo_ctfs() {
     $ctfbyts_cmd
     
     # Plot cumulative CTF summary
-    local ctfbyts_cmd=$(echo python ${SNARTOMO_DIR}/ctfbyts.py \
+    local ctfbyts_cmd=$(echo $python_exe ${SNARTOMO_DIR}/ctfbyts.py \
       ${tomo_ctfs} \
       ${tgt_ts_list} \
       ${tgt_ctf_plot} \
@@ -4097,6 +4225,7 @@ function sort_sanity() {
 #   
 #   Global variables:
 #     sort_exe : defined here
+#     python_exe
 #   
 ###############################################################################
   
@@ -4105,7 +4234,7 @@ function sort_sanity() {
     sort_exe="python ${SNARTOMO_DIR}/sort_residuals.py"
   else
     if [[ -f "./sort_residuals.py" ]]; then
-      sort_exe="python ./sort_residuals.py"
+      sort_exe="$python_exe ${SNARTOMO_DIR}/sort_residuals.py"
     else
       if [[ "${test_contour}" != true ]]; then
         echo -e "\nERROR!! Can't find 'sort_residuals.py'!"
@@ -4114,7 +4243,7 @@ function sort_sanity() {
         exit
       else
         echo -e "\nWARNING! Can't find 'sort_residuals.py'"
-        sort_exe="python sort_residuals.py"
+        sort_exe="$python_exe ${SNARTOMO_DIR}/sort_residuals.py"
         exit
       fi
       # End testing IF-THEN
@@ -4259,7 +4388,6 @@ function ruotnocon_wrapper() {
     
     if [[ "${test_contour}" != true ]]; then
       ${contour_imod_dir}/$convertmod_cmd
-  #     local status_code=$?  # will be 1 on error, 0 if OK
     
       # Split WIMP file into chunks
       split_wimp "${wimp_file}"
@@ -5079,6 +5207,7 @@ function create_json() {
 #     vprint
 #   
 #   Global variables:
+#     python_exe
 #     heatwave_json
 #     vars
 #     recdir
@@ -5093,7 +5222,7 @@ function create_json() {
   local outlog=$1
   local prestring=$2
   
-  local heatwave_cmd="python snartomo-heatwave.py --no_gui --json ${heatwave_json} "
+  local heatwave_cmd="$python_exe ${SNARTOMO_DIR}/snartomo-heatwave.py --no_gui --json ${heatwave_json} "
   
   # If MDOC files are provided, vars[target_files] will be a dummy file
   if [[ "${do_pace}" == true ]]; then
