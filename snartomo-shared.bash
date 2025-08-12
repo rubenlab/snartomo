@@ -1984,7 +1984,7 @@ function validate_inputs() {
     
     # Remove extension (last period-delimited string)
     local stem=$(basename $filename | rev | cut -d. -f2- | rev)
-    # (Syntax adapted from https://unix.stackexchange.com/a/64673)
+    # (Syntax adapted from https://unix.stackexchange.com/a/64673)  # TODO: Replace with awk?
     
     echo $stem
   }
@@ -2040,7 +2040,7 @@ function check_gain_format() {
   # Don't need to do anything if "--no_gain" flag used
   if [[ "${vars[no_gain]}" == false ]]; then
     # Check if MRC or TIFF
-    local ext=$(echo "${vars[gain_file]}" | rev | cut -d. -f1 | rev)
+    local ext=$(echo "${vars[gain_file]}" | rev | cut -d. -f1 | rev)  # TODO: Replace with awk?
     
     vprint "Gain file format: $ext" "1+" "${main_log}"
     
@@ -2191,7 +2191,7 @@ function check_frames() {
       exit
     
     else
-      num_sections=$(echo "$hdr_out" | head -n 1 | rev | cut -d" " -f1 | rev)
+      num_sections=$(echo "$hdr_out" | head -n 1 | rev | cut -d" " -f1 | rev)  # TODO: Replace with awk?
       local hdr_time=$(echo "$hdr_out" | tail -n 1)
       
       vprint "    Micrograph $fn  \tnumber of frames: $num_sections (read in ${hdr_time} sec)" "3+" "=${outlog}"
@@ -2847,7 +2847,7 @@ function dose_fit() {
     local movie_file=$(echo ${new_subframe_array[${mdoc_idx}]##*[/\\]} )
     
     # Get motion-corrected micrograph name
-    local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
+    local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)  # TODO: Replace with awk?
     local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
     
     # Check that motion-corrected micrograph exists
@@ -3073,7 +3073,7 @@ function plot_tomo_ctfs() {
         local movie_file=$(echo ${new_subframe_array[${mdoc_idx}]##*[/\\]} )
         
         # Get motion-corrected micrograph name
-        local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
+        local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)  # TODO: Replace with awk?
         local ctf_txt=$(stem2ctfout "$stem_movie")
         
         # Check that file exists
@@ -3089,7 +3089,7 @@ function plot_tomo_ctfs() {
         
       # Loop through micrographs
       for fn in ${mcorr_mic_array[@]} ; do
-        local stem_mic=$(basename $fn | rev | cut -d. -f2- | rev)
+        local stem_mic=$(basename $fn | rev | cut -d. -f2- | rev)  # TODO: Replace with awk?
         local stem_movie=${stem_mic%_mic}
         local ctf_txt=$(stem2ctfout "$stem_movie")
         
@@ -3349,7 +3349,7 @@ function clean_up_mdoc() {
 
     # Find boundaries of MDOC file
     local movie_file=$(echo ${old_subframe_array[0]##*[/\\]} )
-    local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
+    local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)  # TODO: Replace with awk?
     local first_movie_file="$(grep -l $stem_movie ${chunk_prefix}* | head -n 1)"
 
     if [[ "$first_movie_file" != "" ]] ; then
@@ -3365,7 +3365,7 @@ function clean_up_mdoc() {
       local movie_file=$(echo ${old_subframe_array[${mdoc_idx}]##*[/\\]} )
 
       # Get motion-corrected micrograph name
-      local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
+      local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)  # TODO: Replace with awk?
       local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
 
       # Check that motion-corrected micrograph exists
@@ -3823,7 +3823,7 @@ function wrapper_aretomo() {
             echo    "         Exit status code was: $status_code"
 
             # Check length of stack
-            stack_mics=$(${vars[imod_dir]}/header $reordered_stack | grep sections | rev | cut -d' ' -f1 | rev)
+            stack_mics=$(${vars[imod_dir]}/header $reordered_stack | grep sections | rev | cut -d' ' -f1 | rev)  # TODO: Replace with awk?
             if [[ $stack_mics -ne $num_mics ]] ; then
               echo -e "         Number of micrographs in stack ($stack_mics) different from number in rawtilt file ($num_mics), skipping...\n"
             else
@@ -4262,6 +4262,7 @@ function ruotnocon_wrapper() {
 #   Positional variables:
 #     1) tomogram directory, relative to vars[outdir]
 #     2) prefix for output filenames
+#     3) (optional) Flag to save intermediates
 #   
 #   Calls functions:
 #     ruotnocon_run
@@ -4276,6 +4277,7 @@ function ruotnocon_wrapper() {
   
   local tomo_dir=$1
   local tomo_base=$2
+  local save_intermeds=$3
   
   local fid_file="${vars[outdir]}/${tomo_dir}/${tomo_base}${newstack_ext}.fid"
   
@@ -4287,7 +4289,8 @@ function ruotnocon_wrapper() {
     "${vars[outdir]}/${imgdir}/${contour_imgdir}/${tomo_base}_residuals.png" \
     "${vars[outdir]}/${tomo_dir}/tmp_contours" \
     "${vars[testing]}" \
-    "${vars[imod_dir]}"
+    "${vars[imod_dir]}" \
+    "${save_intermeds}"
 }
 
   function ruotnocon_run() {
@@ -4310,7 +4313,8 @@ function ruotnocon_wrapper() {
   #     6) (optional) Temporary directory
   #     7) (optional) Testing (boolean)
   #     8) (optional) IMOD executable directory
-  #   
+  #     9) (optional) Flag to save intermediates
+  #
   #   Calls functions:
   #     split_wimp
   #     find_bad_contours
@@ -4336,6 +4340,7 @@ function ruotnocon_wrapper() {
     temp_contour_dir=$6
     test_contour=$7
     contour_imod_dir=$8
+    local save_intermeds=$9
     
     if [[ $# -lt 3 ]]; then
       echo -e "\nUSAGE: "
@@ -4401,8 +4406,9 @@ function ruotnocon_wrapper() {
       remove_contours
       
       # Get z-scale factor
-      local zscale=$(${contour_imod_dir}/imodinfo -a ${fid_file} | grep scale | grep -v refcurscale | rev | cut -d" " -f1 | rev)
-      
+# # #       local zscale=$(${contour_imod_dir}/imodinfo -a ${fid_file} | grep scale | grep -v refcurscale | rev | cut -d" " -f1 | rev)
+      local zscale=$(${contour_imod_dir}/imodinfo -a ${fid_file} | grep scale | grep -v refcurscale | awk '{print $NF}')
+
       # Convert to FID model
       local wmod2imod_cmd="${contour_imod_dir}/wmod2imod -z ${zscale} ${new_wimp} ${tmp_fid}"
       if [[ ${verbose} -ge 4 ]] ; then
@@ -4418,7 +4424,7 @@ function ruotnocon_wrapper() {
         # Maybe zscale command failed
         if [[ "$zscale" == "" ]] ; then
           echo    "    zscale command:"
-          echo -e "      ${contour_imod_dir}/imodinfo -a ${fid_file} | grep scale | grep -v refcurscale | rev | cut -d" " -f1 | rev"
+          echo -e "      ${contour_imod_dir}/imodinfo -a ${fid_file} | grep scale | grep -v refcurscale | awk '{print $NF}'"
         fi
         exit
       fi
@@ -4440,7 +4446,10 @@ function ruotnocon_wrapper() {
         if [[ ${verbose} -ge 5 ]] ; then
           echo "  Cleaning up..."
         fi
-        rm -r ${temp_contour_dir} 2> /dev/null
+
+        if [[ "${save_intermeds}" != true ]]; then
+            rm -r ${temp_contour_dir} 2> /dev/null
+        fi
       else
         echo -e "  ERROR!! File '${out_fid_file}' does not exist! Exiting with status code: '${status_code}'\n"
         exit
@@ -4464,6 +4473,7 @@ function ruotnocon_wrapper() {
     #   
     #   Global variables:
     #     temp_contour_dir
+    #     contour_prefix
     #     verbose
     #     num_chunks : defined here
     #     chunk_array : defined here
@@ -4529,6 +4539,9 @@ function ruotnocon_wrapper() {
 
       # Read space-delimited list into array
       if [[ "${test_contour}" != true ]]; then
+        # Back up residual file
+        backup_copy ${contour_resid_file}
+
         IFS=' ' read -r -a bad_residuals <<< $($sort_cmd)
       fi
     }
@@ -4552,6 +4565,9 @@ function ruotnocon_wrapper() {
     #   printf "'%s'\n" "${bad_residuals[@]}"
     #   echo "bad_residuals: '${#bad_residuals[@]}'"
       
+      # Remember original number of contours
+      local last_orig_contour=$(printf '%03d' ${#chunk_array[@]})
+
       # Remove bad residuals from array
       for curr_resid in "${bad_residuals[@]}" ; do
         local contour2rm=$(( $curr_resid - 1))
@@ -4560,12 +4576,17 @@ function ruotnocon_wrapper() {
       
         # Remove index from array
         unset 'chunk_array[$contour2rm]'
-        vprint "  chunk_array: '${#chunk_array[@]}' '${chunk_array[@]}'" "7+"
       done
       
-      # Initialize new array
+# # #       echo "4582: len(array)='${#chunk_array[@]}'" >&2  # printing to stderr
+
+      # Initialize new WMP file
       cp "${temp_contour_dir}/${contour_prefix}000.txt" ${new_wimp}
-      
+      local old_line=$(grep "^ # of object" ${new_wimp})
+      local new_line=" $(echo ${old_line% *})  ${#chunk_array[@]}"
+      sed -i "s/.*$old_line.*/$new_line/" ${new_wimp}
+      # (Wild card ".*" replaces whole line)
+
       # Formatting
       local counter=0
       local num_digits=11
@@ -4582,12 +4603,15 @@ function ruotnocon_wrapper() {
         
         # String may have fixed width (https://unix.stackexchange.com/a/354493)
         local new_line="  Object #: ${fmt_spc:0:$(($num_digits - ${#counter}))}${counter:0:$num_digits}"
-        
+
+        # Replace line in chunk file
+        sed -i "s/.*$old_line.*/$new_line/" ${chunk_file}
+
         cat ${chunk_file} >> ${new_wimp}
       done
         
-      # Make sure not the last contour (which may have extra lines in the chunk file)
-      if [[ ${contour2rm} -eq ${#chunk_array[@]} ]] ; then
+      # Make sure not the last contour (which will have extra lines in the chunk file) (adapted from https://stackoverflow.com/a/15394738)
+      if [[ ! " ${chunk_array[*]} " =~ [[:space:]]${last_orig_contour}[[:space:]] ]] ; then
         echo ""      >>  ${new_wimp}
         echo "  END" >>  ${new_wimp}
       fi
@@ -4901,7 +4925,7 @@ function get_central_slice() {
   local trim_log="${vars[outdir]}/${tomo_dir}/trimvol.log"
   
   # Get dimensions (TODO: Replace with getDimensions)
-  local dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)
+  local dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)  # TODO: Replace with awk?
   IFS=' ' read -r -a dimension_array <<< ${dimension_string}
   
   # initialize minimum
@@ -4985,7 +5009,7 @@ function getDimensions() {
   
   local fn=$1
   
-  local dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)
+  local dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)  # TODO: Replace with awk?
   IFS=' ' read -r -a dimension_array <<< ${dimension_string}
 }
   
@@ -5006,7 +5030,7 @@ function get_shortest_axis() {
 #   
 ###############################################################################
   
-  local dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)
+  local dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)  # TODO: Replace with awk?
   IFS=' ' read -r -a dimension_array <<< ${dimension_string}
   
   # initialize minimum
@@ -5142,7 +5166,7 @@ function compressEer() {
     $merge_cmd > /dev/null 2>&1
   fi
   
-  out_tiff="${vars[tifdir]}/$(echo $fn | rev | cut -d. -f2- | rev).tif"
+  out_tiff="${vars[tifdir]}/$(echo $fn | rev | cut -d. -f2- | rev).tif"  # TODO: Replace with awk?
   
   # Make sure number of frames in the output is correct
   validateTiff "$fn" "$out_tiff" "${num_sections}" "${outlog}"
