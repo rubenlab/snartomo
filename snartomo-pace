@@ -2411,6 +2411,11 @@ function distribute_ctffind() {
     if [[ ! -e $ctf_mrc ]]; then
       vprint "$(date +"$time_format"): Starting CTFFIND4 on '$(basename ${cor_mic})' on slot #${cpu_num}/${vars[ctf_slots]}" "0+" "=${file_log}"
       ctffind_common "${stem_movie}" >> ${ctf_log}
+
+      if [[ "${warn_msg}" != "" ]]; then
+        vprint "${warn_msg}" "0+" "=${warn_log}"
+      fi
+
       vprint "$(date +"$time_format"): Finished CTFFIND4 on '$(basename ${cor_mic})' on slot #${cpu_num}/${vars[ctf_slots]}" "0+" "=${file_log}"
 
     # If output already exists
@@ -2437,6 +2442,8 @@ function distribute_ctffind() {
     # Make sure output exists
     if [[ ! -f "$ctf_mrc" ]]; then
       warn_msg="WARNING! CTFFIND4 output '$ctf_mrc' does not exist, re-adding to queue..."
+      # (Probably shouldn't have reused variable 'warn_msg'
+
       vprint "$(date +"$time_format"): $warn_msg" "0+" "${warn_log}"
 	     
       # Exit subprocess if in parallel mode
@@ -3000,7 +3007,12 @@ function tomogram_parallel() {
     wrapper_aretomo "${ts_mics}" "${slot_num}" >> "${tomo_log}"
   else
     # Copy updated ADOC to tomo directory (for compatibility)
-    cp "${vars[outdir]}/${vars[batch_directive]}" "${tomo_dir}/"
+    cp "${vars[batch_directive]}" "${vars[outdir]}/${tomo_dir}/"
+
+#     cp_status=$?
+#     if [[ $cp_status -ne 0 ]] ; then
+#       echo "3014: outdir='${vars[outdir]}', batch_directive='${vars[batch_directive]}', tomo_dir='${tomo_dir}'"
+#     fi
 
     # If removing bad contours
     if [[ "${vars[do_ruotnocon]}" == true ]] || [[ "${vars[do_laudiseron]}" == true ]] ; then

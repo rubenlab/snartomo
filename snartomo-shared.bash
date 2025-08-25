@@ -1098,16 +1098,16 @@ function validate_inputs() {
       
       # If both the command line and MDOC files give pixel sizes, check that they're the same to 2 decimal places
       else
-        cmdl_round=$(printf "%.2f" "${vars[apix]}")
-        mdoc_round=$(printf "%.2f" "${mdoc_apix}")
-        
-        if (( $(echo "${mdoc_round} == ${cmdl_round}" |bc -l) )); then
+#         cmdl_round=$(printf "%.2f" "${vars[apix]}")
+#         mdoc_round=$(printf "%.2f" "${mdoc_apix}")
+#
+#         if (( $(echo "${mdoc_round} == ${cmdl_round}" |bc -l) )); then
           vprint "    WARNING! Pixel size specified on both command line (${vars[apix]}) and in MDOC file (${mdoc_apix}). Using former..." "2+" "${outlog}"
-        else
-          vprint "\nERROR!! Different pixel sizes specified on command line (${vars[apix]}) and in MDOC file (${mdoc_apix})!" "0+" "${outlog}"
-          vprint   "  Exiting...\n" "0+" "${outlog}"
-          exit 7
-        fi
+#         else
+#           vprint "\nERROR!! Different pixel sizes specified on command line (${vars[apix]}) and in MDOC file (${mdoc_apix})!" "0+" "${outlog}"
+#           vprint   "  Exiting...\n" "0+" "${outlog}"
+#           exit 7
+#         fi
       fi
       # End command-line IF-THEN
     }
@@ -2108,7 +2108,7 @@ function update_adoc() {
   
   # Copy batch directive to output directory
   cp "${vars[batch_directive]}" "${vars[outdir]}"
-  
+
   # Use copy from now on
   local new_adoc="${vars[outdir]}/$(basename ${vars[batch_directive]})"
   vars[batch_directive]="${new_adoc}"
@@ -2660,7 +2660,12 @@ function ctffind_common() {
             fi
 
             # Convert to PNG
-            ${png_cmd} > /dev/null
+# # #             ${png_cmd} > /dev/null
+            png_err=$( { ${png_cmd}; } 2>&1 1>/dev/null )
+            png_status=$?
+            if [[ $png_status -ne 0 ]] ; then
+              echo "WARNING! pdftoppm status code: $png_status" >&2
+            fi
 
 #             else
 #               echo "Not found!"
@@ -3499,13 +3504,6 @@ function imod_restack() {
     local imod_list="${mcorr_list}"
   fi
   
-#   # AreTomo and IMOD expect different extensions for stacks
-#   if [[ ! -z "${vars[batch_directive]}" ]] ; then
-#     reordered_stack="${tomo_root}_newstack.mrc"
-#   else
-#     reordered_stack="${tomo_root}_newstack.st"
-#   fi
-  
   reordered_stack="${tomo_root}_newstack.st"
 
   # AreTomo and IMOD expect different extensions for stacks, and eTomo gets upset if both names exist
@@ -4043,7 +4041,7 @@ function wrapper_etomo() {
   
   local do_reconstruct=true
   local etomo_out="${vars[outdir]}/${tomo_dir}/${tomo_base}_std.out"
-  local etomo_cmd="batchruntomo -RootName ${tomo_base}${newstack_ext} -CurrentLocation ${vars[outdir]}/${tomo_dir} -DirectiveFile ${vars[outdir]}/${tomo_dir}/${vars[batch_directive]} ${more_flags}"
+  local etomo_cmd="batchruntomo -RootName ${tomo_base}${newstack_ext} -CurrentLocation ${vars[outdir]}/${tomo_dir} -DirectiveFile ${vars[outdir]}/${tomo_dir}/$(basename ${vars[batch_directive]}) ${more_flags}"
   tomogram_3d="${vars[outdir]}/${tomo_dir}/${tomo_base}${newstack_ext}_full_rec.mrc"
   
   if [[ "${vars[testing]}" == false ]]; then
@@ -4066,7 +4064,6 @@ function wrapper_etomo() {
     fi
     
     if [[ "${do_reconstruct}" == true ]] ; then
-# # #       vprint "\n  $(date)" "3+"
       vprint   "  Computing tomogram reconstruction 'batchruntomo' from $num_mics micrographs" "3+"
       vprint "" "7+"
       vprint "    Running: ${etomo_cmd}\n" "3+"
@@ -4099,7 +4096,6 @@ function wrapper_etomo() {
       
       # If final alignment
       if [[ "${more_flags}" == "-start 6" ]] || [[ "${do_split_alignment}" == false ]] ; then
-        
         # Sanity check: tomogram exists
         if [[ ! -f "$tomogram_3d" ]]; then
           vprint "\n$(date)" "1+"
