@@ -49,8 +49,8 @@ USAGE = """
   For more info about options, enter: %s --help
 """ % ( (os.path.basename(__file__),)*3 )
 
-MODIFIED="Modified 2024 Oct 04"
-MAX_VERBOSITY=9
+MODIFIED="Modified 2025 Aug 26"
+MAX_VERBOSITY=10
 VIRTUAL_TARGET_FILE='All tilt series'
 
 # Information to extract from MDOC header & for each micrograph
@@ -199,23 +199,20 @@ class MdocTreeView(QtWidgets.QMainWindow):
         mic_tags= ['micrograph movies','TIFF files','motion-corrected micrographs','micrograph thumbnails','power-spectrum thumbnails','denoised micrographs']
         found_dict= {key: 0 for key in ['target_files','target_ctfplots','target_ctfplots','mdocs','selected_mdocs','MdocSelected'] + mdoc_keys + mic_keys }
         num_targets= len( self.data4json.keys() )
-        disableTF= self.verbosity<3 or self.verbosity>5 or self.debug
+        disableTF= self.verbosity<3 or self.verbosity>6 or self.debug
 
         # Loop through target files (real or virtual)
         for curr_target in self.data4json.keys():
-            ###if self.debug: print(f"  Target '{curr_target}' {os.path.exists(curr_target)} {'CtfBytsPlot' in self.data4json[curr_target]} {os.path.exists(self.data4json[curr_target]['CtfBytsPlot'])}")
             if os.path.exists(curr_target) : found_dict['target_files']+= 1
             if not disableTF: print(f"\nCollecting data from target file '{curr_target}'...")
             if definedAndExists('CtfBytsPlot', self.data4json[curr_target]) : found_dict['target_ctfplots']+= 1
             target_data= self.data4json[curr_target]
             
             # Loop through (possible) MDOC files
-            ###for curr_mdoc in target_data.keys():
             for curr_mdoc in tqdm.tqdm(target_data.keys(), unit=' mdoc', disable=disableTF):
                 # Might be the CtfByTS plot
                 if isinstance(target_data[curr_mdoc], list):
                     num_mdocs+= 1
-                    ###if self.debug : print(f"    MDOC '{curr_mdoc}'")
                     if os.path.exists(curr_mdoc) : found_dict['mdocs']+= 1
                     
                     for curr_key in mdoc_keys:
@@ -250,7 +247,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                                 self.data4json[curr_target][curr_mdoc][0]['MdocSelected'] = 0
                             else:
                                 self.data4json[curr_target][curr_mdoc][0]['MdocSelected'] = 1
-                    if self.debug: print(f"253   MDOC #{num_mdocs}: '{os.path.basename(curr_mdoc)}', MdocSelected={self.data4json[curr_target][curr_mdoc][0]['MdocSelected']}")
+                    ###if self.debug: print(f"253   MDOC #{num_mdocs}: '{os.path.basename(curr_mdoc)}', MdocSelected={self.data4json[curr_target][curr_mdoc][0]['MdocSelected']}")
                 # End MDOC IF-THEN
             # End MDOC loop
         # End target loop
@@ -259,7 +256,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         if found_dict['target_files']==0 : found_dict['target_files']=1
         
         # Print summary
-        if self.verbosity>= 4:
+        if self.verbosity>= 5:
             print()
             print(f"Input summary{post_msg}:")
             print(f"  Found {found_dict['target_files']}/{num_targets} target files (real or virtual)")
@@ -305,7 +302,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                         exit(6)
                 
             if test_indir != self.options.in_dir:
-                if self.debug: print(f"DEBUG: Updating '--indir' from '{self.options.in_dir}' to '{test_indir}'")
+                ###if self.debug: print(f"DEBUG: Updating '--indir' from '{self.options.in_dir}' to '{test_indir}'")
                 self.options.in_dir= test_indir
         
         # Sanity check
@@ -330,7 +327,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         else: 
             self.temp_targets = self.new_targets
             
-        if self.debug: print(f"310 self.temp_targets ({len(self.temp_targets)}) {self.temp_targets}")
+        ###if self.debug: print(f"310 self.temp_targets ({len(self.temp_targets)}) {self.temp_targets}")
         
     def parseJson(self):
         """
@@ -349,7 +346,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         
         self.temp_targets= list( self.data4json.keys() )  # .keys() is not a list and thus cannot be directly subscripted
 
-        if self.debug: print(f"330 self.temp_targets ({len(self.temp_targets)}) {self.temp_targets}")
+        ###if self.debug: print(f"330 self.temp_targets ({len(self.temp_targets)}) {self.temp_targets}")
         
         for curr_target in self.temp_targets:
             if os.path.exists(curr_target) : self.list_targets.append(curr_target)
@@ -408,12 +405,12 @@ class MdocTreeView(QtWidgets.QMainWindow):
         self.ts_dir=       re.sub('\$IN_DIR', self.options.in_dir, self.options.ts_dir)
         self.ctfbyts_tgts= re.sub('\$IN_DIR', self.options.in_dir, self.options.ctfbyts_tgts)
         
-        if self.debug: print(f"409 buildJson")
+        ###if self.debug: print(f"409 buildJson")
 
         # Loop through target files
         for tgt_idx in range( len(self.new_targets) ):
             curr_target=self.new_targets[tgt_idx]
-            if self.verbosity>= 5: print(f"\nBuilding JSON data for target file '{curr_target}'...")
+            if self.verbosity>= 6: print(f"\nBuilding JSON data for target file '{curr_target}'...")
             curr_list_mdocs=[]
             
             if curr_target != VIRTUAL_TARGET_FILE:
@@ -430,22 +427,22 @@ class MdocTreeView(QtWidgets.QMainWindow):
             # Initialize row for target file if not already present
             if not curr_target in self.data4json:
                 self.data4json[curr_target] = {}
-            else:
-                if self.debug: print(f"431 data4json already has '{curr_target}'")
+            ##else:
+                ##if self.debug: print(f"431 data4json already has '{curr_target}'")
             
             # Try to find CtfByTS plots
             if self.do_show_imgs:
                 ctfbyts_plot= self.findCtfbytsPlots(target_base, debug=self.debug)
                 if ctfbyts_plot:
                     self.data4json[curr_target]['CtfBytsPlot'] = ctfbyts_plot
-                else:
-                    if self.debug : print(f"buildJson Didn't find ctfbyts_plot '{ctfbyts_plot}' '{target_base}'")
+                ##else:
+                    ##if self.debug : print(f"buildJson Didn't find ctfbyts_plot '{ctfbyts_plot}' '{target_base}'")
             
-            disableTF= self.verbosity!=5 or self.debug
+            disableTF= self.verbosity!=6 or self.debug
 
             # Loop through tilt series
             for mdoc_idx, curr_mdoc in enumerate( tqdm.tqdm(curr_list_mdocs, unit=' mdoc', disable=disableTF) ):
-                if self.debug: print(f"445   curr_mdoc #{mdoc_idx}: '{curr_mdoc}'")
+                ###if self.debug: print(f"445   curr_mdoc #{mdoc_idx}: '{curr_mdoc}'")
                 self.parseMdoc(curr_mdoc, curr_target)
                 
                 # Add MDOC, if necessary
@@ -555,9 +552,6 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 cum_dose += dose_per_image
                 path_dose_exposure[frame_path].append(cum_dose)
             
-            ## print(frame_path + ' has accumulated dose of ' + str(cum_dose) + ' e⁻/A² and exposure of ' + str(
-            ##    cum_exposure) + ' s.')
-        
         return path_dose_exposure
 
     def get_dose_per_image(self):
@@ -589,9 +583,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                     with open(settings_file) as settings_fin:
                         for line in settings_fin:
                             if "--frame_file" in line:
-                                #print(frames_file)
                                 frames_file = line.strip().split(' ')[1].replace('\t', '')
-                                #print('Found frames file (' + frames_file + ') in ' + settings_file + '.')
             # END frames-file IF-THEN
             
             if os.path.exists(frames_file):
@@ -653,7 +645,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
 
             if os.path.exists(mdoc_path):
                 curr_list_mdocs.append(mdoc_path)
-                if self.verbosity>=6: print(f"  Found MDOC file: {mdoc_path}")
+                if self.verbosity>=7: print(f"  Found MDOC file: {mdoc_path}")
             else:
                 print(f"  WARNING! Couldn't find MDOC file: {mdoc_path}")
         # End line loop
@@ -756,10 +748,9 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 try:
                     micrograph_data = open_mrc(mic_path)
                     bin16_micrograph_data = bin_nparray(micrograph_data, 16)
-                    #display_nparray(bin16_micrograph_data)
                     save_as_image(bin16_micrograph_data, mic_thumb_path)
                     general_and_tilt[1][tilt_key]['MicThumbnail'] = mic_thumb_path
-                    if self.verbosity >= 5:
+                    if self.verbosity >= 6:
                         print('  Saved thumbnail from motion-corrected micrograph under ' + mic_thumb_path)
                 except:
                     print('  Could not create thumbnail image. Make sure motion-corrected MRCs exist!')
@@ -770,7 +761,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
             # Set selection flag (if starting from scratch, starts as 'True')
             general_and_tilt[1][tilt_key]['MicSelected'] = True
             
-            if self.verbosity==7: print(f"  {sorted_idx}: ZValue {tilt_idx}, {mic_thumb_path}, {ctf_thumb_path}, {ntpath.basename(general_and_tilt[1][tilt_key]['SubFramePath'])}")
+            if self.verbosity==8: print(f"  {sorted_idx}: ZValue {tilt_idx}, {mic_thumb_path}, {ctf_thumb_path}, {ntpath.basename(general_and_tilt[1][tilt_key]['SubFramePath'])}")
         # End micrograph loop
         
         ctfbyts_plot= getLatest( self.options.ctfbyts_1ts, os.path.dirname(curr_mdoc) )
@@ -836,11 +827,11 @@ class MdocTreeView(QtWidgets.QMainWindow):
         
         if os.path.exists(curr_path):
             curr_dict[curr_key] = curr_path
-            if self.verbosity>=7:
+            if self.verbosity>=8:
                 print(f"  HOORAY! {curr_type} '{curr_path}' found :)")
         else:
             curr_dict[curr_key] = 'null'
-            if not self.warn_dict[curr_key] and self.verbosity>=7:
+            if not self.warn_dict[curr_key] and self.verbosity>=8:
                 print(f"  WARNING! {curr_type} '{curr_path}' not found")
                 self.warn_dict[curr_key] = True
                 
@@ -876,15 +867,15 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 del self.data4json[curr_target]
                 self.temp_targets.remove(curr_target)
                 if curr_target in self.new_targets : self.new_targets.remove(curr_target)
-                if self.debug:
-                    print(f"855 data_copy.keys() ({len(data_copy.keys())} {data_copy.keys()})")
-                    print(f"856 self.list_targets ({len(self.list_targets)}) {self.list_targets})")
-                    print(f"857 self.new_targets ({len(self.new_targets)}) {self.new_targets})")
-                    print(f"858 self.temp_targets ({len(self.temp_targets)}) {self.temp_targets})")
+                #if self.debug:
+                    #print(f"855 data_copy.keys() ({len(data_copy.keys())} {data_copy.keys()})")
+                    #print(f"856 self.list_targets ({len(self.list_targets)}) {self.list_targets})")
+                    #print(f"857 self.new_targets ({len(self.new_targets)}) {self.new_targets})")
+                    #print(f"858 self.temp_targets ({len(self.temp_targets)}) {self.temp_targets})")
         
         # Save to JSON
         save_json(self.data4json, filename=self.json, verbosity=self.verbosity)
-        if self.verbosity >= 9: 
+        if self.verbosity >= 10:
             print(f"\n{os.path.basename(self.json)}:")
             system_call_23('cat', self.json)
             print()
@@ -1112,7 +1103,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
             target_base=''
         
         if self.verbosity>= 3: print(f"\nDrawing data for target file '{curr_target}'...")
-        if self.debug: print(f"1110 drawTargetData: curr_list_mdocs ({len(curr_list_mdocs)}) {curr_list_mdocs}")
+        ###if self.debug: print(f"1110 drawTargetData: curr_list_mdocs ({len(curr_list_mdocs)}) {curr_list_mdocs}")
         
         # Initialize row for target file (real or fake) 
         target_item_list= [target_item]
@@ -1127,16 +1118,16 @@ class MdocTreeView(QtWidgets.QMainWindow):
             if ctfbyts_plot:
                 ctfbyts_item= CustomStandardItem(ctfbyts_plot, size=self.imgsize, debug=self.debug, id=curr_target)
                 target_item_list.append(ctfbyts_item)
-            else:
-                if self.debug : print(f"  DEBUG drawTargetData 1126 Didn't find ctfbyts_plot '{ctfbyts_plot}'")
+            ##else:
+                ##if self.debug : print(f"  DEBUG drawTargetData 1126 Didn't find ctfbyts_plot '{ctfbyts_plot}'")
         
-        disableTF= self.verbosity>5 or self.verbosity<2 or self.debug
+        disableTF= self.verbosity>6 or self.verbosity<2 or self.debug
 
         # Loop through tilt series
         for mdoc_idx, curr_mdoc in enumerate( tqdm.tqdm(curr_list_mdocs, unit=' mdoc', disable=disableTF) ):
             # Strip extensions from MDOC
             mdoc_base= re.sub( '.mrc.mdoc$', '', os.path.basename(curr_mdoc) )
-            if self.debug: print(f"1139   mdoc_base #{mdoc_idx}: {mdoc_base}")
+            ###if self.debug: print(f"1139   mdoc_base #{mdoc_idx}: {mdoc_base}")
             
             try:
                 slice_jpg= self.data4json[curr_target][curr_mdoc][0]['CentralSlice']
@@ -1187,7 +1178,6 @@ class MdocTreeView(QtWidgets.QMainWindow):
                         if self.verbosity >= 1: print(f"WARNING! CTF plot not found for '{os.path.basename(curr_mdoc)}'")
                         self.did_warn_ctfplot= True
                     
-                ##ts_item_list= self.addTSImgs(self.data4json[curr_target][curr_mdoc][0]['DosefitPlot'], ts_item_list)
                 if 'DosefitPlot' in self.data4json[curr_target][curr_mdoc][0]:
                     ts_item_list= self.addTSImgs(self.data4json[curr_target][curr_mdoc][0]['DosefitPlot'], ts_item_list)
                 else:
@@ -1269,8 +1259,6 @@ class MdocTreeView(QtWidgets.QMainWindow):
                             # DoseRate absent in TFS MDOC files
                             if stat_key=='DoseRate' and stat_key not in tilt_data[tilt_key]:
                                 stat_string="-1"
-                                ##print(f"1257 stat_key '{stat_key}', stat_string '{stat_string}', tilt_data[tilt_key] '{tilt_data[tilt_key].keys()}'")
-                                ##exit()
                             else:
                                 stat_value= float(tilt_data[tilt_key][stat_key])
                                 stat_string=f"{stat_value:{stat_format}}"
@@ -1292,11 +1280,11 @@ class MdocTreeView(QtWidgets.QMainWindow):
                     stat_list.append(stat_item)
                 # End found stat_key IF-THEN
 
-                if self.verbosity>=7: print(f"  {stat_key} : '{stat_string}'")
+                if self.verbosity>=8: print(f"  {stat_key} : '{stat_string}'")
             # End stat loop
 
             ts_parent_item.appendRow(stat_list)
-            if self.verbosity>=7: print()
+            if self.verbosity>=8: print()
         # End micrograph loop
         
         # Set selection status for tilt series
@@ -1395,7 +1383,6 @@ class MdocTreeView(QtWidgets.QMainWindow):
         #self.mic2qt_lut[curr_mdoc][movie_base] = mic_item
         ##(For some reason, Python forgets the address mic_item after the IF-THEN, so I need to save it to the lookup table right away
         
-        ###return stat_list, self.did_warn_thumbs, did_warn_ctfs
         return stat_list
 
     def openMenu(self, position):
@@ -1403,7 +1390,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         Builds right click menu (Adapted from http://pharma-sas.com/common-manipulation-of-qtreeview-using-pyqt5)
         
         Parameter:
-            position passed from the Qt widget
+            Position (coordinates) passed from the Qt widget
         """
         
         indexes= self.sender().selectedIndexes()
@@ -1411,24 +1398,14 @@ class MdocTreeView(QtWidgets.QMainWindow):
         if not mdlIdx.isValid():
             print("WARNING, not a valid area")
             return
-        #item = self.item_model.itemFromIndex(mdlIdx)
-        #if len(indexes) > 0:
-            #depth = 0
-            #index = indexes[0]
-            #while index.parent().isValid():
-                #index = index.parent()
-                #depth += 1
-        #else:
-            #depth = 0
         depth= find_depth( self.item_model.itemFromIndex(mdlIdx) )
         
         self.right_click_menu = QtWidgets.QMenu()
         
-        # If debugging
-        if self.debug:
-            act_add = self.right_click_menu.addAction(self.tr("Debug: Test MDOC directory"))
-            act_add.triggered.connect( partial(self.probeMdocDir, depth, mdlIdx) )
-            
+        #if self.debug:
+            #act_add = self.right_click_menu.addAction(self.tr("Debug: Test MDOC directory"))
+            #act_add.triggered.connect( partial(self.probeMdocDir, depth, mdlIdx) )
+
         # Menu options for file types
         mdoc_dir= self.probeMdocDir(depth, mdlIdx)
         if mdoc_dir:
@@ -1437,23 +1414,51 @@ class MdocTreeView(QtWidgets.QMainWindow):
             # Micrograph stacks might end in '.st'
             list_newstacks= glob.glob( os.path.join(mdoc_dir, "*" + self.micthumb_suffix + ".mrc") )
             list_newstacks+= glob.glob( os.path.join(mdoc_dir, "*" + self.micthumb_suffix + ".st") )
+
+            if depth==2:
+                if self.debug: print(f"DEBUG: 1419: depth='{depth}', stack='{list_newstacks[-1]}', row='{mdlIdx.row()}'")
+
+                # Prepend slice number to filename (will have to parse it later for printing)
+                list_newstacks+= [ f"-z {mdlIdx.row() + 1} {list_newstacks[-1]}" ]
             
             # AreTomo reconstructions are of the form "*_aretomo.mrc"
             list_recons=[]
+            list_slices=[]
+
+            # Check if MRCs are 2D or 3D
             for curr_pattern in self.options.recon_pattern.split():
-                list_recons+= glob.glob( os.path.join(mdoc_dir, curr_pattern) )
-            
+                list2test= glob.glob( os.path.join(mdoc_dir, curr_pattern) )
+                for fn in list2test:
+                    mrc_dims= self.getDimensions(fn)  # (x->0, y->1, z->2)
+                    ###if self.debug : print(f"DEBUG: 1428: fn={fn}, mrc_dims={mrc_dims}, min_index={mrc_dims.index( min(mrc_dims) )}")
+
+                    # If getDimensions fails, it will return None
+                    if mrc_dims:
+                        if min(mrc_dims) > 1:
+                            list_recons+= [fn]
+                        else:
+                            # Make sure it's the z-dimension that's 1
+                            if mrc_dims.index( min(mrc_dims) ) != 2:
+                                print(f"WARNING! MRC file '{fn}' has thickness of 1 but not in z")
+
+                                # Open it as a volume anyway
+                                list_recons+= [fn]
+                            else:
+                                list_slices+= [fn]
+                    # End mrc_dims IF-THEN
+
             # CTF scatter plot
             ts_ctf_plot= glob.glob( os.path.join(mdoc_dir, self.options.ctfbyts_1ts) )
             
             # Dose-fitting plot
             ts_dose_plot= glob.glob( os.path.join(mdoc_dir, self.options.dosefit_plot) )
             
-            self.addListAction(list_newstacks, "tilt series")
+            self.addListAction(list_newstacks, "tilt series", voltype='stack')
             self.addListAction(list_ctfstacks, "power-spectrum stack")
-            self.addListAction(list_recons, "reconstruction", voltype='rec')
-            self.addListAction(ts_ctf_plot, "CTF plot", voltype='img')
-            self.addListAction(ts_dose_plot, "dose-fitting plot", voltype='img')
+            self.addListAction(list_recons, "3D reconstruction", voltype='mrc3d')
+            self.addListAction(list_slices, "2D image", voltype='mrc2d')
+            self.addListAction(ts_ctf_plot, "CTF plot", voltype='png')
+            self.addListAction(ts_dose_plot, "dose-fitting plot", voltype='png')
         # End directory-exists IF-THEN
         
         # (I don't know what this does)
@@ -1475,21 +1480,23 @@ class MdocTreeView(QtWidgets.QMainWindow):
         
         cell_text= self.item_model.itemFromIndex(mdlIdx).text()
         
-        if self.debug : 
+        # KEEP (can comment out)
+        if self.debug :
             print()
-            print(f"466 depth                 : {depth}")
-            print(f"467 cell_text             : '{cell_text}'")
-            print(f"471 tree_view.model.data  : '{self.tree_view.model().data( self.tree_view.model().index( mdlIdx.row(), 0, mdlIdx.parent() ) )}'")
-            print(f"474 column                : {mdlIdx.column()}")
-            print(f"475 row                   : {mdlIdx.row()}")
-        
+            print(f"1478 depth                 : {depth}")
+            print(f"1479 cell_text             : '{cell_text}'")
+            print(f"1480 tree_view.model.data  : '{self.tree_view.model().data( self.tree_view.model().index( mdlIdx.row(), 0, mdlIdx.parent() ) )}'")
+            print(f"1481 column                : {mdlIdx.column()}")
+            print(f"1482 row                   : {mdlIdx.row()}")
+            print()
+
         if len(self.temp_targets) > 0 and depth==0: 
             # See if there's a CtfByTS plot
             first_cell= self.tree_view.model().data( self.tree_view.model().index( mdlIdx.row(), 0, mdlIdx.parent() ) )
             ctfbyts_plot= self.findCtfbytsPlots(first_cell)
             
             if ctfbyts_plot:
-                self.addListAction([ctfbyts_plot], "CTF plot", voltype='img')
+                self.addListAction([ctfbyts_plot], "CTF plot", voltype='png')
             else:
                 print(f"WARNING! No known metadata file associated with current selection")
                 
@@ -1516,7 +1523,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                     
                     exit(11)
             
-            if self.debug: print(f"505 curr_mdoc : '{curr_mdoc}'")
+            ###if self.debug: print(f"505 curr_mdoc : '{curr_mdoc}'")
         
         elif (len(self.temp_targets) > 0 and depth>1) or (len(self.temp_targets) <= 1 and depth==1):
             try:
@@ -1547,59 +1554,99 @@ class MdocTreeView(QtWidgets.QMainWindow):
             insert_menuopt= self.right_click_menu.addAction( self.tr(f"(Didn't find any {type_string})") ).setDisabled(True)
         else:
             for fn in current_list:
-                insert_menuopt= self.right_click_menu.addAction(self.tr(f"Open {type_string}: {os.path.basename(fn)}"))
+                # Check for prepended slice number
+                if voltype=='stack' and fn.split()[0] == '-z':
+                    if self.debug: print(f"DEBUG: 1556: fn.split()='{fn.split()}'")
+                    insert_menuopt= self.right_click_menu.addAction(self.tr(f"Open {type_string} at slice #{fn.split()[1]}: {os.path.basename(fn)}"))
+                else:
+                    insert_menuopt= self.right_click_menu.addAction(self.tr(f"Open {type_string}: {os.path.basename(fn)}"))
                 
-                if voltype=='img':
+                if voltype=='png':
                     insert_menuopt.triggered.connect( partial(self.openImgView, fn) )
                 else:
-                    insert_menuopt.triggered.connect( partial(self.openThreedMod, fn, voltype=voltype) )
-        
-    def openThreedMod(self, fn, voltype=None):
+                    ###insert_menuopt.triggered.connect( partial(self.openThreedMod, fn, voltype=voltype) )
+                    insert_menuopt.triggered.connect( partial(self.openThreedMod, fn) )
+
+    ###def openThreedMod(self, fn, voltype=None):
+    def openThreedMod(self, fn):
         """
-        Opens 3dmod
+        Opens 3dmod, rotating if necessary
         
         Parameters:
             fn (str) : filename
-            voltype (str, optional) : data type
+            ###voltype (str, optional) : data type
         """
         
+        # Get dimensions
+        mrc_dims= self.getDimensions(fn)
+
+        # If getDimensions fails, it will return None
+        if mrc_dims:
+            # Check if IMOD in PATH
+            path_3dmod= self.check_exe('3dmod', verbose=self.verbosity>=5)
+
+            if path_3dmod is None:
+                print(f"WARNING! IMOD program '3dmod' not in PATH")
+                if not 'IMOD_BIN' in os.environ:
+                    print("'IMOD_BIN' is not among your environmental variables. Maybe you're not in the SNARTomo environment?")
+                return
+
+            # Find minimum (x->0, y->1, z->2)
+            min_axis= mrc_dims.index( min(mrc_dims) )
+
+            if self.do_rotate and min_axis!=2:
+                fn= "-Y " + fn
+                if self.verbosity>=4 : print("\nAutorotating...")
+
+            system_call_23(path_3dmod, fn, verbose=self.verbosity>=4)
+        # End mrc_dims IF-THEN
+
+    def getDimensions(self, fn):
+        """
+        Get MRC dimensions
+
+        Parameters:
+            fn (str) : filename
+
+        Returns:
+            list of dimensions (x->0, y->1, z->2)
+        """
+
         # Check if IMOD in PATH
-        path_3dmod= self.check_exe('3dmod', verbose=self.verbosity>=5)
         path_header= self.check_exe('header', verbose=self.verbosity>=5)
-        
-        if path_3dmod is None or path_header is None:
-            print(f"WARNING! IMOD programs '3dmod' and/or 'header' are not in PATH")
+
+        if path_header is None:
+            print(f"WARNING! IMOD program 'header' not in PATH")
             if not 'IMOD_BIN' in os.environ:
                 print("'IMOD_BIN' is not among your environmental variables. Maybe you're not in the SNARTomo environment?")
             return
-        
+
+        # If single slice from stack, then 'fn' will have been prepended to
+        if fn.split()[0] == '-z': fn= ' '.join(fn.split()[2:])
+
         # Read header
         hdr_out = subprocess.run([path_header, fn], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        
+
         # Try to catch subprocess errors
         if hdr_out.returncode!= 0:
-            print(f"ERROR!! IMOD 'header' command failed! \n\t{hdr_out.stderr.decode('utf-8')}\tExiting...\n", file=sys.stderr)
-            exit(12)
-        
+            print("\nWARNING! IMOD 'header' command failed!", file=sys.stderr)
+            print( f"  Command: {' '.join([path_header, fn])}", file=sys.stderr)
+            print( f"  Error: {hdr_out.stdout.decode('utf-8').rstrip()}", file=sys.stderr)
+            return None
+
         # Split into lines
         hdr_lines = hdr_out.stdout.decode('utf-8').split('\n')
-        
+
         # Find line with 'sections'
         section_lines= [x for x in hdr_lines if 'sections' in x]
         assert len(section_lines) == 1, f"ERROR!! IMOD header output has multiple lines (or none) containing the string 'sections'! \n\t'{section_lines}'"
-        
+
         # Get last three entries containing dimensions
         mrc_dims= [ eval(i) for i in section_lines[0].split()[-3:] ]
-        
-        # Find minimum (x->0, y->1, z->2)
-        min_axis= mrc_dims.index( min(mrc_dims) )
-        
-        if self.do_rotate and min_axis!=2: 
-            fn= "-Y " + fn
-            if self.verbosity>=4 : print("\nAutorotating...")
-            
-        system_call_23(path_3dmod, fn, verbose=self.verbosity>=4)
-    
+        # (x->0, y->1, z->2)
+
+        return mrc_dims
+
     def openImgView(self, fn, voltype=None):
         """
         Opens image-viewer
@@ -1679,7 +1726,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
             # If IMOD directory is defined, then use it
             if self.options.imod_bin:
                 exe_path= os.path.join(self.options.imod_bin, search_exe)
-                if self.debug: print(f"Path for '{search_exe}' ({self.options.imod_bin}) specified on the command line")
+                ###if self.debug: print(f"Path for '{search_exe}' ({self.options.imod_bin}) specified on the command line")
             
             # Try SNARTomo environmental variables
             elif 'IMOD_BIN' in os.environ:
@@ -1688,14 +1735,14 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 #Make sure it's an executable
                 if os.access(path_attempt, os.X_OK):
                     exe_path= path_attempt
-                    if self.debug: print(f"Path for '{search_exe}' found from SNARTomo environmental variable 'IMOD_BIN'")
-                else:
-                    if self.debug: print(f"Found SNARTomo environmental variables, but not path for '{search_exe}' ")
+                    #if self.debug: print(f"Path for '{search_exe}' found from SNARTomo environmental variable 'IMOD_BIN'")
+                #else:
+                    #if self.debug: print(f"Found SNARTomo environmental variables, but not path for '{search_exe}' ")
         
         # If not found yet, simply try a 'which'
         if exe_path is None:
             exe_path = shutil.which(search_exe) 
-            if exe_path and self.debug: print(f"DEBUG: Executable '{search_exe}' found in $PATH")
+            ###if exe_path and self.debug: print(f"DEBUG: Executable '{search_exe}' found in $PATH")
 
         # If still not found, throw an error
         if exe_path is None:
@@ -1800,12 +1847,12 @@ class MdocTreeView(QtWidgets.QMainWindow):
                         print(f"UH OH! Can't find widget dictionary for MDOC '{curr_mdoc}'")
                         return()
                     
-                    if self.debug: 
-                        print(f"1500 MDOC {os.path.basename(curr_mdoc)} before: data4json {target_data[curr_mdoc][0]['MdocSelected']}, mic2qt_lut {self.mic2qt_lut[curr_mdoc]['widget'].checkState()}")
+                    ##if self.debug:
+                        ##print(f"1500 MDOC {os.path.basename(curr_mdoc)} before: data4json {target_data[curr_mdoc][0]['MdocSelected']}, mic2qt_lut {self.mic2qt_lut[curr_mdoc]['widget'].checkState()}")
                     if target_data[curr_mdoc][0]['MdocSelected'] != self.mic2qt_lut[curr_mdoc]['widget'].checkState():
                         self.data4json[curr_target][curr_mdoc][0]['MdocSelected'] = self.mic2qt_lut[curr_mdoc]['widget'].checkState()
-                    if self.debug: 
-                        print(f"1504 MDOC {os.path.basename(curr_mdoc)} after: data4json {self.data4json[curr_target][curr_mdoc][0]['MdocSelected']}, mic2qt_lut {self.mic2qt_lut[curr_mdoc]['widget'].checkState()}")
+                    ##if self.debug:
+                        ##print(f"1504 MDOC {os.path.basename(curr_mdoc)} after: data4json {self.data4json[curr_target][curr_mdoc][0]['MdocSelected']}, mic2qt_lut {self.mic2qt_lut[curr_mdoc]['widget'].checkState()}")
                     
                     # Loop through micrographs
                     for mic_idx, curr_mic in enumerate(target_data[curr_mdoc][1]):
@@ -1860,7 +1907,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                         if self.mic2qt_lut[curr_mdoc][movie_base].checkState() == 0:
                             some_deselected= True
                             deselect_list.append(movie_base)
-                            if self.debug: print(f"1437 Deselected: '{movie_base}'")
+                            ###if self.debug: print(f"1437 Deselected: '{movie_base}'")
                         else:
                             num_selected+= 1
                             assert 'McorrMic' in target_data[curr_mdoc][1][curr_mic], "ERROR!! Micrograph path not stored here!"
@@ -1904,15 +1951,15 @@ class MdocTreeView(QtWidgets.QMainWindow):
                                 assert movie_base in deselect_list, f"UH OH! Data for '{movie_base}' seems not to be in delesection list {deselect_list}"
                         # End ZValue loop
                         
-                        if self.debug:
-                            writeAsText(general_lines, curr_mdoc + '.TEST', do_backup=False, verbose=True,              description='MDOC file')
-                        else:
-                            writeAsText(general_lines, curr_mdoc,           do_backup=True,  verbose=self.verbosity>=1, description='MDOC file')
+                        #if self.debug:
+                            #writeAsText(general_lines, curr_mdoc + '.TEST', do_backup=False, verbose=True,              description='MDOC file')
+                        #else:
+                            #writeAsText(general_lines, curr_mdoc,           do_backup=True,  verbose=self.verbosity>=1, description='MDOC file')
                         
                         # Restack
                         self.imodRestack(curr_mdoc, select_list, num_selected)
-                    else:
-                        if self.debug: print(f"1599 MDOC '{os.path.basename(curr_mdoc)}': num_selected '{num_selected}', some_deselected '{some_deselected}'")
+                    ##else:
+                        ##if self.debug: print(f"1599 MDOC '{os.path.basename(curr_mdoc)}': num_selected '{num_selected}', some_deselected '{some_deselected}'")
                 # End MDOC IF-THEN
             # End MDOC loop
         # End target loop
@@ -1964,30 +2011,27 @@ class MdocTreeView(QtWidgets.QMainWindow):
             if len(list_newstacks) == 1: 
                 reordered_stack= list_newstacks[0]
                 backup_stack= reordered_stack + '.BAK'
-                if not self.debug: os.rename(reordered_stack, backup_stack)
+                ###if not self.debug: os.rename(reordered_stack, backup_stack)
                 if self.verbosity>=1: print(f"\nRenamed '{os.path.basename(reordered_stack)}' to '{os.path.basename(backup_stack)}'")
             else:
                 reordered_stack= os.path.join(mdoc_dir, mdoc_prefix + self.micthumb_suffix + ".mrc")
             
             newstack_args=f"-filei {fileinlist} -ou {reordered_stack}"
-            if self.debug: 
-                print(f"DEBUG: newstack {newstack_args}")
+            if self.verbosity>= 3: print(f"Running: newstack {newstack_args}\n  Please wait...")
+            newstack_out= subprocess.run([path_newstack] + newstack_args.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+            # Try to catch subprocess errors
+            if newstack_out.returncode!= 0:
+                print(f"ERROR!! IMOD 'newstack' command failed! Error code: {newstack_out.returncode}", file=sys.stderr)
+                if newstack_out.stdout: print(f"  stdout:\n\t'{newstack_out.stdout.decode('utf-8')}'")
+                if newstack_out.stderr: print(f"  stderr:\n\t'{newstack_out.stderr.decode('utf-8')}'")
+                print(f"\tExiting...\n")
+                exit(17)
             else:
-                if self.verbosity>= 3: print(f"Running: newstack {newstack_args}\n  Please wait...")
-                newstack_out= subprocess.run([path_newstack] + newstack_args.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                
-                # Try to catch subprocess errors
-                if newstack_out.returncode!= 0:
-                    print(f"ERROR!! IMOD 'newstack' command failed! Error code: {newstack_out.returncode}", file=sys.stderr)
-                    if newstack_out.stdout: print(f"  stdout:\n\t'{newstack_out.stdout.decode('utf-8')}'")
-                    if newstack_out.stderr: print(f"  stderr:\n\t'{newstack_out.stderr.decode('utf-8')}'")
-                    print(f"\tExiting...\n")
-                    exit(17)
-                else:
-                    # TODO: Make sure MDOC has the same number of entries as the stack file
-                    if self.verbosity>= 1: print(f"  Wrote new stack: {reordered_stack}")
-                    newstack_log= re.sub('.mrc.mdoc$', self.options.stack_suffix + '.out', curr_mdoc)
-                    writeAsText(newstack_out.stdout.decode('utf-8'), newstack_log, do_backup=True, verbose=self.verbosity>=3, description='restack output log')
+                # TODO: Make sure MDOC has the same number of entries as the stack file
+                if self.verbosity>= 1: print(f"  Wrote new stack: {reordered_stack}")
+                newstack_log= re.sub('.mrc.mdoc$', self.options.stack_suffix + '.out', curr_mdoc)
+                writeAsText(newstack_out.stdout.decode('utf-8'), newstack_log, do_backup=True, verbose=self.verbosity>=3, description='restack output log')
     
     def incinerateData(self):
         num_deselected_ts= 0
@@ -2055,7 +2099,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                         for json_key, incinerate_key in zip(self.incinerate_jsonkeys, except_tsdir):
                             for curr_mic in target_data[curr_mdoc][1]:
                                 self.moveIfExists(self.data4json[curr_target][curr_mdoc][1][curr_mic], json_key, incinerate_key)
-                            if self.verbosity>=4: print(f"Finished incinerating files of type '{json_key}'")
+                            if self.verbosity>=3: print(f"Finished incinerating files of type '{json_key}'")
                         # End data-type loop
                     
                         # Incinerate GUI data for current MDOC
@@ -2075,7 +2119,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                         print(f"UH OH! Can't find widget dictionary for MDOC '{curr_mdoc}'")
                         return()
                     if self.mic2qt_lut[curr_mdoc]['widget'].checkState() == 0:
-                        if self.debug: print(f"1779 data4json {type(self.data4json[curr_target][curr_mdoc])}, mic2qt_lut {type(self.mic2qt_lut[curr_mdoc])}")
+                        ###if self.debug: print(f"1779 data4json {type(self.data4json[curr_target][curr_mdoc])}, mic2qt_lut {type(self.mic2qt_lut[curr_mdoc])}")
                         
                         # Remember stuff
                         self.incinerated_tsdict[curr_mdoc]={}
@@ -2154,25 +2198,25 @@ class MdocTreeView(QtWidgets.QMainWindow):
         # Incinerate GUI data for current MDOC
         curr_widget= self.mic2qt_lut[curr_mdoc]['widget']
         root_item= self.item_model.invisibleRootItem()
-        if self.debug: print(f"1832 root_item.rowCount() {root_item.rowCount()}")
+        ###if self.debug: print(f"1832 root_item.rowCount() {root_item.rowCount()}")
         
         # Loop through targets
         target_removal_list=[]
         for target_key in range(root_item.rowCount()):
             target_item= root_item.child(target_key)
             assert target_item is not None, f"UH OH, target key #{target_key} is 'NoneType'!"
-            if self.debug: print(f"  1840 #{target_key} target_item {target_item.text()} {type(target_item)}")
+            ###if self.debug: print(f"  1840 #{target_key} target_item {target_item.text()} {type(target_item)}")
             target_index= self.item_model.indexFromItem(target_item)
-            if self.debug: print(f"  1841 {target_item.text()}: rowCount {target_item.rowCount()}, row #{target_index.row()}")
+            ###if self.debug: print(f"  1841 {target_item.text()}: rowCount {target_item.rowCount()}, row #{target_index.row()}")
             
             # Loop through MDOCs
             mdoc_removal_list=[]
             for test_mdoc in range( target_item.rowCount() ):
                 mdoc_item= target_item.child(test_mdoc)
-                msg=f"    1849 {mdoc_item.text()} {mdoc_item} {str( mdoc_item.text()==os.path.basename(curr_mdoc) )} "
                 mdoc_index= self.item_model.indexFromItem(mdoc_item)
-                if mdoc_index.isValid(): msg+= str( mdoc_index.row() )
-                if self.debug: print(msg)
+                #msg=f"    1849 {mdoc_item.text()} {mdoc_item} {str( mdoc_item.text()==os.path.basename(curr_mdoc) )} "
+                #if mdoc_index.isValid(): msg+= str( mdoc_index.row() )
+                #if self.debug: print(msg)
                 if mdoc_item.text()==os.path.basename(curr_mdoc): 
                     assert mdoc_item==self.mic2qt_lut[curr_mdoc]['widget'], f"UH OH! Mismatch: {mdoc_item} != {self.mic2qt_lut[curr_mdoc]['widget']}"
                     mdoc_removal_list.append( mdoc_index.row() )
@@ -2182,7 +2226,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
             for curr_row in mdoc_removal_list: target_item.takeRow(curr_row)
             
             # If no tilt series remaining, then remove target also (outside of loop, because we're iterating)
-            if self.debug: print(f"  1860 {target_item.text()}: rowCount {target_item.rowCount()}, row #{target_index.row()}")
+            ###if self.debug: print(f"  1860 {target_item.text()}: rowCount {target_item.rowCount()}, row #{target_index.row()}")
             if target_item.rowCount() == 0: target_removal_list.append( target_item.row() )
         # End target loop
         
@@ -2257,33 +2301,28 @@ class MdocTreeView(QtWidgets.QMainWindow):
     
     # Adapted from https://stackoverflow.com/a/9249527
     def closeEvent(self, event=None):
-        if self.debug: 
-            print(f"2178 position {type( self.pos() )} ({self.pos().x()},{self.pos().y()})")
-            print(f"2179 closeEvent: event {type(event)}")
+        #if self.debug:
+            #print(f"2178 position {type( self.pos() )} ({self.pos().x()},{self.pos().y()})")
+            #print(f"2179 closeEvent: event {type(event)}")
         if self.unsaved_changes == True:
-            if self.debug:
-                print("DEBUG: Exiting with unsaved changes...")
+            # Adapted from https://pythonprogramming.net/pop-up-messages-pyqt-tutorial/
+            choice= QtWidgets.QMessageBox.question(
+                self,
+                'WARNING!',
+                "There are unsaved changes. Are you sure you want to quit?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+                )
+            # TODO: If there are 3+ buttons (e.g., Save+Quit), I don't know how to center them
+
+            if choice== QtWidgets.QMessageBox.Yes:
+                if self.verbosity>=1 : print("Exiting...")
                 if not event: exit()
+
+            # TODO: This option sometimes gives an XCB warning that I can't figure out.
+            elif choice== QtWidgets.QMessageBox.No:
+                return
             else:
-                # Adapted from https://pythonprogramming.net/pop-up-messages-pyqt-tutorial/
-                choice= QtWidgets.QMessageBox.question(
-                    self, 
-                    'WARNING!', 
-                    "There are unsaved changes. Are you sure you want to quit?",
-                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
-                    )
-                # TODO: If there are 3+ buttons (e.g., Save+Quit), I don't know how to center them
-                
-                if choice== QtWidgets.QMessageBox.Yes:
-                    if self.verbosity>=1 : print("Exiting...")
-                    if not event: exit()
-                
-                # TODO: This option sometimes gives an XCB warning that I can't figure out.
-                elif choice== QtWidgets.QMessageBox.No:
-                    return
-                else:
-                    print(f"Uh oh! Unknown option: {choice}")
-            # End debug IF-THEN
+                print(f"Uh oh! Unknown option: {choice}")
         else:
             if self.verbosity>=1 : print("Exiting...")
             exit()
@@ -2438,9 +2477,6 @@ def expandInputFiles(string2split, extension=None):
     for curr_string in list_strings:
         list_expanded= glob.glob(curr_string)
         list_sorted= sorted(list_expanded)
-        #print(f"2438 list_expanded: {list_expanded}")
-        #print(f"2439 list_sorted: {list_sorted}")
-        #exit()
         
         for fn in list_sorted:
             if extension:
@@ -2922,12 +2958,13 @@ def parse_command_line():
     1: One-time events
     2: Found target and MDOC files
     3: (default) Progress bar, warnings for each MDOC
-    4: Summary of data types, executable calls
-    5: Warnings for absent metadata
-    6: Found MDOC files
-    7: Stat line for each micrograph
-    8: Found metadata
-    9: Dump JSON contents to screen
+    4: Executable calls
+    5: Summary of data types
+    6: Warnings for absent metadata
+    7: Found MDOC files
+    8: Stat line for each micrograph
+    9: Found metadata
+    10: Dump JSON contents to screen
     """
 
     parameters.add_argument(
