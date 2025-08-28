@@ -49,7 +49,7 @@ USAGE = """
   For more info about options, enter: %s --help
 """ % ( (os.path.basename(__file__),)*3 )
 
-MODIFIED="Modified 2025 Aug 26"
+MODIFIED="Modified 2025 Aug 28"
 MAX_VERBOSITY=10
 VIRTUAL_TARGET_FILE='All tilt series'
 
@@ -201,7 +201,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         num_targets= len( self.data4json.keys() )
         disableTF= self.verbosity<3 or self.verbosity>6 or self.debug
 
-        # Loop through target files (real or virtual)
+        # Loop through target files (real or virtual) (TODO: Move to function)
         for curr_target in self.data4json.keys():
             if os.path.exists(curr_target) : found_dict['target_files']+= 1
             if not disableTF: print(f"\nCollecting data from target file '{curr_target}'...")
@@ -469,7 +469,6 @@ class MdocTreeView(QtWidgets.QMainWindow):
         self.mdoc_origs = {}
         for mdoc in self.mdoc_lut.keys():
             self.mdoc_origs[mdoc] = {}
-            ###self.mdoc_origs[mdoc]['FilePath'] = self.mdoc_lut[mdoc] + '.orig'  # TODO: hardwired path
             
             # Stem is everything up to first dot
             orig_base= os.path.basename(self.mdoc_lut[mdoc]).split('.')[0] + self.options.orig_mdoc_suffix
@@ -706,7 +705,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         for angle_idx, curr_angle in enumerate(angles_list):
             sorted_angles_list.append(list( general_and_tilt[1].keys() )[ sorted_idx_list[angle_idx] ])  # .keys() is not a list and thus cannot be directly subscripted
 
-        # Loop through micrographs
+        # Loop through micrographs (TODO: Move to function)
         for sorted_idx, tilt_key in enumerate(sorted_angles_list):
             tilt_idx= sorted_idx_list[sorted_idx]
 
@@ -1244,7 +1243,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
             # Initialize row of micrograph stats
             stat_list= self.addMicWidget(tilt_data, tilt_key, curr_mdoc, sorted_idx)
 
-            # Loop through stats
+            # Loop through stats (TODO: Move to function)
             for stat_key in self.stat_map.column_dict.keys():
                 if stat_key in self.stat_map.column_dict:
                     # Clean up if path
@@ -1312,13 +1311,9 @@ class MdocTreeView(QtWidgets.QMainWindow):
             tilt_key : key in tilt-series dictionary
             curr_mdoc : MDOC file
             sorted_idx : index number of tilt key, need for position of QStandardItem
-            ##self.did_warn_thumbs (bool, updated)
-            ##self.did_warn_ctfs (bool, updated)
         
         Returns:
             stat_list : list of Qt widgets
-            ##self.did_warn_thumbs : updated boolean
-            ##self.did_warn_ctfs  : updated boolean
         """
         
         movie_base= ntpath.basename(tilt_data[tilt_key]['SubFramePath'])
@@ -1354,9 +1349,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
 
                 if not self.did_warn_thumbs and self.verbosity>=1 and self.loaded_json:
                     print(f"  WARNING! Micrograph thumbnail '{mic_thumb_path}' not found, skipping...")
-                    ###print(f"    1351 {movie_base} self.did_warn_thumbs '{self.did_warn_thumbs}'")
                     self.did_warn_thumbs=True
-                    ###print(f"    1353 {movie_base} self.did_warn_thumbs '{self.did_warn_thumbs}'")
 
             ctf_thumb_path= tilt_data[tilt_key]['CtfThumbnail']
             
@@ -1415,37 +1408,47 @@ class MdocTreeView(QtWidgets.QMainWindow):
             list_newstacks= glob.glob( os.path.join(mdoc_dir, "*" + self.micthumb_suffix + ".mrc") )
             list_newstacks+= glob.glob( os.path.join(mdoc_dir, "*" + self.micthumb_suffix + ".st") )
 
-            if depth==2:
-                if self.debug: print(f"DEBUG: 1419: depth='{depth}', stack='{list_newstacks[-1]}', row='{mdlIdx.row()}'")
+            # list_newstacks might be empty
+            if depth==2 and list_newstacks:
+                if self.debug:
+                    print(f"DEBUG: 1419: depth='{depth}', stack='{list_newstacks[-1]}', row='{mdlIdx.row()}'")
 
                 # Prepend slice number to filename (will have to parse it later for printing)
                 list_newstacks+= [ f"-z {mdlIdx.row() + 1} {list_newstacks[-1]}" ]
             
-            # AreTomo reconstructions are of the form "*_aretomo.mrc"
-            list_recons=[]
-            list_slices=[]
+            # Look for fiducial models (eTomo only)
+            list_fids= glob.glob( os.path.join(mdoc_dir, "*.fid") )
 
-            # Check if MRCs are 2D or 3D
-            for curr_pattern in self.options.recon_pattern.split():
-                list2test= glob.glob( os.path.join(mdoc_dir, curr_pattern) )
-                for fn in list2test:
-                    mrc_dims= self.getDimensions(fn)  # (x->0, y->1, z->2)
-                    ###if self.debug : print(f"DEBUG: 1428: fn={fn}, mrc_dims={mrc_dims}, min_index={mrc_dims.index( min(mrc_dims) )}")
+            # Sort by date
+            list_fids.sort(key=os.path.getmtime)
 
-                    # If getDimensions fails, it will return None
-                    if mrc_dims:
-                        if min(mrc_dims) > 1:
-                            list_recons+= [fn]
-                        else:
-                            # Make sure it's the z-dimension that's 1
-                            if mrc_dims.index( min(mrc_dims) ) != 2:
-                                print(f"WARNING! MRC file '{fn}' has thickness of 1 but not in z")
+            if self.debug: print(f"DEBUG: 1424: list_fids='{list_fids}'")
 
-                                # Open it as a volume anyway
-                                list_recons+= [fn]
-                            else:
-                                list_slices+= [fn]
-                    # End mrc_dims IF-THEN
+            list_recons, list_slices= self.findMrcs(mdoc_dir)
+            ## AreTomo reconstructions are of the form "*_aretomo.mrc"
+            #list_recons=[]
+            #list_slices=[]
+
+            ## Check if MRCs are 2D or 3D
+            #for curr_pattern in self.options.recon_pattern.split():
+                #list2test= glob.glob( os.path.join(mdoc_dir, curr_pattern) )
+                #for fn in list2test:
+                    #mrc_dims= self.getDimensions(fn)  # (x->0, y->1, z->2)
+
+                    ## If getDimensions fails, it will return None
+                    #if mrc_dims:
+                        #if min(mrc_dims) > 1:
+                            #list_recons+= [fn]
+                        #else:
+                            ## Make sure it's the z-dimension that's 1
+                            #if mrc_dims.index( min(mrc_dims) ) != 2:
+                                #print(f"WARNING! MRC file '{fn}' has thickness of 1 but not in z")
+
+                                ## Open it as a volume anyway
+                                #list_recons+= [fn]
+                            #else:
+                                #list_slices+= [fn]
+                    ## End mrc_dims IF-THEN
 
             # CTF scatter plot
             ts_ctf_plot= glob.glob( os.path.join(mdoc_dir, self.options.ctfbyts_1ts) )
@@ -1455,6 +1458,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
             
             self.addListAction(list_newstacks, "tilt series", voltype='stack')
             self.addListAction(list_ctfstacks, "power-spectrum stack")
+            self.addListAction(list_fids, "Fiducial model", voltype='fid')
             self.addListAction(list_recons, "3D reconstruction", voltype='mrc3d')
             self.addListAction(list_slices, "2D image", voltype='mrc2d')
             self.addListAction(ts_ctf_plot, "CTF plot", voltype='png')
@@ -1540,6 +1544,45 @@ class MdocTreeView(QtWidgets.QMainWindow):
         
         return os.path.dirname(curr_mdoc)
         
+    def findMrcs(self, mdoc_dir):
+        """
+        Get lists of MRCs
+        Check if MRCs are 2D or 3D
+
+        Parameter:
+            mdoc_dir
+
+        Returns:
+            list of volumes
+            list of images
+        """
+
+        list_recons=[]
+        list_slices=[]
+
+        # Check if MRCs are 2D or 3D
+        for curr_pattern in self.options.recon_pattern.split():
+            list2test= glob.glob( os.path.join(mdoc_dir, curr_pattern) )
+            for fn in list2test:
+                mrc_dims= self.getDimensions(fn)  # (x->0, y->1, z->2)
+
+                # If getDimensions fails, it will return None
+                if mrc_dims:
+                    if min(mrc_dims) > 1:
+                        list_recons+= [fn]
+                    else:
+                        # Make sure it's the z-dimension that's 1
+                        if mrc_dims.index( min(mrc_dims) ) != 2:
+                            print(f"WARNING! MRC file '{fn}' has thickness of 1 but not in z")
+
+                            # Open it as a volume anyway
+                            list_recons+= [fn]
+                        else:
+                            list_slices+= [fn]
+                # End mrc_dims IF-THEN
+
+        return list_recons, list_slices
+
     def addListAction(self, current_list, type_string, voltype=None):
         """
         Adds a menu option
@@ -1563,33 +1606,51 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 
                 if voltype=='png':
                     insert_menuopt.triggered.connect( partial(self.openImgView, fn) )
+                if voltype=='fid':
+                    insert_menuopt.triggered.connect( partial(self.openFiducialMod, fn) )
                 else:
-                    ###insert_menuopt.triggered.connect( partial(self.openThreedMod, fn, voltype=voltype) )
                     insert_menuopt.triggered.connect( partial(self.openThreedMod, fn) )
 
-    ###def openThreedMod(self, fn, voltype=None):
+    def openFiducialMod(self, fn):
+        """
+        Opens 3dmod, rotating if necessary
+
+        Parameter:
+            fn (str) : filename
+        """
+
+        # Check if IMOD in PATH
+        path_3dmodv= self.check_exe('3dmodv', verbose=self.verbosity>=7)
+
+        if path_3dmodv is None: return
+            #print(f"WARNING! IMOD program '3dmodv' not in PATH")
+            #if not 'IMOD_BIN' in os.environ:
+                #print("'IMOD_BIN' is not among your environmental variables. Maybe you're not in the SNARTomo environment?")
+            #return
+
+        system_call_23(path_3dmodv, fn, verbose=self.verbosity>=4)
+
     def openThreedMod(self, fn):
         """
         Opens 3dmod, rotating if necessary
-        
-        Parameters:
+
+        Parameter:
             fn (str) : filename
-            ###voltype (str, optional) : data type
         """
-        
+
         # Get dimensions
         mrc_dims= self.getDimensions(fn)
 
         # If getDimensions fails, it will return None
         if mrc_dims:
             # Check if IMOD in PATH
-            path_3dmod= self.check_exe('3dmod', verbose=self.verbosity>=5)
+            path_3dmod= self.check_exe('3dmod', verbose=self.verbosity>=7)
 
-            if path_3dmod is None:
-                print(f"WARNING! IMOD program '3dmod' not in PATH")
-                if not 'IMOD_BIN' in os.environ:
-                    print("'IMOD_BIN' is not among your environmental variables. Maybe you're not in the SNARTomo environment?")
-                return
+            if path_3dmod is None: return
+                #print(f"WARNING! IMOD program '3dmod' not in PATH")
+                #if not 'IMOD_BIN' in os.environ:
+                    #print("'IMOD_BIN' is not among your environmental variables. Maybe you're not in the SNARTomo environment?")
+                #return
 
             # Find minimum (x->0, y->1, z->2)
             min_axis= mrc_dims.index( min(mrc_dims) )
@@ -1613,13 +1674,13 @@ class MdocTreeView(QtWidgets.QMainWindow):
         """
 
         # Check if IMOD in PATH
-        path_header= self.check_exe('header', verbose=self.verbosity>=5)
+        path_header= self.check_exe('header', verbose=self.verbosity>=7)
 
-        if path_header is None:
-            print(f"WARNING! IMOD program 'header' not in PATH")
-            if not 'IMOD_BIN' in os.environ:
-                print("'IMOD_BIN' is not among your environmental variables. Maybe you're not in the SNARTomo environment?")
-            return
+        if path_header is None: return
+            #print(f"WARNING! IMOD program 'header' not in PATH")
+            #if not 'IMOD_BIN' in os.environ:
+                #print("'IMOD_BIN' is not among your environmental variables. Maybe you're not in the SNARTomo environment?")
+            #return
 
         # If single slice from stack, then 'fn' will have been prepended to
         if fn.split()[0] == '-z': fn= ' '.join(fn.split()[2:])
@@ -1656,7 +1717,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
             voltype (str, optional) : data type
         """
         
-        path_imgview= self.check_exe(self.options.img_viewer, verbose=self.verbosity>=4)
+        path_imgview= self.check_exe(self.options.img_viewer, verbose=self.verbosity>=7)
         if path_imgview:
             hdr_out = subprocess.run([path_imgview, fn], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     
@@ -1721,12 +1782,14 @@ class MdocTreeView(QtWidgets.QMainWindow):
             executable path
         """
         
+        imod_exe_list= ['header', '3dmod', '3dmodv']
         exe_path= None
-        if search_exe== 'header' or search_exe== '3dmod':
+
+        ###if search_exe== 'header' or search_exe== '3dmod' or search_exe== '3dmodv':
+        if search_exe in imod_exe_list:
             # If IMOD directory is defined, then use it
             if self.options.imod_bin:
                 exe_path= os.path.join(self.options.imod_bin, search_exe)
-                ###if self.debug: print(f"Path for '{search_exe}' ({self.options.imod_bin}) specified on the command line")
             
             # Try SNARTomo environmental variables
             elif 'IMOD_BIN' in os.environ:
@@ -1742,11 +1805,15 @@ class MdocTreeView(QtWidgets.QMainWindow):
         # If not found yet, simply try a 'which'
         if exe_path is None:
             exe_path = shutil.which(search_exe) 
-            ###if exe_path and self.debug: print(f"DEBUG: Executable '{search_exe}' found in $PATH")
 
         # If still not found, throw an error
         if exe_path is None:
-            print(f"WARNING! No executable found for command '{search_exe}'")
+            if search_exe in imod_exe_list:
+                print(f"WARNING! IMOD program '{search_exe}' not in PATH")
+                if not 'IMOD_BIN' in os.environ:
+                    print("'IMOD_BIN' is not among your environmental variables. Maybe you're not in the SNARTomo environment?")
+            else:
+                print(f"WARNING! No executable found for command '{search_exe}'")
         else:
             if verbose : print(f"Path to executable '{search_exe}': {exe_path}")    
             
@@ -1783,7 +1850,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                             mdoc_item= target_item.child(test_mdoc)
                             if curr_parent_text == mdoc_item.text() : mdoc_list.append(mdoc_item)
                     
-                    # Sanity check
+                    # Sanity check (TODO: Move to function)
                     if len(mdoc_list) == 0:
                         print(f"\nUH OH! Couldn't find '{curr_parent_text}' in target files")
                         return
@@ -1816,6 +1883,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                             curr_mdoc_item.setCheckState(1)
                             
                         if parent.debug: print(f"  1462 {curr_mdoc_item.text()} '{curr_mdoc_item.checkState()}'")
+                    # End sanity IF-THEN
                 # End depth=2 IF-THEN
             # End valid-index IF-THEN
         # If line-edit
@@ -1917,7 +1985,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
                             mic_list.append( os.path.basename(mic_path) )
                     # End micrograph loop
                     
-                    # Only if micrographs were deselected
+                    # Only if micrographs were deselected (TODO: Move to function)
                     if some_deselected:
                         # Prepare MDOC file
                         general_lines, tilt_data= readMdocHeader(curr_mdoc)
@@ -1951,15 +2019,9 @@ class MdocTreeView(QtWidgets.QMainWindow):
                                 assert movie_base in deselect_list, f"UH OH! Data for '{movie_base}' seems not to be in delesection list {deselect_list}"
                         # End ZValue loop
                         
-                        #if self.debug:
-                            #writeAsText(general_lines, curr_mdoc + '.TEST', do_backup=False, verbose=True,              description='MDOC file')
-                        #else:
-                            #writeAsText(general_lines, curr_mdoc,           do_backup=True,  verbose=self.verbosity>=1, description='MDOC file')
-                        
                         # Restack
                         self.imodRestack(curr_mdoc, select_list, num_selected)
-                    ##else:
-                        ##if self.debug: print(f"1599 MDOC '{os.path.basename(curr_mdoc)}': num_selected '{num_selected}', some_deselected '{some_deselected}'")
+                    # End deselected IF-THEN
                 # End MDOC IF-THEN
             # End MDOC loop
         # End target loop
@@ -1989,8 +2051,8 @@ class MdocTreeView(QtWidgets.QMainWindow):
         writeAsText(select_list, fileinlist, do_backup=True, verbose=self.verbosity>=1, description='selection file')
         if self.verbosity >= 9: system_call_23('cat', fileinlist)
         
-        # Check if IMOD in PATH (TODO: Move to function)
-        path_newstack= self.check_exe('newstack', verbose=self.verbosity>=4)
+        # Check if IMOD in PATH
+        path_newstack= self.check_exe('newstack', verbose=self.verbosity>=7)
         
         if path_newstack is None:
             print(f"WARNING! IMOD program 'newstack' is not in PATH")
@@ -2718,7 +2780,7 @@ def system_call_23(cmd, args, lenient=False, stdout=None, stderr=None, usempi=Fa
     # Build command line
     cmdline= "%s %s" % (cmd, args)
     
-    if verbose : print(cmdline)
+    if verbose : print(f"Running: {cmdline}")
     
     if usempi:
         mpi_rank= os.environ["OMPI_COMM_WORLD_RANK"]
@@ -2961,7 +3023,7 @@ def parse_command_line():
     4: Executable calls
     5: Summary of data types
     6: Warnings for absent metadata
-    7: Found MDOC files
+    7: Found MDOC files, executables
     8: Stat line for each micrograph
     9: Found metadata
     10: Dump JSON contents to screen
