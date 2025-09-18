@@ -640,7 +640,6 @@ function vprint() {
           # Log file name might be empty after stripping '='
           echo -e "${string2print}" | tee -a "${log_file}"
           local status_code=$?
-# # #           local leading_whitespace="${string2print/[^[:space:]]*/}"
           check_vprint_status "$status_code" "${string2print/[^[:space:]]*/}"
         fi
       
@@ -2660,7 +2659,6 @@ function ctffind_common() {
             fi
 
             # Convert to PNG
-# # #             ${png_cmd} > /dev/null
             png_err=$( { ${png_cmd}; } 2>&1 1>/dev/null )
             png_status=$?
             if [[ $png_status -ne 0 ]] ; then
@@ -3438,8 +3436,6 @@ function split_mdoc_single() {
 #     2) output directory
 #     3) temporary MDOC file w/o CRLFs
 #
-#   Calls functions:
-#
 #   Global variables:
 #     chunk_prefix (OUTPUT)
 #
@@ -3485,11 +3481,15 @@ function imod_restack() {
 #     ctf_list
 #     reordered_stack (OUTPUT)
 #     ctf_stack (OUTPUT)
+#     newstack_status
 #     verbose
 #     warn_log
 #     tomo_dir
 #     thumbdir
 #     
+#   Calls functions:
+#     draw_thumbnails
+#
 ###############################################################################
   
   local outlog=$1
@@ -3517,74 +3517,50 @@ function imod_restack() {
 
   ctf_stack="${tomo_root}_ctfstack.mrcs"
 
-  # Delete pre-existing files (IMOD will back them up otherwise)
-  if [[ -f "$reordered_stack" ]]; then
-    \rm $reordered_stack
-  fi
-
   if [[ -f "$ctf_stack" ]]; then
     \rm $ctf_stack
   fi
   
-  local restack_cmd="newstack -filei $imod_list -ou $reordered_stack"
   local apix_cmd="alterheader -PixelSize ${vars[apix]},${vars[apix]},${vars[apix]} $reordered_stack"
   local ctf_cmd="newstack -filei $ctf_list -ou $ctf_stack"
   
   if [[ "${vars[testing]}" == false ]]; then
-    # Check if output already exists (TODO: not necessary, checked above)
-# # #     if [[ ! -e $reordered_stack ]]; then
-      vprint "  Running: ${restack_cmd}\n" "3+" "=${outlog}"
-      
+    restack_micrographs "$imod_list" "${outlog}" "$newstack_log"
+
+    # Sanity check: Check log file for errors
+    if grep --quiet ERROR $newstack_log ; then
+      local newstack_error=$(grep ERROR $newstack_log | sed 's/^/  /')
+
+      if [[ "$verbose" -ge 1 ]]; then
+        vprint "  WARNING! Newstack error: '$newstack_error'" "0+" "${outlog} =${warn_log} =${newstack_log}"
+        vprint "    Status code: ${newstack_status}" "0+" "${outlog} =${warn_log} =${newstack_log}"
+        vprint "    Continuing...\n" "0+" "${outlog}"
+      fi
+
+    # Sanity check: Check that stack file exists
+    elif [[ ! -f "$reordered_stack" ]]; then
+      if [[ "$verbose" -ge 1 ]]; then
+        vprint "  WARNING! Newstack output '$reordered_stack' does not exist! Status code: ${newstack_status}" "0+" "${outlog} =${warn_log} =${newstack_log}"
+        vprint "    Continuing...\n" "0+" "${outlog}"
+      fi
+    else
+      # Update pixel size
+      vprint "  Running: ${apix_cmd}" "3+" "=${outlog}"
+
       if [[ "$verbose" -ge 7 ]]; then
-        ${vars[imod_dir]}/${restack_cmd} 2>&1 | tee -a $newstack_log
-        local newstack_status=("${PIPESTATUS[0]}")
+        ${vars[imod_dir]}/${apix_cmd} 2>&1 | tee -a $newstack_log
       elif [[ "$verbose" -eq 6 ]]; then
-        # ${vars[imod_dir]}/${restack_cmd} | tee -a $newstack_log | grep --line-buffered "RO image"
-        ${vars[imod_dir]}/${restack_cmd} | tee -a $newstack_log | stdbuf -o0 grep "RO image" | sed 's/^/   /'
+        ${vars[imod_dir]}/${apix_cmd} | tee -a $newstack_log | stdbuf -o0 grep "Pixel spacing" | sed 's/^/   /'
         # line-buffered & stdbuf: https://stackoverflow.com/questions/7161821/how-to-grep-a-continuous-stream
-        
-        local newstack_status=("${PIPESTATUS[0]}")
       else
-        ${vars[imod_dir]}/${restack_cmd} >> $newstack_log 2>&1
-        local newstack_status=("${PIPESTATUS[0]}")
+        ${vars[imod_dir]}/${apix_cmd} >> $newstack_log
       fi
-    
-      # Sanity check
-      if [[ ! -f "$reordered_stack" ]]; then
-        # Check log file for errors
-        if grep --quiet ERROR $newstack_log ; then
-          grep ERROR $newstack_log | sed 's/^/  /'
-        fi
-        
-        if [[ "$verbose" -ge 1 ]]; then
-          vprint "  WARNING! Newstack output '$reordered_stack' does not exist! Status code: ${newstack_status}" "0+" "${outlog} =${warn_log}"
-          vprint "    Continuing...\n" "0+" "${outlog}"
-        fi
-      else
-        # Update pixel size
-        vprint "  Running: ${apix_cmd}" "3+" "=${outlog}"
-        
-        if [[ "$verbose" -ge 7 ]]; then
-          ${vars[imod_dir]}/${apix_cmd} 2>&1 | tee -a $newstack_log
-        elif [[ "$verbose" -eq 6 ]]; then
-          ${vars[imod_dir]}/${apix_cmd} | tee -a $newstack_log | stdbuf -o0 grep "Pixel spacing" | sed 's/^/   /'
-          # line-buffered & stdbuf: https://stackoverflow.com/questions/7161821/how-to-grep-a-continuous-stream
-        else
-          ${vars[imod_dir]}/${apix_cmd} >> $newstack_log
-        fi
-      fi
-      # End sanity-check IF-THEN
-      
-#     # If pre-existing output (shouldn't exist, since we deleted any pre-existing stack above)
-#     else
-#       vprint "  IMOD restack output $reordered_stack already exists" "0+" "=${outlog}"
-#       vprint "    Skipping...\n" "0+" "=${outlog}"
-#     fi
-#     # End pre-existing IF-THEN
-  
+    fi
+    # End sanity-check IF-THEN
+
     # Stack CTF power spectra (TODO: sanity check)
     vprint "  Running: ${ctf_cmd}\n" "3+" "=${outlog}"
-    
+
     if [[ "$verbose" -ge 7 ]]; then
       ${vars[imod_dir]}/${ctf_cmd} 2>&1 | tee -a $newstack_log
     elif [[ "$verbose" -eq 6 ]]; then
@@ -3592,18 +3568,66 @@ function imod_restack() {
     else
       ${vars[imod_dir]}/${ctf_cmd} >> $newstack_log
     fi
-    
+
     # Write JPEGs of tilt series and power spectra
     draw_thumbnails "$outlog"
     
   # Testing
   else
-    vprint "  TESTING: ${restack_cmd}" "3+" "=${outlog}"
     vprint "  TESTING: ${apix_cmd}" "3+" "=${outlog}"
     vprint "  TESTING: ${ctf_cmd}" "3+" "=${outlog}"
     draw_thumbnails "$outlog"
   fi
   # End testing IF-THEN
+}
+
+function restack_micrographs() {
+###############################################################################
+#   Function:
+#     Restack micrographs using IMOD's newstack
+#
+#   Positional variables:
+#     1) micrograph list
+#     2) main log file
+#     3) newstack log file
+#
+#   Global variables:
+#     reordered_stack
+#     restack_cmd (defined here)
+#     newstack_status (defined here)
+#
+###############################################################################
+
+  local imod_list=$1
+  local outlog=$2
+  local newstack_log=$3
+
+  restack_cmd="newstack -filei $imod_list -ou $reordered_stack"
+
+  # Delete pre-existing files (IMOD will back them up otherwise)
+  if [[ -f "$reordered_stack" ]]; then
+    \rm $reordered_stack
+  fi
+
+  if [[ "${vars[testing]}" == false ]]; then
+    vprint "  Running: ${restack_cmd}\n" "3+" "=${outlog}"
+
+    if [[ "$verbose" -ge 7 ]]; then
+      ${vars[imod_dir]}/${restack_cmd} 2>&1 | tee -a $newstack_log
+      newstack_status=("${PIPESTATUS[0]}")
+    elif [[ "$verbose" -eq 6 ]]; then
+      # ${vars[imod_dir]}/${restack_cmd} | tee -a $newstack_log | grep --line-buffered "RO image"
+      ${vars[imod_dir]}/${restack_cmd} | tee -a $newstack_log | stdbuf -o0 grep "RO image" | sed 's/^/   /'
+      # line-buffered & stdbuf: https://stackoverflow.com/questions/7161821/how-to-grep-a-continuous-stream
+
+      newstack_status=("${PIPESTATUS[0]}")
+    else
+      ${vars[imod_dir]}/${restack_cmd} >> $newstack_log 2>&1
+      newstack_status=("${PIPESTATUS[0]}")
+    fi
+  else
+    vprint "  TESTING: ${restack_cmd}" "3+" "=${outlog}"
+  fi
 }
 
 function draw_thumbnails() {
@@ -4165,6 +4189,7 @@ function wrapper_etomo() {
   
     # Sanity check for Python script
     sort_sanity
+    # (TODO: replace with more-general python_sanity)
 
     local sort_cmd="$(echo ${sort_exe} \
       ${vars[outdir]}/${tomo_dir}/taSolution.log \
@@ -4215,14 +4240,10 @@ function sort_sanity() {
 #   Requires:
 #     sort_residuals.py
 #     
-#   Positional variables:
-#     1) sorted-residual plot file
-#     2) residual cutoff, units of sigma
-#   
 #   Global variables:
-#     sort_exe : defined here
 #     python_exe
-#   
+#     sort_exe : defined here
+#
 ###############################################################################
   
   # Sanity check
@@ -4248,6 +4269,47 @@ function sort_sanity() {
   fi
   # End SNARTOMO IF-THEN
   
+}
+
+function python_sanity() {
+###############################################################################
+#   Function:
+#     Sanity check for an arbitrary Python script
+#
+#   Positional variables:
+#     1) Python script to search
+#
+#   Global variables:
+#     my_python_cmd : defined here
+#     python_exe
+#
+###############################################################################
+
+  local script2search=$1
+
+  # Sanity check
+  if ! [ -z $SNARTOMO_DIR ] ; then
+    my_python_cmd="python ${SNARTOMO_DIR}/${script2search}"
+  else
+    if [[ -f "./${script2search}" ]]; then
+      my_python_cmd="$python_exe ${SNARTOMO_DIR}/${script2search}"
+    else
+      if [[ "${test_contour}" != true ]]; then
+        echo -e "\nERROR!! Can't find '${script2search}'!"
+        echo      "  Either copy to current directory or define 'SNARTOMO_DIR'"
+        echo -e   "  Exiting...\n"
+        exit
+      else
+        echo -e "\nWARNING! Can't find '${script2search}'"
+        my_python_cmd="$python_exe ${SNARTOMO_DIR}/${script2search}"
+        exit
+      fi
+      # End testing IF-THEN
+    fi
+    # End local IF-THEN
+  fi
+  # End SNARTOMO IF-THEN
+
 }
 
 function ruotnocon_wrapper() {
