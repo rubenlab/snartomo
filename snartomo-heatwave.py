@@ -49,7 +49,7 @@ USAGE = """
   For more info about options, enter: %s --help
 """ % ( (os.path.basename(__file__),)*3 )
 
-MODIFIED="Modified 2025 Aug 28"
+MODIFIED="Modified 2025 Aug 29"
 MAX_VERBOSITY=10
 VIRTUAL_TARGET_FILE='All tilt series'
 
@@ -57,6 +57,9 @@ VIRTUAL_TARGET_FILE='All tilt series'
 desired_items_general = ['PixelSpacing', 'ImageFile', 'Voltage', 'Magnification', 'FilterSlitAndLoss',
                          'UncroppedSize', 'NumSubFrames', 'ExposureTime']
 desired_items_tilt = ['[ZValue', 'TiltAngle', 'DoseRate', 'SubFramePath', 'DateTime']
+
+# IMOD executables to check
+imod_exe_list= ['header', '3dmod', '3dmodv']
 
 class MdocTreeView(QtWidgets.QMainWindow):
     """
@@ -1458,7 +1461,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
             
             self.addListAction(list_newstacks, "tilt series", voltype='stack')
             self.addListAction(list_ctfstacks, "power-spectrum stack")
-            self.addListAction(list_fids, "Fiducial model", voltype='fid')
+            self.addListAction(list_fids, "fiducial model", voltype='fid')
             self.addListAction(list_recons, "3D reconstruction", voltype='mrc3d')
             self.addListAction(list_slices, "2D image", voltype='mrc2d')
             self.addListAction(ts_ctf_plot, "CTF plot", voltype='png')
@@ -1782,10 +1785,8 @@ class MdocTreeView(QtWidgets.QMainWindow):
             executable path
         """
         
-        imod_exe_list= ['header', '3dmod', '3dmodv']
         exe_path= None
 
-        ###if search_exe== 'header' or search_exe== '3dmod' or search_exe== '3dmodv':
         if search_exe in imod_exe_list:
             # If IMOD directory is defined, then use it
             if self.options.imod_bin:
