@@ -49,7 +49,7 @@ USAGE = """
   For more info about options, enter: %s --help
 """ % ( (os.path.basename(__file__),)*3 )
 
-MODIFIED="Modified 2025 Aug 29"
+MODIFIED="Modified 2025 Sep 18"
 MAX_VERBOSITY=10
 VIRTUAL_TARGET_FILE='All tilt series'
 
@@ -801,8 +801,16 @@ class MdocTreeView(QtWidgets.QMainWindow):
             
             # The CTF summary is appended to, so pick only the last match
             search_result= grep(search_string, summary_file)[-1].split()
-            avg_df= -1*(float(search_result[2]) + float(search_result[3]))/2
-            res_fit= float(search_result[7])
+            try:
+                avg_df= -1*(float(search_result[2]) + float(search_result[3]))/2
+                res_fit= float(search_result[7])
+            except ValueError as ve:
+                print(f"\n{type(ve).__name__}: readCtf: `{ve}`")
+                print(f"  CTF summary file: '{summary_file}'")
+                print(f"  Result for micrograph '{search_string}'")
+                print(f"    {search_string}': '{' '.join(search_result[1:])}\n")
+                avg_df= '0.0'
+                res_fit= '999.9'
             json_data[json_key]['CtfFind4'] = avg_df
             json_data[json_key]['MaxRes'] = res_fit
         # End tilt-series loop
