@@ -2636,7 +2636,6 @@ function compute_tomograms() {
 #     recon_status
 #     tomogram_3d
 #     verbose
-# # #     tomo_list
 #     etomo_out
 #     
 #   Calls functions:
@@ -2883,8 +2882,8 @@ function tomogram_parallel() {
 #     resource_liberate
 #   
 #   Global variables:
+#     warn_log
 #     recdir
-#     vars
 #     tomo_dir (OUTPUT)
 #     tomo_root (OUTPUT)
 #     stripped_angle_array (OUTPUT)
@@ -2895,11 +2894,11 @@ function tomogram_parallel() {
 #     mdoc_angle_array (OUTPUT)
 #     new_subframe_array (OUTPUT)
 #     dose_rate_array (OUTPUT)
-#     warn_log
 #     tomo_mic_dir
 #     micdir
 #     tomo_dns_dir
 #     denoisedir
+#     stacking_success
 #     newstack_ext (OUTPUT)
 #     file_log
 #     rec_log
@@ -2990,54 +2989,53 @@ function tomogram_parallel() {
   # Stack micrographs
   imod_restack "${tomo_log}"
   
-  if [[ "${vars[do_janni]}" == true ]]; then
-    local mic_type="JANNI-denoised micrographs"
-  elif [[ "${vars[do_topaz]}" == true ]]; then
-    local mic_type="Topaz-denoised micrographs"
-  else
-    local mic_type="micrographs"
-  fi
-  
-  local mesg="$(date +"$time_format"): Start computing 3D reconstruction from ${mic_type} from MDOC file '$(basename ${new_mdoc})' on slot #${slot_num}"
-  newstack_ext="_newstack"  # needed for compatibility in wrapper_etomo()
-  vprint "" "1+" "=${tomo_log} =${rec_log}"
-  vprint "${mesg}" "1+" "=${file_log} =${tomo_log} =${rec_log} =${status_file}"
-  
-  if [[ "${vars[batch_directive]}" == "" ]]; then
-    wrapper_aretomo "${ts_mics}" "${slot_num}" >> "${tomo_log}"
-  else
-    # Copy updated ADOC to tomo directory (for compatibility)
-    cp "${vars[batch_directive]}" "${vars[outdir]}/${tomo_dir}/"
-
-#     cp_status=$?
-#     if [[ $cp_status -ne 0 ]] ; then
-#       echo "3014: outdir='${vars[outdir]}', batch_directive='${vars[batch_directive]}', tomo_dir='${tomo_dir}'"
-#     fi
-
-    # If removing bad contours
-    if [[ "${vars[do_ruotnocon]}" == true ]] || [[ "${vars[do_laudiseron]}" == true ]] ; then
-      if [[ "${vars[do_laudiseron]}" == true ]] ; then
-        wrapper_etomo "${tomo_base}" "${ts_mics}" "true"  "-end 6" >> "${tomo_log}"
-      fi
-      
-      # If we ran laudiseron, we need to run eTomo again with the cleaned set of micrographs
-      wrapper_etomo "${tomo_base}" "${ts_mics}" "false" "-end 6" >> "${tomo_log}"
-      
-      if [[ "${vars[do_ruotnocon]}" == true ]] ; then
-        ruotnocon_wrapper "${tomo_dir}" "${tomo_base}" >> "${tomo_log}"
-        
-        if [[ "${vars[testing]}" == false ]] ; then
-          vprint "$(date +"$time_format"): Removed ${num_bad_residuals} contours based on residuals" "1+" "=${tomo_log}"
-        fi
-      fi
-      
-      # For laudiseron and/or ruotnocon, continue through the end
-      wrapper_etomo "${tomo_base}" "${ts_mics}" "false" "-start 6" >> "${tomo_log}"
+  # If stacking fails, these steps are pointless
+  if [[ "${stacking_success}" != false ]] ; then
+    if [[ "${vars[do_janni]}" == true ]]; then
+      local mic_type="JANNI-denoised micrographs"
+    elif [[ "${vars[do_topaz]}" == true ]]; then
+      local mic_type="Topaz-denoised micrographs"
     else
-      wrapper_etomo "${tomo_base}" "${ts_mics}" "false" "" >> "${tomo_log}"
+      local mic_type="micrographs"
     fi
+
+    local mesg="$(date +"$time_format"): Start computing 3D reconstruction from ${mic_type} from MDOC file '$(basename ${new_mdoc})' on slot #${slot_num}"
+    newstack_ext="_newstack"  # needed for compatibility in wrapper_etomo()
+    vprint "" "1+" "=${tomo_log} =${rec_log}"
+    vprint "${mesg}" "1+" "=${file_log} =${tomo_log} =${rec_log} =${status_file}"
+
+    if [[ "${vars[batch_directive]}" == "" ]]; then
+      wrapper_aretomo "${ts_mics}" "${slot_num}" >> "${tomo_log}"
+    else
+      # Copy updated ADOC to tomo directory (for compatibility)
+      cp "${vars[batch_directive]}" "${vars[outdir]}/${tomo_dir}/"
+
+      # If removing bad contours
+      if [[ "${vars[do_ruotnocon]}" == true ]] || [[ "${vars[do_laudiseron]}" == true ]] ; then
+        if [[ "${vars[do_laudiseron]}" == true ]] ; then
+          wrapper_etomo "${tomo_base}" "${ts_mics}" "true"  "-end 6" >> "${tomo_log}"
+        fi
+
+        # If we ran laudiseron, we need to run eTomo again with the cleaned set of micrographs
+        wrapper_etomo "${tomo_base}" "${ts_mics}" "false" "-end 6" >> "${tomo_log}"
+
+        if [[ "${vars[do_ruotnocon]}" == true ]] ; then
+          ruotnocon_wrapper "${tomo_dir}" "${tomo_base}" >> "${tomo_log}"
+
+          if [[ "${vars[testing]}" == false ]] ; then
+            vprint "$(date +"$time_format"): Removed ${num_bad_residuals} contours based on residuals" "1+" "=${tomo_log}"
+          fi
+        fi
+
+        # For laudiseron and/or ruotnocon, continue through the end
+        wrapper_etomo "${tomo_base}" "${ts_mics}" "false" "-start 6" >> "${tomo_log}"
+      else
+        wrapper_etomo "${tomo_base}" "${ts_mics}" "false" "" >> "${tomo_log}"
+      fi
+    fi
+    # End AreTomo-vs-eTomo IF-THEN
   fi
-  # End AreTomo-vs-eTomo IF-THEN
+  # End successful-stacking IF-THEN
   
   # If dose list is missing, tomogram_3d isn't defined until here
   if [[ ! -f "${dose_list}" ]]; then

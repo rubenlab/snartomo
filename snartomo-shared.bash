@@ -3481,6 +3481,7 @@ function imod_restack() {
 #     ctf_list
 #     reordered_stack (OUTPUT)
 #     ctf_stack (OUTPUT)
+#     stacking_success (OUTPUT)
 #     newstack_status
 #     verbose
 #     warn_log
@@ -3497,6 +3498,9 @@ function imod_restack() {
   # Output files
   local newstack_log="${tomo_root}_newstack.log"
   
+  # We're going to grep the log file for errors, so we want to ignore old one(s)
+  [[ -f $newstack_log ]] && mv "${newstack_log}" "${newstack_log}.BAK"
+
   # Choose list for restacking
   if [[ "${vars[do_janni]}" == true ]] || [[ "${vars[do_topaz]}" == true ]]; then
     local imod_list="${denoise_list}"
@@ -3526,10 +3530,11 @@ function imod_restack() {
   
   if [[ "${vars[testing]}" == false ]]; then
     restack_micrographs "$imod_list" "${outlog}" "$newstack_log"
+    stacking_success=false
 
     # Sanity check: Check log file for errors
     if grep --quiet ERROR $newstack_log ; then
-      local newstack_error=$(grep ERROR $newstack_log | sed 's/^/  /')
+      local newstack_error=$(grep ERROR $newstack_log)
 
       if [[ "$verbose" -ge 1 ]]; then
         vprint "  WARNING! Newstack error: '$newstack_error'" "0+" "${outlog} =${warn_log} =${newstack_log}"
@@ -3544,6 +3549,8 @@ function imod_restack() {
         vprint "    Continuing...\n" "0+" "${outlog}"
       fi
     else
+      stacking_success=true
+
       # Update pixel size
       vprint "  Running: ${apix_cmd}" "3+" "=${outlog}"
 
@@ -5349,7 +5356,7 @@ function create_json() {
     elif [[ "$verbose" -ge 2 ]]; then
       vprint "  $clean_cmd"  "1+" "=$outlog"
     fi
-# # #     eval $clean_cmd
+
     # Save only stderr (adapted from https://stackoverflow.com/a/962268)
     local clean_err=$( { eval $clean_cmd ; } 2>&1 >/dev/null )
     local status_code=$?
