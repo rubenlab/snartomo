@@ -1726,7 +1726,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
 
         # Check if we've searched previously
         if search_exe in self.exe_dict.keys():
-            ###print(f"1723: Previously found path to executable '{search_exe}': {self.exe_dict[search_exe]}")
+            if verbose : (f"Previously found path to executable '{search_exe}': {self.exe_dict[search_exe]}")
             return self.exe_dict[search_exe]
 
         if search_exe in IMOD_EXE_LIST:
