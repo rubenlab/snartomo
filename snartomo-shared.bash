@@ -3617,21 +3617,27 @@ function restack_micrographs() {
   fi
 
   if [[ "${vars[testing]}" == false ]]; then
-    vprint "  Running: ${restack_cmd}\n" "3+" "=${outlog}"
+    # Sanity check that input files exist
+    if [[ -e $imod_list ]] ; then
+      vprint "  Running: ${restack_cmd}\n" "3+" "=${outlog}"
 
-    if [[ "$verbose" -ge 7 ]]; then
-      ${vars[imod_dir]}/${restack_cmd} 2>&1 | tee -a $newstack_log
-      newstack_status=("${PIPESTATUS[0]}")
-    elif [[ "$verbose" -eq 6 ]]; then
-      # ${vars[imod_dir]}/${restack_cmd} | tee -a $newstack_log | grep --line-buffered "RO image"
-      ${vars[imod_dir]}/${restack_cmd} | tee -a $newstack_log | stdbuf -o0 grep "RO image" | sed 's/^/   /'
-      # line-buffered & stdbuf: https://stackoverflow.com/questions/7161821/how-to-grep-a-continuous-stream
+      if [[ "$verbose" -ge 7 ]]; then
+        ${vars[imod_dir]}/${restack_cmd} 2>&1 | tee -a $newstack_log
+        newstack_status=("${PIPESTATUS[0]}")
+      elif [[ "$verbose" -eq 6 ]]; then
+        # ${vars[imod_dir]}/${restack_cmd} | tee -a $newstack_log | grep --line-buffered "RO image"
+        ${vars[imod_dir]}/${restack_cmd} | tee -a $newstack_log | stdbuf -o0 grep "RO image" | sed 's/^/   /'
+        # line-buffered & stdbuf: https://stackoverflow.com/questions/7161821/how-to-grep-a-continuous-stream
 
-      newstack_status=("${PIPESTATUS[0]}")
+        newstack_status=("${PIPESTATUS[0]}")
+      else
+        ${vars[imod_dir]}/${restack_cmd} >> $newstack_log 2>&1
+        newstack_status=("${PIPESTATUS[0]}")
+      fi
     else
-      ${vars[imod_dir]}/${restack_cmd} >> $newstack_log 2>&1
-      newstack_status=("${PIPESTATUS[0]}")
+      vprint "  WARNING! Newstack input '$imod_list' does not exist!" "0+" "${outlog} =${warn_log} =${newstack_log}"
     fi
+    # End inputs-exist IF-THEN
   else
     vprint "  TESTING: ${restack_cmd}" "3+" "=${outlog}"
   fi
