@@ -722,6 +722,7 @@ function check_other_snartomos() {
                 vprint "  Please consider using different GPUs...\n" "1+" "${outlog}"
               else
                 vprint "\nExiting...\n" "0+" "${outlog}"
+                exit
               fi
             fi
             # End overlap-found IF-THEN
