@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2025-07-18"
+  echo "Modified 2026-01-12"
   date
 }
 
@@ -735,7 +735,7 @@ function check_other_snartomos() {
         
         # Shouldn't really happen
         else
-          echo "731 WARNING! Variable '$found_dir' is empty or not a directory, which shouldn't happen"
+          echo "WARNING! Variable '$found_dir' is empty or not a directory, which shouldn't happen"
         fi
         # End directory-exists IF-THEN 
       fi
@@ -785,26 +785,6 @@ function targets_init() {
   # Initialize
   rm ${mc2_movies} 2> /dev/null
   touch ${mc2_movies}
-  
-#   # Initialize MDOC list (BASH 5 syntax)
-#   while read -r target_line ; do
-#     # Replace CRLFs
-#     no_crlfs=$(echo ${target_line} | sed 's/\r//')
-#     
-#     # Cut at '=' ('xargs' removes whitespace)
-#     local mdoc_file="$(dirname ${vars[target_file]})/$(echo $no_crlfs | cut -d'=' -f 2 | xargs).mdoc"
-#     if [[ -e $mdoc_file ]]; then
-#       mdoc_array+=(${mdoc_file})
-#     else
-#       vprint "$(date +"$time_format"): WARNING! MDOC file '${mdoc_file}' does not exist. Skipping..." "1+" "${main_log} =${warn_log}"
-#     fi
-#     
-#     # Save previous version of MDOC file
-#     local old_mdoc=$(get_backup_name "${mdoc_file}")
-#     
-#     rm "${old_mdoc}" 2> /dev/null
-#     touch "${old_mdoc}"
-#   done <<< $(grep "^tsfile" "${vars[target_file]}")
   
   # Initialize MDOC list (Using BASH 4 notation)
   mapfile -t tsfile_array < <(grep "^tsfile" "${vars[target_file]}") 
@@ -979,7 +959,7 @@ function movies_init() {
         vprint "$(date +"$time_format"): Found movie in tilt series #${series_num}, MDOC '$(basename $mdoc_file)': ${init_movie_array[-1]}, angle: ${movie_angle}, remaining movies: ${#init_movie_array[@]}" "0+" "=${file_log}"
         
         if [[ "$verbose" -ge 4 ]]; then
-          echo -ne "Found ${movie_counter} pre-existing movies\r"
+          echo -ne "Found ${movie_counter} references to movies in MDOC files\r"
         fi
         
       done <<< "${new_movies}"
@@ -2807,8 +2787,6 @@ function compute_tomograms() {
           # Add to in-core cumulative array
           tomo_array+=("${mdoc_key}")
 
-# #           # Append to tomo list
-# #           echo "${mdoc_key}" >> "${tomo_list}"
           update_status "$(date +"$time_format"): Reconstructing tomograms, most recent reconstruction '$(basename $tomogram_3d)'"
         else
           vprint   "WARNING! Reconstruction '$tomogram_3d' does not exist!" "1+" "${main_log} =${warn_log}"
@@ -2954,8 +2932,12 @@ function tomogram_parallel() {
   dose_fit "${tomo_base}" "${mdoc_copy}" "${tomo_log}"
 
   # Write MDOC file with remaining micrographs
+  good_counter=0
   clean_up_mdoc "${mdoc_copy}" "${new_mdoc}" "${temp_mdoc_dir}"
-  
+#   if [[ "$good_counter" -eq 0 ]] ; then
+#     echo "WARNING! $new_mdoc: good_counter='$good_counter'"
+#   fi
+
   if [ "${#mdoc_angle_array[*]}" != "${#new_subframe_array[*]}" ] ; then
     local warn_msg="\nWARNING! MDOC file '$new_mdoc' has differing number of entries for TiltAngle (${#mdoc_angle_array[*]}), SubFramePath (${#new_subframe_array[*]}), and DoseRate (${#dose_rate_array[*]})"
     vprint "$warn_msg" "0+" "${main_log} =${warn_log}"
@@ -3044,7 +3026,7 @@ function tomogram_parallel() {
     touch "${tomogram_3d}"
   fi
   
-  if [[ -f "$tomogram_3d" ]]; then
+  if [[ -f "$tomogram_3d" ]] && [[ "$good_counter" -ne 0 ]] ; then
     if [[ "${vars[do_deconvolute]}" == true ]]; then
       deconvolute_wrapper "${vars[outdir]}/${tomo_dir}" "${new_mdoc}" "${tomo_log}"
     fi

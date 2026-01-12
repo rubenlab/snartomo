@@ -3322,6 +3322,7 @@ function clean_up_mdoc() {
 #     micdir
 #     cor_ext
 #     warn_log
+#     good_counter (OUTPUT)
 #   
 ###############################################################################
   
@@ -3335,7 +3336,7 @@ function clean_up_mdoc() {
   fi
   
   split_mdoc_single "${old_mdoc}" "${temp_mdoc_dir}"
-  
+
   # Parse MDOC (awk notation from Tat)
   mapfile -t old_subframe_array < <( grep "SubFramePath" "${old_mdoc}" | awk '{print $3}' | sed 's/\r//' )
   
@@ -3388,7 +3389,7 @@ function clean_up_mdoc() {
       echo >> $new_mdoc
     done
 
-    local good_counter=0
+    good_counter=0
 
     # Append micrograph-related chunks
     for mdoc_idx in "${!good_mdoc_array[@]}"; do
@@ -4968,8 +4969,6 @@ function deconvolute_wrapper() {
       df_angstroms="0.0"
     fi
     # End MDOC IF-THEN
-#     
-#     echo " 4145 df_angstroms '$df_angstroms'" ; exit
   }
 
 function get_central_slice() {
