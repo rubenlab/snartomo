@@ -21,7 +21,7 @@ function check_vars() {
   var_array+=("SNARTOMO_REC_ZDIM" "SNARTOMO_TILT_AXIS" "SNARTOMO_DARKTOL")
   var_array+=("SNARTOMO_TILTCOR" "SNARTOMO_BP_METHOD" "SNARTOMO_FLIPVOL")
   var_array+=("SNARTOMO_TRANSFILE" "SNARTOMO_ARETOMO_PATCH" "SNARTOMO_ARETOMO_TIME")
-  var_array+=("ISONET_ENV" "SNARTOMO_SNRFALLOFF" "SNARTOMO_SHARE" "IMOD_BIN" "SNARTOMO_RUOTNOCON_NM")
+  var_array+=("SNARTOMO_SNRFALLOFF" "SNARTOMO_SHARE" "IMOD_BIN" "SNARTOMO_RUOTNOCON_NM")
   
   if [[ "${do_pace}" == true ]]; then
     var_array+=("SNARTOMO_GPUS" "SNARTOMO_RAM_KILL" "SNARTOMO_TILT_TOLERANCE" "SNARTOMO_RAM_WARN" "SNARTOMO_IMOD_SLOTS")
@@ -853,6 +853,12 @@ function validate_inputs() {
   fi
   
   if [[ "${vars[do_deconvolute]}" == true ]]; then
+    # Make sure IsnoNet environment is defined
+    if [[ "${vars[isonet_env]}" == "" ]] ; then
+      validated=false
+      vprint "  ERROR!! Need to define IsoNet environment either with the variable 'ISONET_ENV' in 'snartomo.bashrc' or on the command line with the flag '--isonet_env'" "0+" "${outlog}"
+    fi 
+	  
     vprint "  Deconvoluting using IsoNet" "1+" "${outlog}"
     try_conda "IsoNet executable" "${vars[isonet_env]}" "${outlog}"
   fi
