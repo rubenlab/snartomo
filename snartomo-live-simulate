@@ -8,7 +8,7 @@ delay=1.5                  # delay between micrographs, seconds (can be overridd
 
 # Outputs
 mdoc_dir="TS"              # for final MDOC files (can be overridden on command line)
-output_movie_dir="frames"  # directory for (empty) movie files (can be overridden on command line)
+output_movie_dir="Movies"  # directory for (empty) movie files (can be overridden on command line)
 
 # Intermediates
 chunk_dir="ChunkMDOC"      # intermediate files will go here, a subdirectory of MDOC_DIR
@@ -18,7 +18,7 @@ chunk_ext="txt"            # extension for chunk files
 
 function program_info() {
   echo "Running: SNARTomoLiveSimulate"
-  echo "Modified 2025-02-17"
+  echo "Modified 2026-01-14"
   date
 }
 
@@ -90,7 +90,7 @@ function parse_command_line() {
 ###############################################################################
   
   add_argument "input_mdocs" "" "Tilt-series MDOC files (more than one -> must be enclosed in quotes)" "ANY"
-  add_argument "input_movie_dir" "${input_movie_dir}" "Movies in this directory will be linked to output directory" "ANY"
+  add_argument "input_movie_dir" "" "Movies in this directory will be linked to output directory (if not supplied, movies will have zero size)" "ANY"
   add_argument "mdoc_dir" "${mdoc_dir}" "Output MDOC directory" "ANY"
   add_argument "output_movie_dir" "${output_movie_dir}" "Output movie directory" "ANY"
   add_argument "overwrite" "false" "Flag to overwrite pre-existing output directories" "BOOL"
@@ -116,16 +116,14 @@ function validate_live_inputs() {
   
   validated=true
   
-# #   if [[ "${vars[input_mdocs]}" == "" ]]; then
-#   echo "117 input_mdocs '${vars[input_mdocs]}'" ; exit ### TESTING
-  
   if [[ -z "${vars[input_mdocs]}" ]] ; then
     echo "ERROR!! MDOC file(s) not supplied!"
     echo "  Add flag '--input_mdocs' and restart..."
+    echo "  (More than one -> enclose in quotes)"
     echo
     validated=false
   fi
-  
+
   # Summary
   if [[ "$validated" == false ]]; then
     print_usage
@@ -221,12 +219,6 @@ function split_mdoc_from_list() {
   
   # Loop through MDOCs
   for curr_mdoc in ${mdoc_array[@]} ; do
-#     # Make sure string ends in "*.mrc/mdoc"
-#     if [[ $curr_mdoc != *.mrc.mdoc ]] ; then
-#       echo -e "\nERROR!! Supposed MDOC file '$curr_mdoc' doesn't end in '.mdoc.mrc'"
-#       echo -e   "  Exiting...\n"
-#       exit
-#     fi
     
     echo "  Found MDOC: $curr_mdoc"
 
@@ -240,7 +232,6 @@ function split_mdoc_from_list() {
       exit 3
     fi
     
-# # #     if [[ "${vars[debug]}" == true ]]; then echo "  243: curr_mdoc: '$curr_mdoc'" ; fi
     local curr_tsdir="$(get_mdoc_chunk_dir $(basename $curr_mdoc) )"
     mkdir -p ${curr_tsdir}
     
@@ -321,10 +312,6 @@ function build_mdoc() {
   
   echo "Generating movies"
   
-#   local mdoc_nocrlf=$(get_nocrlf_filename "${mdoc_array[0]}")
-#   local high_z=$(search_mdoc_file $mdoc_nocrlf 'ZValue')
-#   echo "Old: $high_z"
-
   # Get highest entry in MDOC
   local high_z=-1
   for curr_mdoc in ${mdoc_array[@]} ; do
@@ -334,7 +321,7 @@ function build_mdoc() {
       local high_z=$last_z
     fi
   done
-# # #   echo "New: $high_z" ; exit
+
   local last_idx=$(( $high_z + 3 ))
 
   for curr_idx in $(seq 3 ${last_idx}) ; do
@@ -449,7 +436,7 @@ function search_mdoc_file() {
     test_bn=$(basename ${hit##*[/|\\]} 2> /dev/null)
     local status_code=$?
     if [[ $status_code -ne 0 ]] ; then
-      echo -e "\n  ERROR!! search_mdoc_file:437: Searching '$search_target' from '$mdoc_file'" >&2
+      echo -e "\n  ERROR!! Can't find '$search_target' in '$mdoc_file'" >&2
       return
     fi
 
