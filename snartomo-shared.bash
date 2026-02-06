@@ -1474,7 +1474,8 @@ function validate_inputs() {
       fi
       
       # Matplotlib won't work later on
-      conda deactivate
+# # #       conda deactivate
+      conda activate "${SNARTOMO_ENV}"
     fi
     # End testing IF-THEN
   }
@@ -3178,23 +3179,20 @@ function denoise_wrapper() {
   local outlog=$3
   gpu_local=$4  # might be updated
   
-# #   echo "1917 gpu_local '${gpu_local}'"
-  
   # Get single GPU number if there are more than one
   get_gpu
 
-# #   echo -e "1922 gpu_local '${gpu_local}'\n"
-  
   # Optionally use CPU
   if [[ "${vars[denoise_gpu]}" == false ]]; then
     gpu_local=-1
   fi
   
   if [[ "${dns_type}" == "janni" ]] ; then
-    local conda_cmd="conda activate ${vars[janni_env]}"
+# # #     local conda_cmd="conda activate ${vars[janni_env]}"
     local denoise_exe="janni_denoise.py"
     local denoise_args="--ignore-gooey denoise --overlap=${vars[janni_overlap]} --batch_size=${vars[janni_batch]} --gpu=${gpu_local} -- ${indir} ${tomo_dns_dir} ${vars[janni_model]}"
-    local denoise_cmd="${denoise_exe} ${denoise_args}"
+    local denoise_cmd="(timeout ${vars[topaz_time]} conda run -n ${vars[janni_env]} ${denoise_exe} ${denoise_args})"
+    local noexpand_cmd="timeout ${vars[topaz_time]} conda run -n ${vars[janni_env]} ${denoise_exe} ${denoise_args}"
     local dns_name="JANNI"
     
     # For some reason JANNI appends the input directory to the output directory
@@ -3202,10 +3200,13 @@ function denoise_wrapper() {
       tomo_dns_dir="${tomo_dns_dir}/$(basename ${indir})"
     fi
   elif [[ "${dns_type}" == "topaz" ]] ; then
-    local conda_cmd="conda activate ${vars[topaz_env]}"
+# # #     local conda_cmd="conda activate ${vars[topaz_env]}"
     local denoise_exe="topaz"
     local denoise_args="denoise ${indir}/*_mic.mrc --device ${gpu_local} --patch-size ${vars[topaz_patch]} --output ${tomo_dns_dir}"
-    local denoise_cmd="timeout ${vars[topaz_time]} ${denoise_exe} ${denoise_args}"
+# #     local denoise_cmd="timeout ${vars[topaz_time]} ${denoise_exe} ${denoise_args}"
+#     local denoise_cmd=(timeout ${vars[topaz_time]} ${denoise_exe} ${denoise_args})
+    local denoise_cmd=(timeout ${vars[topaz_time]} conda run -n ${vars[topaz_env]} ${denoise_exe} ${denoise_args})
+    local noexpand_cmd="timeout ${vars[topaz_time]} conda run -n ${vars[topaz_env]} ${denoise_exe} ${denoise_args}"
     local dns_name="Topaz"
   else
     echo -e "\nERROR!! Denoising type unknown: ${dns_type} " 
@@ -3214,34 +3215,39 @@ function denoise_wrapper() {
   fi
       
   if [[ "${vars[testing]}" == false ]]; then
-    vprint "\n  Executing: $conda_cmd" "2+" "=${outlog}"
-    $conda_cmd
-    vprint   "    conda environment: '$CONDA_DEFAULT_ENV'" "2+" "=${outlog}"
+#     vprint "\n  Executing: $conda_cmd" "2+" "=${outlog}"
+#     $conda_cmd
+#     vprint   "    conda environment: '$CONDA_DEFAULT_ENV'" "2+" "=${outlog}"
     vprint   "    Denoising using ${dns_name}..." "2+" "=${outlog}"
-    vprint   "    Executing: ${denoise_cmd}" "2+" "=${outlog}"
-    
+    vprint   "    Executing: ${noexpand_cmd}" "2+" "=${outlog}"
+
     # Run denoising
     if [[ "$verbose" -le 2 ]]; then
-      $denoise_cmd 2>&1 > /dev/null
+# # #       $denoise_cmd 2>&1 > /dev/null
+      "${denoise_cmd[@]}" 2>&1 > /dev/null
       # Suppress all output
       
     elif [[ "$verbose" -eq 6 ]]; then
       vprint "      $(date)" "6=" "=${outlog}"
       
       # Time execution and redirect output (https://stackoverflow.com/a/2409214)
-      { time ${denoise_cmd} 2> /dev/null ; } 2>&1 | grep real | sed 's/real\t/    Run time: /'
+# # #       { time ${denoise_cmd} 2> /dev/null ; } 2>&1 | grep real | sed 's/real\t/    Run time: /'
+      { time ${denoise_cmd[@]} 2> /dev/null ; } 2>&1 | grep real | sed 's/real\t/    Run time: /'
       local status_code=("${PIPESTATUS[0]}")
       # Do NOT use quotes around ${denoise_cmd} above...
     elif [[ "$verbose" -ge 7 ]]; then
-      time $denoise_cmd
+# # #       time $denoise_cmd
+      time "${denoise_cmd[@]}"
       local status_code=("${PIPESTATUS[0]}")
     else
       if [[ "${outlog}" != "" ]] ; then
-        $denoise_cmd 2> /dev/null >> ${outlog} 
+# # #         $denoise_cmd 2> /dev/null >> ${outlog}
+        "${denoise_cmd[@]}" 2> /dev/null >> ${outlog}
         local status_code=("${PIPESTATUS[0]}")
       else
         # Suppress output (https://stackoverflow.com/a/46009371)
-        $denoise_cmd >/dev/null 2>&1
+# # #         $denoise_cmd >/dev/null 2>&1
+        "${denoise_cmd[@]}" >/dev/null 2>&1
         local status_code=("${PIPESTATUS[0]}")
       fi
     fi
@@ -3253,12 +3259,12 @@ function denoise_wrapper() {
     # Topaz crashes, re-run it and save the error
     if [[ "${dns_type}" == "topaz" ]] && [[ "${status_code}" -ne 0 ]] ; then
       # Re-run Topaz
-      mapfile -t topaz_err < <( ($denoise_cmd) 2>&1 )
+      mapfile -t topaz_err < <( ("${denoise_cmd[@]}") 2>&1 )
       
       # Error code should be nonzero again, but who knows
       if [[ "$verbose" -ge 1 ]]; then
         vprint "" "1+" "=${outlog}"
-        vprint "WARNING! Topaz failed for '${tomo_base}'" "1+" "${outlog} =${warn_log}"
+        vprint "  WARNING! Topaz failed for tilt series '${tomo_base}'. Error:" "1+" "${outlog} =${warn_log}"
         printf "    %s\n" "${topaz_err[@]}" >> "${outlog}"
         vprint "  ${topaz_err[-1]}" "1+" "${warn_log}"
       fi
@@ -3269,14 +3275,15 @@ function denoise_wrapper() {
     local num_orig="$(ls ${indir}/*_mic.mrc | wc -w)"
     local num_dns="$(ls ${tomo_dns_dir}/*_mic.mrc 2> /dev/null | wc -w)"
     if [[ "${num_orig}" -ne "${num_dns}" ]] ; then
-      vprint "\n    WARNING! Found ${num_dns}/${num_orig} denoised micrographs" "1+" "=${outlog} =${warn_log}"
+      vprint "\n    WARNING! Found ${num_dns}/${num_orig} denoised micrographs\n" "1+" "=${outlog} =${warn_log}"
     else
       vprint "    Denoised ${num_dns}/${num_orig} micrographs" "3+" "=${outlog}"
     fi
   
-    # Clean up
-    conda deactivate
-    vprint "  conda environment: '$CONDA_DEFAULT_ENV'\n" "2+" "=${outlog}"
+#     # Clean up
+# # # #     conda deactivate
+#     conda activate "${SNARTOMO_ENV}"
+#     vprint "  conda environment: '$CONDA_DEFAULT_ENV'\n" "2+" "=${outlog}"
   
   # Testing
   else
@@ -3624,7 +3631,7 @@ function restack_micrographs() {
   fi
 
   if [[ "${vars[testing]}" == false ]]; then
-    # Sanity check that input files exist
+      # Sanity check that input files exist
     if [[ -e $imod_list ]] ; then
       vprint "  Running: ${restack_cmd}\n" "3+" "=${outlog}"
 
@@ -4895,10 +4902,6 @@ function deconvolute_wrapper() {
       vprint   "         Continuing...\n" "1+" "=${outlog}"
     fi
     
-    # Clean up
-    conda deactivate
-    vprint "  conda environment: '$CONDA_DEFAULT_ENV'\n" "2+" "=${outlog}"
-  
   # Testing
   else
     # Clean up

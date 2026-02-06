@@ -17,7 +17,7 @@
 
 function program_info() {
   echo "Running: SNARTomoPACE"
-  echo "Modified 2026-01-14"
+  echo "Modified 2026-02-06"
   date
 }
 
@@ -569,7 +569,6 @@ function prepare_logfiles() {
   ctf_list=${temp_share_dir}/${ctf_list}
   cpu_status=${temp_share_dir}/${cpu_status}
   mdoc_list=${temp_share_dir}/${mdoc_list}
-# # #   tomo_list=${temp_share_dir}/${tomo_list}
   recon_status=${temp_share_dir}/${recon_status}
   movies_done=${temp_share_dir}/${movies_done}
   mcor_done=${temp_share_dir}/${mcor_done}
@@ -2696,10 +2695,10 @@ function compute_tomograms() {
       local num_gpus=$(echo "${vars[gpus]}" | wc -w)
       
       if [[ "${vars[denoise_gpu]}" == true ]] ; then
-        if [[ $imod_slots -gt $num_gpus ]] ; then
-          local msg="$(date +"$time_format"): WARNING! More IMOD slots (${vars[imod_slots]}) than GPUs (${num_gpus}), limiting to ${num_gpus} IMOD processes..."
-          vprint "${msg}" "0+" "${main_log} =${warn_log}"
-        fi
+#         if [[ $imod_slots -gt $num_gpus ]] ; then
+#           local msg="$(date +"$time_format"): WARNING! More IMOD slots (${vars[imod_slots]}) than GPUs (${num_gpus}), limiting to ${num_gpus} IMOD processes..."
+#           vprint "${msg}" "0+" "${main_log} =${warn_log}"
+#         fi
         IFS=' ' read -r -a slot_list <<< "${vars[gpus]}"
       else
         local slot_list=( $(seq "${vars[imod_slots]}") )
@@ -2890,6 +2889,7 @@ function tomogram_parallel() {
 #     recdir
 #     tomo_dir (OUTPUT)
 #     tomo_root (OUTPUT)
+#     tomo_ctfs (OUTPUT)
 #     stripped_angle_array (OUTPUT)
 #     mcorr_mic_array (OUTPUT)
 #     denoise_array (OUTPUT)
@@ -2931,7 +2931,7 @@ function tomogram_parallel() {
   tomo_dir="${recdir}/${tomo_base}"
   tomo_root="${vars[outdir]}/${tomo_dir}/${tomo_base}"
   local tomo_log="${tomo_root}_snartomo.log"
-  local tomo_ctfs="${vars[outdir]}/${tomo_dir}/${ctf_summary}"
+  tomo_ctfs="${vars[outdir]}/${tomo_dir}/${ctf_summary}"
   
   local mdoc_base=$(basename $orig_mdoc)
   local mdoc_copy="${vars[outdir]}/${tomo_dir}/${mdoc_base}.orig"
@@ -2975,8 +2975,8 @@ function tomogram_parallel() {
   
   # Update arrays and plot CTF data
   update_arrays
-  plot_tomo_ctfs "${new_mdoc} ">> "${tomo_log}"
-  write_angles_lists "${tomo_log}"
+  plot_tomo_ctfs "${new_mdoc}" >> "${tomo_log}"
+  write_angles_lists "${tomo_log}"  # TODO: Sanity check
   
   # Optionally denoise
   if [[ "${vars[do_janni]}" == true ]]; then
@@ -2990,7 +2990,7 @@ function tomogram_parallel() {
     mv ${tomo_mic_dir}/*mic.mrc ${vars[outdir]}/${micdir}/
     mv ${tomo_dns_dir}/*mic.mrc ${vars[outdir]}/${denoisedir}/ 2> /dev/null
   fi
-  
+
   rmdir ${tomo_dns_dir} 2> /dev/null
   rmdir ${tomo_mic_dir} 2> /dev/null
   
@@ -3119,6 +3119,7 @@ function tomogram_parallel() {
   #     mcorr_mic_array
   #     denoise_array
   #     ctf_stk_array
+  #     tomo_ctfs
   #   
   ###############################################################################
     
@@ -3130,7 +3131,7 @@ function tomogram_parallel() {
       # Get motion-corrected micrograph name
       local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
       local mc2_mic="${vars[outdir]}/${micdir}/${stem_movie}${cor_ext}"
-      
+
       # Create micrograph directory (only used if denoising)
       if [[ "${subfm_idx}" -eq 0 ]] ; then
         tomo_mic_dir="${vars[outdir]}/${tomo_dir}/${temp_dir}"
@@ -3145,16 +3146,16 @@ function tomogram_parallel() {
         mcorr_mic_array+=($mc2_mic)
         denoise_array+=(${vars[outdir]}/${denoisedir}/${stem_movie}${cor_ext})
         ctf_stk_array+=($(mic_to_ctf "$mc2_mic"))
-        
+
         # Write CTF summary
         if [[ "${vars[testing]}" == false ]] ; then
           local ctf_txt=$(stem2ctfout "$stem_movie")
           echo -e "${stem_movie}:    \t$(tail -n 1 $ctf_txt)" >> ${tomo_ctfs}
         fi
-  #       
-  #       ### TESTING
-  #       else
-  #         echo "3133 : $mc2_mic doesn't exist"
+
+#         ### TESTING
+#         else
+#           echo "3160 : $mc2_mic doesn't exist"
       fi
     done
     # End angles loop
