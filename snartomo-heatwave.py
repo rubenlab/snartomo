@@ -49,7 +49,7 @@ USAGE = """
   For more info about options, enter: %s --help
 """ % ( (os.path.basename(__file__),)*3 )
 
-MODIFIED="Modified 2025 Oct 07"
+MODIFIED="Modified 2026 Feb 17"
 MAX_VERBOSITY=10
 VIRTUAL_TARGET_FILE='All tilt series'
 
@@ -197,8 +197,8 @@ class MdocTreeView(QtWidgets.QMainWindow):
         num_targets= 0
         num_mdocs= 0
         num_movies= 0
-        mdoc_keys= ['CtfSummary',   'CentralSlice',         'CtfBytsPlot',                  'DosefitPlot']
-        mdoc_tags= ['CTF summaries','tilt-series CTF plots','reconstruction central slices','dose-fitting plots']
+        mdoc_keys= ['CtfSummary',   'CentralSlice',                 'CtfBytsPlot',          'DosefitPlot']
+        mdoc_tags= ['CTF summaries','reconstruction central slices','tilt-series CTF plots','dose-fitting plots']
         mic_keys= ['MoviePath',        'TiffFile',  'McorrMic',                    'MicThumbnail',         'CtfThumbnail',             'DenoiseMic']
         mic_tags= ['micrograph movies','TIFF files','motion-corrected micrographs','micrograph thumbnails','power-spectrum thumbnails','denoised micrographs']
         found_dict= {key: 0 for key in ['target_files','target_ctfplots','target_ctfplots','mdocs','selected_mdocs','MdocSelected'] + mdoc_keys + mic_keys }
