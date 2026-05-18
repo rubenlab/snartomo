@@ -1,0 +1,459 @@
+#!/bin/bash
+
+# Default values
+IMOD_BIN=$( dirname $(which header) )  # IMOD executable directory
+indir=SNARTomo/5-Tomo             # Top-level SNARTomo I/O directory
+outdir=SNARTomo/6-OddEven         # Output IsoNet directory
+cmd_file=commands.txt             # Output commands file (in ${outdir})
+set_file=settings.txt             # Output settings file (in ${outdir})
+main_log=oddeven.txt               # Main log file (in ${outdir})
+warn_log=warnings.txt             # Warnings log (in ${outdir})
+# care_data=train_data_config.json  # Output JSON file for 'cryoCARE_extract_train_data.py'
+# care_train=train_config.json      # Output JSON file for 'cryoCARE_train.py'
+# care_predict=predict_config.json  # Output JSON file for 'cryoCARE_predict.py'
+verbosity=4                       # Verbosity level
+#                                 #   0: prints minimum
+#                                 #   1: prints brief overall summary
+#                                 #   2: prints one-time warnings, more thorough sanity check
+#                                 #   3: prints summary for each tomogram
+#                                 #   4: (default) prints commands
+#                                 #   5: prints confirmation of inputs
+#                                 #   6: prints file events
+#                                 #   7: prints full IMOD/JSON info
+#                                 #   8: shows backup events
+
+################ END BATCH HEADER ################
+
+# Outline (multiline comment)
+: '
+main
+  parse_command_line
+  oddeven_create_directories
+    argparse.print_arguments
+  prepare4oddeven
+    validate_imod_files
+    create_odd_even_files
+      shared.restack_micrographs
+'
+
+function main() {
+  # BASH arrays can't returned, so declare them here
+  declare -A original_vars
+  declare -a var_sequence
+  declare -A vars
+
+  # Parse command line
+  SNARTOMO_DIR="$( realpath $(dirname $BASH_SOURCE) )"
+  source "${SNARTOMO_DIR}/argumentparser_dynamic.sh"
+  source "${SNARTOMO_DIR}/snartomo-shared.bash"
+  parse_command_line "${@}"
+
+  # For compatibility
+  SNARTOMO_DIR="$( realpath $(dirname $BASH_SOURCE) )"
+  time_format='%Y-%m-%d %T'
+
+  oddeven_create_directories "${@}"
+  main_log=${vars[outdir]}/${main_log}
+  set_file=${vars[outdir]}/${set_file}
+  warn_log=${vars[outdir]}/${warn_log}
+
+  # Validate Python environment
+  validated=true
+# # #   check_python "${main_log}" "('argparse' 'json')"
+
+  # Make sure at least one directory exists
+  if [[ "${#ARGS[@]}" -lt 1 ]]; then
+    echo -e "\nERROR!! Input directory is a required parameter!\n"
+    print_usage
+    exit
+  else
+    dir_exists=false
+    vprint "  Checking tomo directories..." "5+" "${main_log}"
+    for curr_dir in "${ARGS[@]}" ; do
+      if [[ -d "${vars[indir]}/${curr_dir}" ]]; then
+        dir_exists=true
+        vprint "    Tomo directory exists: '${curr_dir}'" "5+" "${main_log}"
+      fi
+    done
+
+    if [[ "$dir_exists" == false ]]; then
+      validated=false
+      vprint "\n  ERROR!! None of the input tomo directories exist in '${vars[indir]}/':" "0+" "${main_log}"
+      vprint "    '${ARGS[*]}'" "0+" "${main_log}"
+      vprint "    Exiting...\n" "0+" "${main_log}"
+      exit
+    fi
+  fi
+  # End zero-length ARGS IF-THEN
+
+  if [[ "$validated" == false ]]; then
+    vprint "  Missing required inputs, exiting...\n" "0+" "${main_log}"
+    exit 4
+  else
+    vprint "  Found required inputs. Continuing...\n" "1+" "${main_log}"
+  fi
+
+  prepare4oddeven "${main_log}"
+
+  echo -e "\nDone!"
+}
+
+function parse_command_line() {
+###############################################################################
+#   Function:
+#     Parses command line
+#
+#   Passed arguments:
+#     ${@} : command-line arguments
+#
+#   Global variables:
+#     vars : final options array
+#     verbose : shortened copy of vars[verbosity]
+#
+###############################################################################
+
+  add_section "GLOBAL SETTINGS" "These settings affect multiple steps."
+  add_argument "indir" "${indir}" "Top-level input directory, containing subdirectory for each tilt series" "ANY"
+# # #   add_argument "tomodir" "${tomodir}" "Input tomogram directory, relative to INDIR" "ANY"
+  add_argument "outdir" "${outdir}" "Output CryoCARE directory" "ANY"
+  add_argument "overwrite" "false" "Flag to overwrite pre-existing output directory" "BOOL"
+  add_argument "testing" "false" "Testing flag" "BOOL"
+  add_argument "verbosity" "${verbosity}" "Verbosity level (0..8)" "INT"
+  add_argument "imod_dir" "${IMOD_BIN}" "IMOD executable directory" "ANY"
+  add_argument "debug" "false" "Flag for debugging" "BOOL"
+
+#   add_section "CRYOCARE SETTINGS" "Settings for CryoCARE preparation."
+#   add_argument "care_data" "${care_data}" "Output JSON file for 'cryoCARE_extract_train_data.py' step" "ANY"
+#   add_argument "care_train" "${care_train}" "Output JSON file for 'cryoCARE_train.py' step" "ANY"
+#   add_argument "care_predict" "${care_predict}" "Output JSON file for 'cryoCARE_predict.py' step" "ANY"
+
+  dynamic_parser "${@}"
+# #   print_vars
+# #   printf "'%s'\n" "${ARGS[@]}" ; exit
+
+  # We're going to use this variable a lot
+  verbose="${vars[verbosity]}"
+}
+
+function print_usage() {
+  echo "USAGE:   $(basename $0) <tomo_dir_1> <tomo_dir_2> ... <options>"
+  echo "  Assumptions:"
+  echo "    Each tilt series is in a separate subdirectory under input directory, e.g., '${indir}/'"
+  echo "    Tomogram directory name is the prefix of the files in that directory."
+  echo
+  echo "    Files required in each tilt-series directory include:"
+  echo "      newst.com"
+  echo "      tilt.com"
+  echo "      trimvol.com (optional, used for rotation)"
+  echo "      *mcorr.txt (list of the micrographs to be stacked by newstack)"
+  echo "      *newstack.xf"
+  echo "      *newstack.tlt"
+  echo "      *newstack.xtilt"
+
+  echo
+  echo "DRY RUN: $(basename $0) <tomo_dir_1> <tomo_dir_2> ... --testing"
+  echo
+  echo "To list options & defaults, type:"
+  echo "  $(basename $0) --help"
+  echo
+}
+
+function oddeven_create_directories() {
+###############################################################################
+#   Functions:
+#     Creates directories
+#     Writes command line to commands file
+#     Writes settings to settings file
+#
+#   Calls function:
+#     argparse.print_arguments
+#
+#   Global variables:
+#     vars
+#     verbose
+#     cmd_file
+#     set_file
+#
+###############################################################################
+
+  # Remove output directory if '--overwrite' option chosen
+  if [[ "${vars[overwrite]}" == true ]]; then
+    if [[ -d "${vars[outdir]}" ]]; then
+      if [[ "$verbose" -ge 1 ]]; then
+        echo -e "Removing directory '${vars[outdir]}/'..."
+      fi
+
+      rm -rf "${vars[outdir]}" 2> /dev/null
+      local rm_status=$?
+
+      if [[ "${rm_status}" -ne 0 ]]; then
+          echo "ERROR!! Can't delete '${vars[outdir]}'!"
+
+        # Check owner
+        dir_owner=$(stat -c '%U' "${vars[outdir]}")
+
+        if [[ "${dir_owner}" != "$(whoami)" ]]; then
+          echo "  Owner of '${vars[outdir]}' is '${dir_owner}'!"
+          echo "  Use a different directory, or ask them to change the permissions!"
+          echo "  Exiting..."
+          echo
+          exit
+        fi
+      fi
+    fi
+    # End outdir-exists IF-THEN
+  fi
+  # End overwrite IF-THEN
+
+  mkdir -pv "${vars[outdir]}" 2> /dev/null
+
+  # Write command line to output directory
+  echo -e "$0 ${@}\n" >> "${vars[outdir]}/${cmd_file}"
+
+  print_arguments > "${vars[outdir]}/${set_file}"
+
+  # Insert arguments on line 4 (immediately after 'GLOBAL SETTINGS')
+  sed -i "4i\    ARGS   \t'${ARGS[*]}' \tTilt-series directories" "${vars[outdir]}/${set_file}"
+
+  if [[ "${verbose}" -ge 1 ]]; then
+    echo -e "Wrote settings to ${vars[outdir]}/${set_file}\n"
+  fi
+}
+
+function prepare4oddeven() {
+###############################################################################
+#   Function:
+#     Prepare outputs for IsoNet
+#
+#   Positional variables:
+#     1) output log file
+#
+#   Global variables:
+#     ARGS (directory array)
+#     verbose
+#     warn_log
+#     even_stack_array (defined here)
+#     odd_stack_array (defined here)
+#     tomo_root (defined here)
+#     files2copy (defined here)
+#     files_present (defined in validate_imod_files)
+#
+#   Calls functions:
+#     vprint
+#     validate_imod_files
+#     create_odd_even_files
+# # #     prepare_cryocare_jsons
+#
+###############################################################################
+
+  local outlog=$1
+
+  local odd_suffix="ODD"
+  local even_suffix="EVN"
+
+  declare -a even_stack_array
+  declare -a odd_stack_array
+
+  for curr_dir in "${ARGS[@]}" ; do
+    vprint "  Working on: '$curr_dir'" "3+" "${outlog}"
+
+    # Check if tomo directory exists
+    local rel_tomodir="${vars[indir]}/${curr_dir}"
+    if [[ -d "$rel_tomodir" ]]; then
+      local oddeven_relpath="${vars[outdir]}/$(basename $curr_dir)"
+
+      # Create new directories: tomo_dir, even, odd
+      if [[ "$verbose" -ge 6 ]] ; then
+        mkdir -pv "$oddeven_relpath" | sed 's/^/    /'  # (prepends spaces to output)
+        mkdir -pv "$oddeven_relpath/${even_suffix}" | sed 's/^/    /'
+        mkdir -pv "$oddeven_relpath/${odd_suffix}" | sed 's/^/    /'
+      else
+        mkdir -p "$oddeven_relpath" 2> /dev/null
+        mkdir -p "$oddeven_relpath/${even_suffix}" 2> /dev/null
+        mkdir -p "$oddeven_relpath/${odd_suffix}" 2> /dev/null
+      fi
+
+      # Validate eTomo inputs
+      tomo_root=$(basename $curr_dir)
+      local mcorr_base="${tomo_root}_mcorr.txt"
+      files2copy=(${mcorr_base} ${tomo_root}_newstack.xf ${tomo_root}_newstack.tlt
+                  ${tomo_root}_newstack.xtilt newst.com tilt.com trimvol.com)
+      validate_imod_files $curr_dir $outlog
+
+      if [[ "$files_present" == true ]] ; then
+        vprint "    Files in '$curr_dir': OK" "5+" "${outlog}"
+      else
+        vprint "    WARNING! Missing files in '$curr_dir', skipping..." "1+" "${outlog} =${warn_log}"
+        continue
+      fi
+
+      vprint "    Working on '${odd_suffix}'..."  "4+" "$outlog"
+      create_odd_even_files "${odd_suffix}"  "${rel_tomodir}" "$outlog"
+      vprint "    Working on '${even_suffix}'..." "4+" "$outlog"
+      create_odd_even_files "${even_suffix}" "${rel_tomodir}" "$outlog"
+
+      # Update arrays
+      even_stack_array+=("${oddeven_relpath}/${even_suffix}/${tomo_root}_newstack.mrc")
+      odd_stack_array+=("${oddeven_relpath}/${odd_suffix}/${tomo_root}_newstack.mrc")
+    else
+      vprint "  WARNING! Tomo directory doesn't exist: '${curr_dir}'" "2+" "${main_log} =${warn_log}"
+    fi
+    # End exists IF-THEN
+  done
+  # End directory loop
+
+# # #   prepare_cryocare_jsons "${vars[outdir]}"
+}
+
+function validate_imod_files() {
+###############################################################################
+#   Function:
+#     Validate eTomo files
+#
+#   Positional variables:
+#     1) current directory
+#     2) output log file
+#
+#   Global variables:
+#     files2copy (array)
+#     warn_log
+#     files_present (defined here)
+#
+###############################################################################
+
+  local curr_dir=$1
+  local outlog=$2
+
+  vprint "    Checking files in: '$curr_dir'" "5+" "${outlog}"
+
+  files_present=true
+  for fn in "${files2copy[@]}" ; do
+    # Check if file exists
+    local rel_path="${vars[indir]}/${curr_dir}/${fn}"
+    if [[ -f "$rel_path" ]]; then
+      vprint "      Found file: '$rel_path'" "6+" "${outlog}"
+    else
+      if [[ "$fn" != "trimvol.com" ]] ; then
+        files_present=false
+        vprint "      ERROR!! Didn't find file: '$rel_path'" "1+" "${outlog} =${warn_log}"
+        exit
+      else
+        if [[ "$verbose" -ge 2 ]]; then
+          vprint "    WARNING! Didn't find file: '$rel_path', not rotating..." "0+" "${outlog}"
+        fi
+      fi
+    fi
+  done
+}
+
+function create_odd_even_files() {
+###############################################################################
+#   Function:
+#     Generate necessary files for odd & even CryoCARE directories
+#
+#   Positional variables:
+#     1) suffix (ODD or EVN)
+#     2) tomogram directory (e.g., SNARTomo/5-Tomo/${tomo_root})
+#     3) main log file
+#
+#   Global variables:
+#     tomo_root
+#     files2copy (array)
+#     verbose
+#     restack_cmd
+#     reordered_stack (defined here)
+#
+#   Calls function:
+#     shared.restack_micrographs
+#
+###############################################################################
+
+  local curr_suffix=$1
+  local rel_tomodir=$2
+  local outlog=$3
+
+  local oddeven_relpath="${vars[outdir]}/${tomo_root}"
+  local mcorr_base="${tomo_root}_mcorr.txt"
+  local new_mcorr="${oddeven_relpath}/${curr_suffix}/${mcorr_base}"
+  local oddeven_dir="$oddeven_relpath/${curr_suffix}"
+
+  # Edit micrograph list for even/odd half-micrographs
+  sed "s/\.mrc$/_${curr_suffix}.mrc/" "${rel_tomodir}/${mcorr_base}" > "${new_mcorr}"
+
+  # Copy the following files: newst.com, tilt.com, trimvol.com, *.xf, *.tlt, *.xtilt
+  for fn in "${files2copy[@]}" ; do
+    if [[ "$verbose" -ge 6 ]] ; then
+      cp -v "${rel_tomodir}/${fn}" "${oddeven_dir}/" | sed 's/^/      Copied: /'
+    else
+      \cp "${rel_tomodir}/${fn}" "${oddeven_dir}/" 2> /dev/null
+    fi
+  done
+
+  # Stack suffix might be '.mrc' or '.st', so check newst.com
+  reordered_stack="${oddeven_relpath}/${curr_suffix}/$(grep '^InputFile' ${oddeven_relpath}/${curr_suffix}/newst.com | xargs | cut -d ' ' -f 2)"
+
+  # Restack
+  restack_micrographs "${new_mcorr}" "${outlog}" "${oddeven_relpath}/${curr_suffix}/${tomo_root}_newstack.log"
+  # (TODO: Update the pixel size)
+
+  if [[ "$verbose" -ge 4 ]] && [[ "${vars[testing]}" == true ]] ; then
+    echo "      TESTING: $restack_cmd"
+  fi
+
+  # trimvol.com is optional
+  if [[ -f "${oddeven_relpath}/${curr_suffix}/trimvol.com" ]]; then
+    subm_cmd="submfg newst.com tilt.com trimvol.com"
+  else
+    subm_cmd="submfg newst.com tilt.com"
+  fi
+# # #   subm_cmd="submfg newst.com"
+
+  if [[ "$verbose" -ge 4 ]] ; then
+    if [[ "${vars[testing]}" == true ]] ; then
+      echo    "      TESTING: $subm_cmd (in ${oddeven_dir}/)"
+    else
+      echo -e "      RUNNING: $subm_cmd (in ${oddeven_dir}/)\n"
+    fi
+  fi
+
+  if [[ "${vars[testing]}" == false ]] ; then
+    pushd "${oddeven_dir}/" > /dev/null
+    ${vars[imod_dir]}/${subm_cmd}
+    popd > /dev/null
+    vprint "" "3+" "${outlog}"
+  fi
+}
+
+# function prepare_cryocare_jsons() {
+# ###############################################################################
+# #   Function:
+# #     Prepare CryoCARE JSON files
+# #
+# #   Positional variables:
+# #     1) CryoCARE directory
+# #
+# #   Global variables:
+# #     ARGS (directory array)
+# #     tomo_root
+# #     verbose
+# #     my_python_cmd : from shared.python_sanity
+# #
+# #   Calls functions:
+# #     python_sanity
+# #     care-jsons.py
+# #
+# ###############################################################################
+#
+#   local care_relpath=$1
+#
+#   python_sanity "care-jsons.py"
+#   local care_cmd="$my_python_cmd \"${even_stack_array[*]}\" \"${odd_stack_array[*]}\" ${care_relpath} --verbosity=$verbose"
+#   if [[ "$verbose" -ge 3 ]] ; then
+#     echo "  RUNNING: ${care_cmd}"
+#   fi
+#   eval $care_cmd
+# }
+#
+########################################################################################
+
+main "$@"
