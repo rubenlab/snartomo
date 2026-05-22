@@ -2,7 +2,8 @@
 
 # Default values
 IMOD_BIN=$( dirname $(which header) )  # IMOD executable directory
-indir=SNARTomo/5-Tomo             # Top-level SNARTomo I/O directory
+micdir=SNARTomo/2-MotionCor2      # Micrograph directory
+recdir=SNARTomo/5-Tomo            # Top-level reconstruction directory
 outdir=SNARTomo/6-OddEven         # Output IsoNet directory
 cmd_file=commands.txt             # Output commands file (in ${outdir})
 set_file=settings.txt             # Output settings file (in ${outdir})
@@ -32,6 +33,7 @@ main
     argparse.print_arguments
   prepare4oddeven
     validate_imod_files
+    create_newstack_list
     create_odd_even_files
       shared.restack_micrographs
 '
@@ -70,7 +72,7 @@ function main() {
     dir_exists=false
     vprint "  Checking tomo directories..." "5+" "${main_log}"
     for curr_dir in "${ARGS[@]}" ; do
-      if [[ -d "${vars[indir]}/${curr_dir}" ]]; then
+      if [[ -d "${vars[recdir]}/${curr_dir}" ]]; then
         dir_exists=true
         vprint "    Tomo directory exists: '${curr_dir}'" "5+" "${main_log}"
       fi
@@ -78,7 +80,7 @@ function main() {
 
     if [[ "$dir_exists" == false ]]; then
       validated=false
-      vprint "\n  ERROR!! None of the input tomo directories exist in '${vars[indir]}/':" "0+" "${main_log}"
+      vprint "\n  ERROR!! None of the input tomo directories exist in '${vars[recdir]}/':" "0+" "${main_log}"
       vprint "    '${ARGS[*]}'" "0+" "${main_log}"
       vprint "    Exiting...\n" "0+" "${main_log}"
       exit
@@ -95,7 +97,7 @@ function main() {
 
   prepare4oddeven "${main_log}"
 
-  echo -e "\nDone!"
+  echo "Done!"
 }
 
 function parse_command_line() {
@@ -113,8 +115,8 @@ function parse_command_line() {
 ###############################################################################
 
   add_section "GLOBAL SETTINGS" "These settings affect multiple steps."
-  add_argument "indir" "${indir}" "Top-level input directory, containing subdirectory for each tilt series" "ANY"
-# # #   add_argument "tomodir" "${tomodir}" "Input tomogram directory, relative to INDIR" "ANY"
+  add_argument "recdir" "${recdir}" "Top-level input directory, containing subdirectory for each tilt series" "ANY"
+  add_argument "micdir" "${micdir}" "Micrograph directory" "ANY"
   add_argument "outdir" "${outdir}" "Output CryoCARE directory" "ANY"
   add_argument "overwrite" "false" "Flag to overwrite pre-existing output directory" "BOOL"
   add_argument "testing" "false" "Testing flag" "BOOL"
@@ -138,14 +140,15 @@ function parse_command_line() {
 function print_usage() {
   echo "USAGE:   $(basename $0) <tomo_dir_1> <tomo_dir_2> ... <options>"
   echo "  Assumptions:"
-  echo "    Each tilt series is in a separate subdirectory under input directory, e.g., '${indir}/'"
+  echo "    Each tilt series is in a separate subdirectory under input directory, e.g., '${recdir}/'"
   echo "    Tomogram directory name is the prefix of the files in that directory."
   echo
   echo "    Files required in each tilt-series directory include:"
   echo "      newst.com"
   echo "      tilt.com"
   echo "      trimvol.com (optional, used for rotation)"
-  echo "      *mcorr.txt (list of the micrographs to be stacked by newstack)"
+# # #   echo "      *mcorr.txt (list of the micrographs to be stacked by newstack)"
+  echo "      *.mdoc"
   echo "      *newstack.xf"
   echo "      *newstack.tlt"
   echo "      *newstack.xtilt"
@@ -223,7 +226,7 @@ function oddeven_create_directories() {
 function prepare4oddeven() {
 ###############################################################################
 #   Function:
-#     Prepare outputs for IsoNet
+#     Prepare odd+even outputs
 #
 #   Positional variables:
 #     1) output log file
@@ -237,6 +240,7 @@ function prepare4oddeven() {
 #     tomo_root (defined here)
 #     files2copy (defined here)
 #     files_present (defined in validate_imod_files)
+#     good_angles_file (defined here)
 #
 #   Calls functions:
 #     vprint
@@ -258,7 +262,7 @@ function prepare4oddeven() {
     vprint "  Working on: '$curr_dir'" "3+" "${outlog}"
 
     # Check if tomo directory exists
-    local rel_tomodir="${vars[indir]}/${curr_dir}"
+    local rel_tomodir="${vars[recdir]}/${curr_dir}"
     if [[ -d "$rel_tomodir" ]]; then
       local oddeven_relpath="${vars[outdir]}/$(basename $curr_dir)"
 
@@ -276,7 +280,7 @@ function prepare4oddeven() {
       # Validate eTomo inputs
       tomo_root=$(basename $curr_dir)
       local mcorr_base="${tomo_root}_mcorr.txt"
-      files2copy=(${mcorr_base} ${tomo_root}_newstack.xf ${tomo_root}_newstack.tlt
+      files2copy=(${tomo_root}.mdoc ${tomo_root}_newstack.xf ${tomo_root}_newstack.tlt
                   ${tomo_root}_newstack.xtilt newst.com tilt.com trimvol.com)
       validate_imod_files $curr_dir $outlog
 
@@ -286,6 +290,10 @@ function prepare4oddeven() {
         vprint "    WARNING! Missing files in '$curr_dir', skipping..." "1+" "${outlog} =${warn_log}"
         continue
       fi
+
+      # Create motion-corrected micrograph list for newstack
+      good_angles_file="${tomo_root}_goodangles.txt"
+      create_newstack_list "${rel_tomodir}/${tomo_root}.mdoc" "${rel_tomodir}/${mcorr_base}"
 
       vprint "    Working on '${odd_suffix}'..."  "4+" "$outlog"
       create_odd_even_files "${odd_suffix}"  "${rel_tomodir}" "$outlog"
@@ -329,7 +337,7 @@ function validate_imod_files() {
   files_present=true
   for fn in "${files2copy[@]}" ; do
     # Check if file exists
-    local rel_path="${vars[indir]}/${curr_dir}/${fn}"
+    local rel_path="${vars[recdir]}/${curr_dir}/${fn}"
     if [[ -f "$rel_path" ]]; then
       vprint "      Found file: '$rel_path'" "6+" "${outlog}"
     else
@@ -344,6 +352,67 @@ function validate_imod_files() {
       fi
     fi
   done
+}
+
+function create_newstack_list() {
+###############################################################################
+#   Function:
+#     Create motion-corrected micrograph list for newstack
+#
+#   Positional variables:
+#     1) MDOC file
+#     2) micrograph list
+#
+#   Global variables:
+#     vars
+#     new_subframe_array (OUTPUT)
+#     mcorr_mic_array (OUTPUT)
+#     stripped_angle_array (OUTPUT)
+#     good_angles_file
+#
+#   Calls functions:
+#     shared.sort_array_keys
+#
+###############################################################################
+
+  local orig_mdoc=$1
+  local mcorr_list=$2
+
+# # #   echo "381: orig_mdoc: '$(realpath $orig_mdoc)'"
+  local cor_ext="_mic.mrc"
+  mapfile -t mdoc_angle_array < <( grep "TiltAngle" "${orig_mdoc}" | awk '{print $3}' | sed 's/\r//' )
+  mapfile -t new_subframe_array < <( grep "SubFramePath" "${orig_mdoc}" | cut -d' ' -f 3- | sed 's/\r//' )
+  declare -a mcorr_mic_array=()
+  declare -a stripped_angle_array=()
+
+  # Loop through angles
+  for subfm_idx in "${!new_subframe_array[@]}"; do
+    # Get movie filename
+    local movie_file=$(echo ${new_subframe_array[${subfm_idx}]##*[/\\]} )
+
+    # Get motion-corrected micrograph name
+    local stem_movie=$(echo ${movie_file} | rev | cut -d. -f2- | rev)
+    local mc2_mic="${vars[micdir]}/${stem_movie}${cor_ext}"
+
+    stripped_angle_array+=(${mdoc_angle_array[${subfm_idx}]})
+    mcorr_mic_array+=($mc2_mic)
+  done
+  # End angles loop
+
+  sort_array_keys
+  mapfile -t sorted_keys < $good_angles_file
+
+  # Write new IMOD list file (overwrites), starting with number of images
+  echo ${#new_subframe_array[*]} > $mcorr_list
+
+  # Loop through sorted keys
+  for idx in "${sorted_keys[@]}" ; do
+    echo -e "${mcorr_mic_array[$idx]}\n/" >> $mcorr_list
+  done
+
+  # Clean up
+  unset mcorr_mic_array
+  unset stripped_angle_array
 }
 
 function create_odd_even_files() {
