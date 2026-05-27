@@ -337,8 +337,9 @@ function validate_imod_files() {
 
   # Check that micrograph directory exists
   if ! [[ -d "${vars[micdir]}" ]]; then
-    files_present=false
-    vprint "      ERROR!! Didn't find directory: '${vars[micdir]}'" "1+" "${outlog} =${warn_log}"
+    vprint "    ERROR!! Didn't find directory: '${vars[micdir]}'" "1+" "${outlog} =${warn_log}"
+    vprint "      Exiting...\n" "1+" "${outlog}"
+    exit
   fi
 
   for fn in "${files2copy[@]}" ; do
