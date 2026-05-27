@@ -336,7 +336,7 @@ function validate_imod_files() {
   files_present=true
 
   # Check that micrograph directory exists
-  if [[ -d "${vars[micdir]}" ]]; then
+  if ! [[ -d "${vars[micdir]}" ]]; then
     files_present=false
     vprint "      ERROR!! Didn't find directory: '${vars[micdir]}'" "1+" "${outlog} =${warn_log}"
   fi
