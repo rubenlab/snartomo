@@ -3887,7 +3887,7 @@ function wrapper_aretomo() {
             echo    "  SUCCESS!! AreTomo completed with exit status '$status_code'"
           else
             echo    "WARNING! AreTomo output $tomogram_3d does not exist!"
-            echo    "         Maybe maximum direction (${vars[are_time]}) was reached"
+            echo    "         Maybe maximum duration (${vars[are_time]}) was reached"
             echo    "         Exit status code was: $status_code"
           fi
           
