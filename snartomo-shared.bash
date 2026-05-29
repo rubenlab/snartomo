@@ -2178,6 +2178,7 @@ function check_frames() {
 ###############################################################################
   
   local outlog=$1
+  local did_warn=false
   
   # Get number of frames
   if [[ "${vars[testing]}" == false ]]; then
@@ -2231,7 +2232,10 @@ function check_frames() {
       
       # Check if within range
       if [[ "$num_sections" -lt "${vars[min_frames]}" ]] || [[ "$num_sections" -gt "${vars[max_frames]}" ]] ; then
-        vprint "    WARNING! Micrograph $fn: number of frames ($num_sections) outside of range (${vars[min_frames]} to ${vars[max_frames]})" "1+" "${outlog} =${warn_log}"
+        if [[ "${do_pace}" != true ]] || [[ "${did_warn}" == false ]] ; then
+          vprint "    WARNING! Micrograph $fn: number of frames ($num_sections) outside of range (${vars[min_frames]} to ${vars[max_frames]})" "1+" "${outlog} =${warn_log}"
+          did_warn=true
+        fi
       fi
     fi
     # End success IF-THEN
