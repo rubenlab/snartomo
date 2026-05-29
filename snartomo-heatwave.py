@@ -36,8 +36,6 @@ Additional metadata to add
     cumulative dose per micrograph (may be generated in snartomo)
     cumulative exposure time 
     designated defocus (the one defined by the data collection software)
-    
-    
 '''
 
 USAGE = """
@@ -49,7 +47,7 @@ USAGE = """
   For more info about options, enter: %s --help
 """ % ( (os.path.basename(__file__),)*3 )
 
-MODIFIED="Modified 2026 Feb 17"
+MODIFIED="Modified 2026 May 29"
 MAX_VERBOSITY=10
 VIRTUAL_TARGET_FILE='All tilt series'
 
@@ -346,8 +344,16 @@ class MdocTreeView(QtWidgets.QMainWindow):
         self.temp_targets= list( self.data4json.keys() )  # .keys() is not a list and thus cannot be directly subscripted
 
         for curr_target in self.temp_targets:
-            if os.path.exists(curr_target) : self.list_targets.append(curr_target)
+            if os.path.exists(curr_target):
+                self.list_targets.append(curr_target)
+            else:
+                print(f"WARNING! Target file '{curr_target}' does not exist. Continuing...")
+            if self.debug : print(f"DEBUG: curr_target='{curr_target}' exists={os.path.exists(curr_target)}")
         
+        if self.debug:
+            print(f"DEBUG: parseJson: temp_targets='{self.temp_targets}'")
+            print(f"DEBUG: parseJson: len(list_targets)={len(self.list_targets)}")
+
         if len(self.list_targets) == 0:
             self.buildMdocLut(curr_target, self.data4json[ self.temp_targets[0] ])
         else:
@@ -360,12 +366,16 @@ class MdocTreeView(QtWidgets.QMainWindow):
         Associates basename of MDOC with full path
         """
         
+        if self.debug: print(f"DEBUG: buildMdocLut: mdoc_dict.keys()='{list( mdoc_dict.keys() )}'")
+
         # Loop through potential MDOCs
         for curr_mdoc in mdoc_dict.keys():
             if isinstance(mdoc_dict[curr_mdoc], list):
                 self.list_mdocs.append(curr_mdoc)
                 self.mdoc_lut[os.path.basename(curr_mdoc)] = curr_mdoc
-                
+                if self.debug:
+                    print(f"DEBUG:   buildMdocLut: Added '{curr_mdoc}' to MDOC lookup table")
+
                 # Sanity check
                 tomo_dir= os.path.basename( os.path.dirname(curr_mdoc) )
                 if not os.path.basename(curr_mdoc).startswith(tomo_dir):
@@ -758,7 +768,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         else:
             # Remember full path of MDOC file
             self.mdoc_lut[os.path.basename(curr_mdoc)] = curr_mdoc
-            
+
             # Append data to running list to be written to JSON
             self.data4json[curr_target][curr_mdoc] = general_and_tilt
         # End found-mdoc IF-THEN
@@ -876,7 +886,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         stat_map.add_column('MaxRes',        self.default_width, '6.2f')
         stat_map.add_column('DateTime',      175,                'str' )
         
-        if debug: print(f"DEBUG: The following data ('stat_map.keys') will be displayed: {stat_map.keys}")
+        if debug: print(f"DEBUG: The following data ('stat_map.keys') will be displayed: {stat_map.keys}\n")
         
         return stat_map
         
@@ -1085,7 +1095,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
             target_item = QtGui.QStandardItem(curr_target)
             target_base=''
         
-        if self.verbosity>= 3: print(f"\nDrawing data for target file '{curr_target}'...")
+        if self.verbosity>= 3: print(f"Drawing data for target file '{curr_target}'...")
         
         # Initialize row for target file (real or fake) 
         target_item_list= [target_item]
@@ -1379,7 +1389,7 @@ class MdocTreeView(QtWidgets.QMainWindow):
         mdoc_dir= self.probeMdocDir(depth, mdlIdx)
         if mdoc_dir:
             list_ctfstacks= glob.glob( os.path.join(mdoc_dir, "*" + self.ctfthumb_suffix + ".mrcs") )
-            
+
             # Micrograph stacks might end in '.st'
             list_newstacks= glob.glob( os.path.join(mdoc_dir, "*" + self.micthumb_suffix + ".mrc") )
             list_newstacks+= glob.glob( os.path.join(mdoc_dir, "*" + self.micthumb_suffix + ".st") )
@@ -1463,7 +1473,17 @@ class MdocTreeView(QtWidgets.QMainWindow):
                 mdoc_base= self.tree_view.model().data( self.tree_view.model().index( mdlIdx.row(), 0, mdlIdx.parent() ) )
                 curr_mdoc= self.mdoc_lut[mdoc_base]
             elif cell_text != '':
-                curr_mdoc= self.mdoc_lut[cell_text]
+                try:
+                    curr_mdoc= self.mdoc_lut[cell_text]
+                except KeyError as ke:
+                    print(f"{type(ke).__name__}: probeMdocDir: {ke}")
+                    print(  f"  cell_text='{cell_text}'")
+                    print(  f"  mdoc_lut.keys()='{self.mdoc_lut.keys()}'")
+                    print()
+                    print(   "  Look for warnings above!")
+                    print(   "  Exiting...")
+                    exit(18)
+
             else:
                 first_column_index= self.tree_view.model().index( mdlIdx.row(), 0, mdlIdx.parent() )
             
