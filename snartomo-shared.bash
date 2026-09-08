@@ -1216,7 +1216,6 @@ function validate_inputs() {
       vprint "  Found ${exe_descr}: ${search_exe}" "1+" "${outlog}"
       
       # check linked libraries for dynamically-linked executables (SBGrid executables are simply scripts that redirect)
-# # #       if [[ ${exe_descr} != "CUDA libraries" ]] && [[ ${exe_descr} != "SNARTomo Heatwave" ]] ; then
       if [[ "$(file $search_exe)" =~ "dynamically linked" ]] ; then
         # Look for library errors (adapted from https://stackoverflow.com/a/42543911)
         local ldd_err=$(ldd $search_exe 2>&1 >/dev/null)
@@ -1225,7 +1224,7 @@ function validate_inputs() {
           vprint "      ${ldd_err}" "1+" "${outlog} =${warn_log}"
         fi
       fi
-      # End nvcc IF-THEN
+      # End DLL IF-THEN
       
       # Check special cases
       if [[ "${exe_descr}" == "MotionCor2 executable" ]] ; then
@@ -1474,7 +1473,9 @@ function validate_inputs() {
       fi
       
       # Matplotlib won't work later on
-# # #       conda deactivate
+      if [[ "$CONDA_DEFAULT_ENV" != "${SNARTOMO_ENV}" ]] ; then
+        conda deactivate 2> /dev/null
+      fi
       conda activate "${SNARTOMO_ENV}"
     fi
     # End testing IF-THEN
@@ -3192,7 +3193,6 @@ function denoise_wrapper() {
   fi
   
   if [[ "${dns_type}" == "janni" ]] ; then
-# # #     local conda_cmd="conda activate ${vars[janni_env]}"
     local denoise_exe="janni_denoise.py"
     local denoise_args="--ignore-gooey denoise --overlap=${vars[janni_overlap]} --batch_size=${vars[janni_batch]} --gpu=${gpu_local} -- ${indir} ${tomo_dns_dir} ${vars[janni_model]}"
     local denoise_cmd="(timeout ${vars[topaz_time]} conda run -n ${vars[janni_env]} ${denoise_exe} ${denoise_args})"
@@ -3204,11 +3204,8 @@ function denoise_wrapper() {
       tomo_dns_dir="${tomo_dns_dir}/$(basename ${indir})"
     fi
   elif [[ "${dns_type}" == "topaz" ]] ; then
-# # #     local conda_cmd="conda activate ${vars[topaz_env]}"
     local denoise_exe="topaz"
     local denoise_args="denoise ${indir}/*_mic.mrc --device ${gpu_local} --patch-size ${vars[topaz_patch]} --output ${tomo_dns_dir}"
-# #     local denoise_cmd="timeout ${vars[topaz_time]} ${denoise_exe} ${denoise_args}"
-#     local denoise_cmd=(timeout ${vars[topaz_time]} ${denoise_exe} ${denoise_args})
     local denoise_cmd=(timeout ${vars[topaz_time]} conda run -n ${vars[topaz_env]} ${denoise_exe} ${denoise_args})
     local noexpand_cmd="timeout ${vars[topaz_time]} conda run -n ${vars[topaz_env]} ${denoise_exe} ${denoise_args}"
     local dns_name="Topaz"
@@ -3219,15 +3216,11 @@ function denoise_wrapper() {
   fi
       
   if [[ "${vars[testing]}" == false ]]; then
-#     vprint "\n  Executing: $conda_cmd" "2+" "=${outlog}"
-#     $conda_cmd
-#     vprint   "    conda environment: '$CONDA_DEFAULT_ENV'" "2+" "=${outlog}"
     vprint   "    Denoising using ${dns_name}..." "2+" "=${outlog}"
     vprint   "    Executing: ${noexpand_cmd}" "2+" "=${outlog}"
 
     # Run denoising
     if [[ "$verbose" -le 2 ]]; then
-# # #       $denoise_cmd 2>&1 > /dev/null
       "${denoise_cmd[@]}" 2>&1 > /dev/null
       # Suppress all output
       
@@ -3235,22 +3228,18 @@ function denoise_wrapper() {
       vprint "      $(date)" "6=" "=${outlog}"
       
       # Time execution and redirect output (https://stackoverflow.com/a/2409214)
-# # #       { time ${denoise_cmd} 2> /dev/null ; } 2>&1 | grep real | sed 's/real\t/    Run time: /'
       { time ${denoise_cmd[@]} 2> /dev/null ; } 2>&1 | grep real | sed 's/real\t/    Run time: /'
       local status_code=("${PIPESTATUS[0]}")
       # Do NOT use quotes around ${denoise_cmd} above...
     elif [[ "$verbose" -ge 7 ]]; then
-# # #       time $denoise_cmd
       time "${denoise_cmd[@]}"
       local status_code=("${PIPESTATUS[0]}")
     else
       if [[ "${outlog}" != "" ]] ; then
-# # #         $denoise_cmd 2> /dev/null >> ${outlog}
         "${denoise_cmd[@]}" 2> /dev/null >> ${outlog}
         local status_code=("${PIPESTATUS[0]}")
       else
         # Suppress output (https://stackoverflow.com/a/46009371)
-# # #         $denoise_cmd >/dev/null 2>&1
         "${denoise_cmd[@]}" >/dev/null 2>&1
         local status_code=("${PIPESTATUS[0]}")
       fi
@@ -3284,14 +3273,9 @@ function denoise_wrapper() {
       vprint "    Denoised ${num_dns}/${num_orig} micrographs" "3+" "=${outlog}"
     fi
   
-#     # Clean up
-# # # #     conda deactivate
-#     conda activate "${SNARTOMO_ENV}"
-#     vprint "  conda environment: '$CONDA_DEFAULT_ENV'\n" "2+" "=${outlog}"
-  
   # Testing
   else
-    vprint "  TESTING: ${denoise_exe} ${denoise_args}\n" "3+" "=${outlog}"
+    vprint "  TESTING: conda run -n ${vars[topaz_env]} ${denoise_exe} ${denoise_args}\n" "3+" "=${outlog}"
   fi
   # End testing IF-THEN
 }
@@ -4839,7 +4823,8 @@ function deconvolute_wrapper() {
   mkdir $temp_indir 2> /dev/null
   ln -sf ${abs_tomo} $(realpath ${temp_indir}/)
   
-  local conda_cmd="conda activate ${vars[isonet_env]}"
+# # #   local conda_cmd="conda activate ${vars[isonet_env]}"
+  local conda_cmd="conda run -n ${vars[isonet_env]}"
   local isonet_exe="isonet.py"
   
   # Get pixel size in binned reconstruction
@@ -4868,30 +4853,34 @@ function deconvolute_wrapper() {
   local deconvolute_cmd="${isonet_exe} ${deconvolute_args}"
   
   if [[ "${vars[testing]}" == false ]]; then
-    vprint "\n  Executing: $conda_cmd" "2+" "=${abs_outlog}"
-    $conda_cmd 2> /dev/null
-    vprint   "    conda environment: '$CONDA_DEFAULT_ENV'" "2+" "=${abs_outlog}"
+#     vprint "\n  Executing: $conda_cmd" "2+" "=${abs_outlog}"
+#     $conda_cmd 2> /dev/null
+#     vprint   "    conda environment: '$CONDA_DEFAULT_ENV'" "2+" "=${abs_outlog}"
     
     vprint "\n    Executing: ${star_cmd}" "2+" "=${abs_outlog}"
     if [[ "${do_pace}" == true ]]; then
-      $star_cmd        >>${abs_outlog} 2>&1
+      $conda_cmd $star_cmd        >>${abs_outlog} 2>&1
     else
-      $star_cmd
+      $conda_cmd $star_cmd
     fi
     
     vprint "\n    Executing: $deconvolute_cmd" "2+" "=${abs_outlog}"
     if [[ "${do_pace}" == true ]]; then
-      $deconvolute_cmd >> ${abs_outlog} 2>&1
+      $conda_cmd $deconvolute_cmd >> ${abs_outlog} 2>&1
     else
-      $deconvolute_cmd
+      $conda_cmd $deconvolute_cmd
     fi
-    
+
     # Move to io_dir and use this volume from now on
     local tomo_base=$(basename $tomogram_3d)
     local orig_location="${temp_outdir}/${tomo_base}"
     local new_location="${tomo_base%.mrc}_deconv.mrc"
     local move_cmd="mv $orig_location $new_location"
     $move_cmd 2> /dev/null
+
+    # Clean up
+    \rm ${temp_indir}/$(basename $tomogram_3d)
+    rmdir ${temp_indir} ${temp_outdir}
     popd > /dev/null
     new_location="${io_dir}/${new_location}"
     
@@ -4905,13 +4894,9 @@ function deconvolute_wrapper() {
       vprint   "         Attempted command line: '$move_cmd'" "1+" "=${outlog}"
       vprint   "         Continuing...\n" "1+" "=${outlog}"
     fi
-    
+
   # Testing
   else
-    # Clean up
-    \rm ${temp_indir}/$(basename $tomogram_3d)
-    rmdir ${temp_indir}
-    
     popd > /dev/null
     vprint "  TESTING: ${star_cmd}" "3+" "=${abs_outlog}"
     vprint "  TESTING: ${deconvolute_cmd}\n" "3+" "=${abs_outlog}"
@@ -4978,6 +4963,8 @@ function deconvolute_wrapper() {
         local df_major=$(echo $ctf_data | cut -d " " -f 4)
         df_angstroms=$(echo $df_minor/2 + $df_major/2 | bc)
       fi
+
+      rm -r $temp_dir 2> /dev/null
     else
       df_angstroms="0.0"
     fi
