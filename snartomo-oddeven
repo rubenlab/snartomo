@@ -61,7 +61,7 @@ function main() {
 
   # Validate Python environment
   validated=true
-# # #   check_python "${main_log}" "('argparse' 'json')"
+# # #   check_python "${main_log}" "('argparse' 'json')"  # CryoCARE-only
 
   # Make sure at least one directory exists
   if [[ "${#ARGS[@]}" -lt 1 ]]; then
@@ -117,7 +117,7 @@ function parse_command_line() {
   add_section "GLOBAL SETTINGS" "These settings affect multiple steps."
   add_argument "recdir" "${recdir}" "Top-level input directory, containing subdirectory for each tilt series" "ANY"
   add_argument "micdir" "${micdir}" "Micrograph directory" "ANY"
-  add_argument "outdir" "${outdir}" "Output CryoCARE directory" "ANY"
+  add_argument "outdir" "${outdir}" "Output OddEven directory" "ANY"
   add_argument "overwrite" "false" "Flag to overwrite pre-existing output directory" "BOOL"
   add_argument "testing" "false" "Testing flag" "BOOL"
   add_argument "verbosity" "${verbosity}" "Verbosity level (0..8)" "INT"
@@ -147,8 +147,8 @@ function print_usage() {
   echo "      newst.com"
   echo "      tilt.com"
   echo "      trimvol.com (optional, used for rotation)"
-# # #   echo "      *mcorr.txt (list of the micrographs to be stacked by newstack)"
   echo "      *.mdoc"
+  echo "      *newstack_cutviews0.info (optional, used if views are removed)"
   echo "      *newstack.xf"
   echo "      *newstack.tlt"
   echo "      *newstack.xtilt"
@@ -240,11 +240,12 @@ function prepare4oddeven() {
 #     tomo_root (defined here)
 #     files2copy (defined here)
 #     files_present (defined in validate_imod_files)
-#     good_angles_file (defined here)
+# # #     good_angles_file (defined here)
 #
 #   Calls functions:
 #     vprint
 #     validate_imod_files
+#     create_newstack_list
 #     create_odd_even_files
 # # #     prepare_cryocare_jsons
 #
@@ -293,7 +294,7 @@ function prepare4oddeven() {
 
       # Create motion-corrected micrograph list for newstack
       good_angles_file="${tomo_root}_goodangles.txt"
-      create_newstack_list "${rel_tomodir}/${tomo_root}.mdoc" "${rel_tomodir}/${mcorr_base}"
+      create_newstack_list "${rel_tomodir}" "${tomo_root}.mdoc" "${mcorr_base}" "${tomo_root}_newstack.xf" "$outlog"
 
       vprint "    Working on '${odd_suffix}'..."  "4+" "$outlog"
       create_odd_even_files "${odd_suffix}"  "${rel_tomodir}" "$outlog"
@@ -367,25 +368,32 @@ function create_newstack_list() {
 #     Create motion-corrected micrograph list for newstack
 #
 #   Positional variables:
-#     1) MDOC file
-#     2) micrograph list
+#     1. tomogram directory
+#     2. MDOC file
+#     3. micrograph list
+#     4. translation file
+#     5. output log file
 #
 #   Global variables:
 #     vars
+#     tomo_root
 #     new_subframe_array (OUTPUT)
 #     mcorr_mic_array (OUTPUT)
 #     stripped_angle_array (OUTPUT)
-#     good_angles_file
+#     good_angles_file (OUTPUT)
 #
 #   Calls functions:
 #     shared.sort_array_keys
+#     shared.vprint
 #
 ###############################################################################
 
-  local orig_mdoc=$1
-  local mcorr_list=$2
+  local rel_tomodir=$1
+  local orig_mdoc=$rel_tomodir/$2
+  local mcorr_list=$rel_tomodir/$3
+  local xf_file=$rel_tomodir/$4
+  local outlog=$5
 
-# # #   echo "381: orig_mdoc: '$(realpath $orig_mdoc)'"
   local cor_ext="_mic.mrc"
   mapfile -t mdoc_angle_array < <( grep "TiltAngle" "${orig_mdoc}" | awk '{print $3}' | sed 's/\r//' )
   mapfile -t new_subframe_array < <( grep "SubFramePath" "${orig_mdoc}" | cut -d' ' -f 3- | sed 's/\r//' )
@@ -406,11 +414,28 @@ function create_newstack_list() {
   done
   # End angles loop
 
+  # write good_angles_file
+  good_angles_file="${rel_tomodir}/${tomo_root}_goodangles.txt"
   sort_array_keys
-  mapfile -t sorted_keys < $good_angles_file
+
+  # Check if micrographs have been removed
+  local len_mdoc=${#stripped_angle_array[@]}
+  local len_xf=$(cat ${xf_file} | wc -l)
+# #   echo "421 len_mdoc='$len_mdoc'"
+# #   echo "422 len_xf='$len_xf'"
+  if [[ "${len_mdoc}" -ne "${len_xf}" ]] ; then
+    local info_file="${rel_tomodir}/${tomo_root}_newstack_cutviews0.info"
+    vprint "    More micrographs in MDOC file (${len_mdoc}) than in translation file (${len_xf}), trimming using '$(basename $info_file)'..." "4+" "$outlog"
+    mapfile -t sorted_keys < <(get_retained_views "$info_file")
+    # TODO: Sanity check that the lengths agree now
+  else
+    mapfile -t sorted_keys < $good_angles_file
+  fi
+# #   echo "429 len(sorted_keys)='${#sorted_keys[*]}'"
+# #   echo "431 good_angles_file='$good_angles_file'"
 
   # Write new IMOD list file (overwrites), starting with number of images
-  echo ${#new_subframe_array[*]} > $mcorr_list
+  echo ${#sorted_keys[*]} > $mcorr_list
 
   # Loop through sorted keys
   for idx in "${sorted_keys[@]}" ; do
@@ -422,10 +447,43 @@ function create_newstack_list() {
   unset stripped_angle_array
 }
 
+function get_retained_views() {
+###############################################################################
+#   Function:
+#     Get indices of retained micrographs
+#
+#   Positional variables:
+#     1. info file
+#
+#   Calls functions:
+#
+#   Global variables:
+#
+###############################################################################
+
+info_fn=${1:?Usage: $0 prefix_cutviews0.info}
+
+num_tot=$(head -n 1 "$info_fn" | awk '{print $1}')
+excl=$(sed -n '2p' "$info_fn")
+
+seq 1 "$num_tot" | awk -v excl="$excl" '
+BEGIN {
+    n = split(excl, pieces, ",")
+    for (i = 1; i <= n; i++) {
+        m = split(pieces[i], range, "-")
+        first = range[1]
+        last  = (m == 2 ? range[2] : range[1])
+        for (j = first; j <= last; j++) bad[j] = 1
+    }
+}
+!($1 in bad) { print $1 }
+'
+}
+
 function create_odd_even_files() {
 ###############################################################################
 #   Function:
-#     Generate necessary files for odd & even CryoCARE directories
+#     Generate necessary files for odd & even OddEven directories
 #
 #   Positional variables:
 #     1) suffix (ODD or EVN)
@@ -438,6 +496,7 @@ function create_odd_even_files() {
 #     verbose
 #     restack_cmd
 #     reordered_stack (defined here)
+#     changed_tilt (defined here)
 #
 #   Calls function:
 #     shared.restack_micrographs
@@ -450,8 +509,8 @@ function create_odd_even_files() {
 
   local oddeven_relpath="${vars[outdir]}/${tomo_root}"
   local mcorr_base="${tomo_root}_mcorr.txt"
-  local new_mcorr="${oddeven_relpath}/${curr_suffix}/${mcorr_base}"
-  local oddeven_dir="$oddeven_relpath/${curr_suffix}"
+  local oddeven_dir="${oddeven_relpath}/${curr_suffix}"
+  local new_mcorr="${oddeven_dir}/${mcorr_base}"
 
   # Edit micrograph list for even/odd half-micrographs
   sed "s/\.mrc$/_${curr_suffix}.mrc/" "${rel_tomodir}/${mcorr_base}" > "${new_mcorr}"
@@ -466,23 +525,28 @@ function create_odd_even_files() {
   done
 
   # Stack suffix might be '.mrc' or '.st', so check newst.com
-  reordered_stack="${oddeven_relpath}/${curr_suffix}/$(grep '^InputFile' ${oddeven_relpath}/${curr_suffix}/newst.com | xargs | cut -d ' ' -f 2)"
+  reordered_stack="${oddeven_dir}/$(grep '^InputFile' ${oddeven_dir}/newst.com | xargs | cut -d ' ' -f 2)"
 
   # Restack
-  restack_micrographs "${new_mcorr}" "${outlog}" "${oddeven_relpath}/${curr_suffix}/${tomo_root}_newstack.log"
+  restack_micrographs "${new_mcorr}" "${outlog}" "${oddeven_dir}/${tomo_root}_newstack.log"
   # (TODO: Update the pixel size)
 
   if [[ "$verbose" -ge 4 ]] && [[ "${vars[testing]}" == true ]] ; then
     echo "      TESTING: $restack_cmd"
   fi
 
+  # Check tilt.com so that it points to the correct '.tlt' file
+  changed_tilt=false
+  update_comfile "${oddeven_dir}/tilt.com" "TILTFILE" "${tomo_root}_newstack.tlt" "$outlog"
+  update_comfile "${oddeven_dir}/tilt.com" "XTILTFILE" "${tomo_root}_newstack.xtilt" "$outlog"
+  [ "$changed_tilt" == true ] && vprint "      Updated paths in 'tilt.com'" "4=" "${outlog}"
+
   # trimvol.com is optional
-  if [[ -f "${oddeven_relpath}/${curr_suffix}/trimvol.com" ]]; then
+  if [[ -f "${oddeven_dir}/trimvol.com" ]]; then
     subm_cmd="submfg newst.com tilt.com trimvol.com"
   else
     subm_cmd="submfg newst.com tilt.com"
   fi
-# # #   subm_cmd="submfg newst.com"
 
   if [[ "$verbose" -ge 4 ]] ; then
     if [[ "${vars[testing]}" == true ]] ; then
@@ -497,6 +561,45 @@ function create_odd_even_files() {
     ${vars[imod_dir]}/${subm_cmd}
     popd > /dev/null
     vprint "" "3+" "${outlog}"
+  fi
+}
+
+function update_comfile() {
+###############################################################################
+#   Function:
+#     Looks for files in COM file and updates if necessary
+#
+#   Positional variables:
+#     1. COM file path
+#     2. search string, assumed to be at beginning of line
+#     3. new value
+#     4. log file
+#
+#   Calls functions:
+#     vprint
+#
+#   Global variables:
+#     changed_tilt
+#
+###############################################################################
+
+  local comfile_path=$1
+  local search_string=$2
+  local new_value=$3
+  local outlog=$4
+
+  local comfile_dir=$(dirname $comfile_path)
+  local old_line=$(\grep "^$search_string" ${comfile_path})
+# # #   echo "594: old_line='$old_line'"
+  local search_value=$(echo ${old_line} | cut -d " " -f 2)
+  if ! [[ -f "${comfile_dir}/${search_value}" ]]; then
+    if [[ "$changed_tilt" == false ]] ; then
+      changed_tilt=true
+      cp -a $comfile_path ${comfile_path}.bak
+    fi
+    local new_line="${search_string} ${new_value}"
+    sed -i "s|^$search_string .*|$new_line|" "$comfile_path"
+    vprint "        Updated $search_string IN '$(basename $comfile_path)'..." "5+" "${outlog}"
   fi
 }
 

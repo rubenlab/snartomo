@@ -3022,11 +3022,11 @@ function write_angles_lists() {
   function sort_array_keys() {
   ###############################################################################
   #   Function:
-  #     Sort array accourding to angle
+  #     Sort array according to angle
   #   
   #   Global variables:
-  #     good_angles_file
   #     stripped_angle_array
+  #     good_angles_file (OUTPUT)
   #     
   ###############################################################################
     
@@ -3761,6 +3761,8 @@ function wrapper_aretomo() {
 #   Positional variable:
 #     1) number of micrographs in tilt series
 #     2) GPU number
+#     3) align file (optional)
+#     4) extra text before print statements
 #     
 #   Calls functions:
 #     run_aretomo
@@ -3775,13 +3777,15 @@ function wrapper_aretomo() {
   
   local num_mics=$1
   local gpu_local=$2
+  local aln_file=$3
+  local pre_string=$4
   
   local do_reconstruct=true
   
   # Output files
   tomogram_3d="${tomo_root}_aretomo.mrc"
   local aretomo_log="${tomo_root}_aretomo.log"
-  local aretomo_cmd=$(run_aretomo ${gpu_local})
+  local aretomo_cmd=$(run_aretomo ${gpu_local} ${aln_file})
   
   # Run AreTomo
   if [[ "${vars[testing]}" != true ]]; then
@@ -3901,8 +3905,8 @@ function wrapper_aretomo() {
       fi
     else
       if [[ "$verbose" -ge 3 ]]; then
-        echo "  TESTING: Tomographic reconstruction '`basename $tomogram_3d`' from $num_mics micrographs"
-        echo "  TESTING: ${aretomo_cmd}"
+        echo "${pre_string}  TESTING: Tomographic reconstruction '`basename $tomogram_3d`' from $num_mics micrographs"
+        echo "${pre_string}  TESTING: ${aretomo_cmd}"
       fi
       
       quiet_touch "$tomogram_3d"
@@ -3921,7 +3925,8 @@ function wrapper_aretomo() {
   #   
   #   Positional variable:
   #     1) (optional) GPU number 
-  #   
+  #     2) align file (optional)
+  #
   #   Global variables:
   #     gpu_local
   #     vars
@@ -3932,7 +3937,8 @@ function wrapper_aretomo() {
   ###############################################################################
     
     gpu_local=$1  # might be updated
-    
+    local aln_file=$2
+
     # Get single GPU number if there are more than one
     get_gpu
     
@@ -3940,21 +3946,29 @@ function wrapper_aretomo() {
       -InMrc $reordered_stack \
       -OutMrc $tomogram_3d \
       -AngFile $angles_list \
-      -AlignZ ${vars[rec_zdim]} \
       -VolZ ${vars[vol_zdim]} \
       -OutBin ${vars[are_bin]} \
-      -TiltAxis ${vars[tilt_axis]} \
       -Gpu ${gpu_local} \
-      -TiltCor ${vars[tilt_cor]} \
       -FlipVol ${vars[flip_vol]} \
       -PixSize ${vars[apix]} \
       -Wbp ${vars[bp_method]} \
-      -Patch ${vars[are_patches]} \
       -OutXF ${vars[transfile]} \
       -DarkTol ${vars[dark_tol]} \
       " | xargs)
       # (xargs removes whitespace)
       
+      # If using pre-computed alignment file
+      if [[ "${aln_file}" == "" ]] ; then
+        are_cmd+=$(echo " -OutImod ${vars[out_imod]}
+        -AlignZ ${vars[rec_zdim]} \
+        -TiltAxis ${vars[tilt_axis]} \
+        -TiltCor ${vars[tilt_cor]} \
+        -Patch ${vars[are_patches]} \
+        " | xargs)
+      else
+        are_cmd+=" -AlnFile $aln_file"
+      fi
+
       if [[ "${vars[out_imod]}" -gt 0 ]] ; then
         are_cmd+=" -OutImod ${vars[out_imod]}"
       fi
