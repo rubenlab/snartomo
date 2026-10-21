@@ -240,7 +240,7 @@ function prepare4oddeven() {
 #     tomo_root (defined here)
 #     files2copy (defined here)
 #     files_present (defined in validate_imod_files)
-# # #     good_angles_file (defined here)
+#     good_angles_file (defined here)
 #
 #   Calls functions:
 #     vprint
@@ -259,13 +259,13 @@ function prepare4oddeven() {
   declare -a even_stack_array
   declare -a odd_stack_array
 
-  for curr_dir in "${ARGS[@]}" ; do
-    vprint "  Working on: '$curr_dir'" "3+" "${outlog}"
+  for combined_dir in "${ARGS[@]}" ; do
+    vprint "  Working on: '$combined_dir'" "3+" "${outlog}"
 
     # Check if tomo directory exists
-    local rel_tomodir="${vars[recdir]}/${curr_dir}"
+    local rel_tomodir="${vars[recdir]}/${combined_dir}"
     if [[ -d "$rel_tomodir" ]]; then
-      local oddeven_relpath="${vars[outdir]}/$(basename $curr_dir)"
+      local oddeven_relpath="${vars[outdir]}/$(basename $combined_dir)"
 
       # Create new directories: tomo_dir, even, odd
       if [[ "$verbose" -ge 6 ]] ; then
@@ -279,16 +279,17 @@ function prepare4oddeven() {
       fi
 
       # Validate eTomo inputs
-      tomo_root=$(basename $curr_dir)
+      tomo_root=$(basename $combined_dir)
       local mcorr_base="${tomo_root}_mcorr.txt"
+      local combined_tomo="${tomo_root}_newstack_rec.mrc"
       files2copy=(${tomo_root}.mdoc ${tomo_root}_newstack.xf ${tomo_root}_newstack.tlt
                   ${tomo_root}_newstack.xtilt newst.com tilt.com trimvol.com)
-      validate_imod_files $curr_dir $outlog
+      validate_imod_files $combined_dir $combined_tomo $outlog
 
       if [[ "$files_present" == true ]] ; then
-        vprint "    Files in '$curr_dir': OK" "5+" "${outlog}"
+        vprint "    Files in '$combined_dir': OK" "5+" "${outlog}"
       else
-        vprint "    WARNING! Missing files in '$curr_dir', skipping..." "1+" "${outlog} =${warn_log}"
+        vprint "    WARNING! Missing files in '$combined_dir', skipping..." "1+" "${outlog} =${warn_log}"
         continue
       fi
 
@@ -305,7 +306,7 @@ function prepare4oddeven() {
       even_stack_array+=("${oddeven_relpath}/${even_suffix}/${tomo_root}_newstack.mrc")
       odd_stack_array+=("${oddeven_relpath}/${odd_suffix}/${tomo_root}_newstack.mrc")
     else
-      vprint "  WARNING! Tomo directory doesn't exist: '${curr_dir}'" "2+" "${main_log} =${warn_log}"
+      vprint "  WARNING! Tomo directory doesn't exist: '${combined_dir}'" "2+" "${main_log} =${warn_log}"
     fi
     # End exists IF-THEN
   done
@@ -320,18 +321,21 @@ function validate_imod_files() {
 #     Validate eTomo files
 #
 #   Positional variables:
-#     1) current directory
-#     2) output log file
+#     1. current directory
+#     2. combined tomogram
+#     3. output log file
 #
 #   Global variables:
 #     files2copy (array)
 #     warn_log
-#     files_present (defined here)
+#     files_present (OUTPUT)
+#     combined_apix (OUTPUT)
 #
 ###############################################################################
 
   local curr_dir=$1
-  local outlog=$2
+  local combined_tomo=$2
+  local outlog=$3
 
   vprint "    Checking files in: '$curr_dir'" "5+" "${outlog}"
   files_present=true
@@ -360,6 +364,14 @@ function validate_imod_files() {
       fi
     fi
   done
+
+  if [[ -f "${vars[recdir]}/${curr_dir}/${combined_tomo}" ]] ; then
+    combined_apix=$(${vars[imod_dir]}/header "${vars[recdir]}/${curr_dir}/${combined_tomo}" | \grep "Pixel spacing" | xargs | cut -d " " -f 5)
+  else
+    vprint "      WARNING! Didn't find combined tomogram '${combined_tomo}'" "1+" "${outlog} =${warn_log}"
+    vprint "        Setting output pixel size to 1..." "1+" "${outlog} =${warn_log}"
+    combined_apix=1.0
+  fi
 }
 
 function create_newstack_list() {
@@ -497,9 +509,12 @@ function create_odd_even_files() {
 #     restack_cmd
 #     reordered_stack (defined here)
 #     changed_tilt (defined here)
+#     rot_flag
+#     combined_apix (from validate_imod_files)
 #
 #   Calls function:
 #     shared.restack_micrographs
+#     shared.get_rotate_axis
 #
 ###############################################################################
 
@@ -528,11 +543,23 @@ function create_odd_even_files() {
   reordered_stack="${oddeven_dir}/$(grep '^InputFile' ${oddeven_dir}/newst.com | xargs | cut -d ' ' -f 2)"
 
   # Restack
-  restack_micrographs "${new_mcorr}" "${outlog}" "${oddeven_dir}/${tomo_root}_newstack.log"
-  # (TODO: Update the pixel size)
-
+  local newstack_log="${oddeven_dir}/${tomo_root}_newstack.log"
+  restack_micrographs "${new_mcorr}" "${outlog}" "$newstack_log"
+  local apix_cmd="alterheader -PixelSize ${combined_apix},${combined_apix},${combined_apix} $reordered_stack"
   if [[ "$verbose" -ge 4 ]] && [[ "${vars[testing]}" == true ]] ; then
     echo "      TESTING: $restack_cmd"
+    echo "      TESTING: $apix_cmd"
+  else
+    vprint "      Updating pixel size in '$reordered_stack' to: ${combined_apix}" "4+" "${outlog}"
+# # #     ${vars[imod_dir]}/${apix_cmd}
+    if [[ "$verbose" -ge 7 ]]; then
+      ${vars[imod_dir]}/${apix_cmd} 2>&1 | tee -a $newstack_log
+    elif [[ "$verbose" -eq 6 ]]; then
+      ${vars[imod_dir]}/${apix_cmd} | tee -a $newstack_log | stdbuf -o0 grep "Pixel spacing" | sed 's/^/   /'
+      # line-buffered & stdbuf: https://stackoverflow.com/questions/7161821/how-to-grep-a-continuous-stream
+    else
+      ${vars[imod_dir]}/${apix_cmd} >> $newstack_log
+    fi
   fi
 
   # Check tilt.com so that it points to the correct '.tlt' file
@@ -544,8 +571,10 @@ function create_odd_even_files() {
   # trimvol.com is optional
   if [[ -f "${oddeven_dir}/trimvol.com" ]]; then
     subm_cmd="submfg newst.com tilt.com trimvol.com"
+    tomogram_3d=$( awk '{print $NF}' <<< $(cat "${oddeven_dir}/trimvol.com") )
   else
     subm_cmd="submfg newst.com tilt.com"
+    tomogram_3d=$(grep "^OutputFile" "${oddeven_dir}/tilt.com" | cut -d " " -f 2)
   fi
 
   if [[ "$verbose" -ge 4 ]] ; then
@@ -557,10 +586,28 @@ function create_odd_even_files() {
   fi
 
   if [[ "${vars[testing]}" == false ]] ; then
+    # Use outlog's full path
+    outlog=$(realpath "${outlog}")
+
     pushd "${oddeven_dir}/" > /dev/null
+
+    # Compute tomogram
     ${vars[imod_dir]}/${subm_cmd}
-    popd > /dev/null
+    local subm_code=$?
+# # #     echo "create_odd_even_files: subm_code='$subm_code'"
+
+    # Auto-rotate if necessary
+    get_rotate_axis "$tomogram_3d"
+    if [[ $rot_flag == "-rx" ]] ; then
+      vprint "\n      Autorotating '$tomogram_3d'" "4+" "${outlog}"
+      mv $tomogram_3d ${tomogram_3d}.BAK
+      local trim_cmd="trimvol ${rot_flag} $tomogram_3d.BAK $tomogram_3d"
+      vprint "        $trim_cmd" "4+" "${outlog}"
+      ${vars[imod_dir]}/$trim_cmd 1> trimvol.log
+    fi
+
     vprint "" "3+" "${outlog}"
+    popd > /dev/null
   fi
 }
 
@@ -590,7 +637,6 @@ function update_comfile() {
 
   local comfile_dir=$(dirname $comfile_path)
   local old_line=$(\grep "^$search_string" ${comfile_path})
-# # #   echo "594: old_line='$old_line'"
   local search_value=$(echo ${old_line} | cut -d " " -f 2)
   if ! [[ -f "${comfile_dir}/${search_value}" ]]; then
     if [[ "$changed_tilt" == false ]] ; then

@@ -1103,16 +1103,7 @@ function validate_inputs() {
       
       # If both the command line and MDOC files give pixel sizes, check that they're the same to 2 decimal places
       else
-#         cmdl_round=$(printf "%.2f" "${vars[apix]}")
-#         mdoc_round=$(printf "%.2f" "${mdoc_apix}")
-#
-#         if (( $(echo "${mdoc_round} == ${cmdl_round}" |bc -l) )); then
-          vprint "    WARNING! Pixel size specified on both command line (${vars[apix]}) and in MDOC file (${mdoc_apix}). Using former..." "2+" "${outlog}"
-#         else
-#           vprint "\nERROR!! Different pixel sizes specified on command line (${vars[apix]}) and in MDOC file (${mdoc_apix})!" "0+" "${outlog}"
-#           vprint   "  Exiting...\n" "0+" "${outlog}"
-#           exit 7
-#         fi
+        vprint "    WARNING! Pixel size specified on both command line (${vars[apix]}) and in MDOC file (${mdoc_apix}). Using former..." "2+" "${outlog}"
       fi
       # End command-line IF-THEN
     }
@@ -4992,12 +4983,17 @@ function get_central_slice() {
 #     Requires ImageMagick's convert
 #   
 #   Positional variable:
-#     1) tomogram name
+#     1. tomogram name
 #     
+#   Calls functions:
+#     get_rotate_axis
+#
 #   Global variables:
 #     vars
 #     tomo_dir
-#     axis_array
+# #     dimension_array
+# #     axis_array
+#     rot_flag
 #     verbose
 #     imgdir
 #     thumbdir
@@ -5008,32 +5004,34 @@ function get_central_slice() {
 
   local trim_log="${vars[outdir]}/${tomo_dir}/trimvol.log"
   
-  # Get dimensions (TODO: Replace with getDimensions)
-  local dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)  # TODO: Replace with awk?
-  IFS=' ' read -r -a dimension_array <<< ${dimension_string}
-  
-  # initialize minimum
-  min_dim=99999
-  axis_array=("-nx" "-ny" "-nz")
-  
-  # Get minimimum dimension & axis
-  get_shortest_axis
-  min_axis=${axis_array[$min_idx]}
-  
-  # If short axis along y, then rotate (or else, there'll be N images of width 1)
-  local rot_flag=""
-  if [[ "${min_axis}" == "-ny" ]]; then
-    rot_flag="-rx"
-  elif [[ "${min_axis}" == "-nx" ]]; then
-    echo -e "    WARNING! Untested with short dimension along x...\n"
-    rot_flag="-rx"
-  elif [[ "${min_axis}" == "-nz" ]]; then
-    rot_flag=""
-  else
-    echo -e "    WARNING! unrecognized axis: ${min_axis}\n"
-    rot_flag=""
-  fi
-  
+  # Get dimensions
+# # #   local dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)  # TODO: Replace with awk?
+#   getDimensions "$fn"
+#   IFS=' ' read -r -a dimension_array <<< ${dimension_string}
+#
+#   # initialize minimum
+#   min_dim=99999
+#   axis_array=("-nx" "-ny" "-nz")
+#
+#   # Get minimimum dimension & axis
+#   get_shortest_axis
+#   min_axis=${axis_array[$min_idx]}
+#
+#   # If short axis along y, then rotate (or else, there'll be N images of width 1)
+#   local rot_flag=""
+#   if [[ "${min_axis}" == "-ny" ]]; then
+#     rot_flag="-rx"
+#   elif [[ "${min_axis}" == "-nx" ]]; then
+#     echo -e "    WARNING! Untested with short dimension along x...\n"
+#     rot_flag="-rx"
+#   elif [[ "${min_axis}" == "-nz" ]]; then
+#     rot_flag=""
+#   else
+#     echo -e "    WARNING! unrecognized axis: ${min_axis}\n"
+#     rot_flag=""
+#   fi
+#
+  get_rotate_axis "$fn"
   central_slice_num=$(echo "${min_dim}"/2 | bc)
   echo ""
   echo "  Extracting central slice:"
@@ -5076,6 +5074,56 @@ function get_central_slice() {
   \cp -a $central_slice_jpg "${vars[outdir]}/${imgdir}/${thumbdir}/" 2> /dev/null
 }
 
+function get_rotate_axis() {
+###############################################################################
+#   Function:
+#     Get axis for trimvol
+#
+#   Positional variables:
+#     1. tomogram name
+#
+#   Calls functions:
+#     get_shortest_axis
+#
+#   Global variables:
+#     dimension_string
+#     dimension_array (OUTPUT)
+#     min_idx
+#     min_axis (OUTPUT)
+#     rot_flag (OUTPUT)
+#
+###############################################################################
+
+  local fn=$1
+
+  # Get dimensions
+# #   local dimension_string=$(${vars[imod_dir]}/header $fn | grep sections | xargs | rev | cut -d' ' -f1-3 | rev)  # TODO: Replace with awk?
+  getDimensions "$fn"
+  IFS=' ' read -r -a dimension_array <<< ${dimension_string}
+
+  # initialize minimum
+  min_dim=99999
+  axis_array=("-nx" "-ny" "-nz")
+
+  # Get minimimum dimension & axis
+  get_shortest_axis
+  min_axis=${axis_array[$min_idx]}
+
+  # If short axis along y, then rotate (or else, there'll be N images of width 1)
+  rot_flag=""
+  if [[ "${min_axis}" == "-ny" ]]; then
+    rot_flag="-rx"
+  elif [[ "${min_axis}" == "-nx" ]]; then
+    echo -e "    WARNING! Untested with short dimension along x...\n"
+    rot_flag="-rx"
+  elif [[ "${min_axis}" == "-nz" ]]; then
+    rot_flag=""
+  else
+    echo -e "    WARNING! unrecognized axis: ${min_axis}\n"
+    rot_flag=""
+  fi
+}
+
 function getDimensions() {
 ###############################################################################
 #   Function:
@@ -5100,7 +5148,7 @@ function getDimensions() {
 function get_shortest_axis() {
 ###############################################################################
 #   Function:
-#     FUNCTION
+#     Get shortest dimension
 #   
 #   Positional variables:
 #   
@@ -5197,28 +5245,6 @@ function compressEer() {
   
   local merge_cmd="relion_convert_to_tiff --i $fn --eer_grouping ${vars[grouping]} --o ${vars[tifdir]}"
   
-#   if [[ $verbose -ge 6 ]] ; then
-#     if [[ -f "${outlog}" ]]; then
-#       echo "    Running: $merge_cmd"                 >> $outlog
-#       eval $merge_cmd 2> /dev/null | sed 's/^/    /' >> $outlog
-#     else
-#       echo "    Running: $merge_cmd"
-#       eval $merge_cmd 2> /dev/null | sed 's/^/    /'  # (prepends spaces to output)
-#     fi
-#   elif [[ $verbose -ge 4 ]] ; then
-#     if [[ -f "${outlog}" ]]; then
-#       echo "    Running: $merge_cmd" >> $outlog
-#       
-#       # (I couldn't save the time command output and suppress stdout at the same time)
-#       echo "    Run time: $(TIMEFORMAT='%R' ; { time $merge_cmd > /dev/null 2>&1 ; } 2>&1) sec" >> $outlog
-#     else
-#       echo "    Running: $merge_cmd"
-#       echo "    Run time: $(TIMEFORMAT='%R' ; { time $merge_cmd > /dev/null 2>&1 ; } 2>&1) sec"
-#     fi
-#   else
-#     $merge_cmd > /dev/null 2>&1
-#   fi
-#   
   if [[ $verbose -ge 6 ]] ; then
     if [[ -f "${outlog}" ]]; then
       echo "    Running: $merge_cmd"                 >> $outlog
