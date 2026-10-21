@@ -359,7 +359,7 @@ function validate_imod_files() {
         exit
       else
         if [[ "$verbose" -ge 2 ]]; then
-          vprint "    WARNING! Didn't find file: '$rel_path', not rotating..." "0+" "${outlog}"
+          vprint "    WARNING! Didn't find file: '$rel_path', will rotate automatically..." "0+" "${outlog}"
         fi
       fi
     fi
