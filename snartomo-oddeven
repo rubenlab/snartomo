@@ -329,6 +329,7 @@ function validate_imod_files() {
 #     files2copy (array)
 #     warn_log
 #     files_present (OUTPUT)
+#     found_trimvol (OUTPUT)
 #     combined_apix (OUTPUT)
 #
 ###############################################################################
@@ -339,6 +340,7 @@ function validate_imod_files() {
 
   vprint "    Checking files in: '$curr_dir'" "5+" "${outlog}"
   files_present=true
+  found_trimvol=true
 
   # Check that micrograph directory exists
   if ! [[ -d "${vars[micdir]}" ]]; then
@@ -358,9 +360,8 @@ function validate_imod_files() {
         vprint "      ERROR!! Didn't find file: '$rel_path'" "1+" "${outlog} =${warn_log}"
         exit
       else
-        if [[ "$verbose" -ge 2 ]]; then
-          vprint "    WARNING! Didn't find file: '$rel_path', will rotate automatically..." "0+" "${outlog}"
-        fi
+        found_trimvol=false
+        vprint "    WARNING! Didn't find file: '$rel_path', will rotate automatically..." "0+" "${outlog}"
       fi
     fi
   done
@@ -511,6 +512,7 @@ function create_odd_even_files() {
 #     changed_tilt (defined here)
 #     rot_flag
 #     combined_apix (from validate_imod_files)
+#     found_trimvol (from validate_imod_files)
 #
 #   Calls function:
 #     shared.restack_micrographs
@@ -580,6 +582,7 @@ function create_odd_even_files() {
     if [[ "${vars[testing]}" == true ]] ; then
       echo    "      TESTING: $subm_cmd (in ${oddeven_dir}/)"
     else
+      vprint "" "5+" "=${outlog}"
       echo -e "      RUNNING: $subm_cmd (in ${oddeven_dir}/)"
       vprint "" "5+" "${outlog}"
     fi
@@ -603,7 +606,7 @@ function create_odd_even_files() {
 
     # Auto-rotate if necessary
     get_rotate_axis "$tomogram_3d"
-    if [[ $rot_flag == "-rx" ]] ; then
+    if [[ $rot_flag == "-rx" ]] && [[ $found_trimvol == false ]] ; then
       vprint "" "5+" "${outlog}"
       vprint "      Autorotating '$tomogram_3d'" "4+" "${outlog}"
       mv $tomogram_3d ${tomogram_3d}.BAK
