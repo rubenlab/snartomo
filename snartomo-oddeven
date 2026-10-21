@@ -550,8 +550,7 @@ function create_odd_even_files() {
     echo "      TESTING: $restack_cmd"
     echo "      TESTING: $apix_cmd"
   else
-    vprint "      Updating pixel size in '$reordered_stack' to: ${combined_apix}" "4+" "${outlog}"
-# # #     ${vars[imod_dir]}/${apix_cmd}
+    vprint "      Updating pixel size in tilt series '$(basename $reordered_stack)' to: ${combined_apix}" "4+" "${outlog}"
     if [[ "$verbose" -ge 7 ]]; then
       ${vars[imod_dir]}/${apix_cmd} 2>&1 | tee -a $newstack_log
     elif [[ "$verbose" -eq 6 ]]; then
@@ -581,7 +580,8 @@ function create_odd_even_files() {
     if [[ "${vars[testing]}" == true ]] ; then
       echo    "      TESTING: $subm_cmd (in ${oddeven_dir}/)"
     else
-      echo -e "      RUNNING: $subm_cmd (in ${oddeven_dir}/)\n"
+      echo -e "      RUNNING: $subm_cmd (in ${oddeven_dir}/)"
+      vprint "" "5+" "${outlog}"
     fi
   fi
 
@@ -592,14 +592,20 @@ function create_odd_even_files() {
     pushd "${oddeven_dir}/" > /dev/null
 
     # Compute tomogram
-    ${vars[imod_dir]}/${subm_cmd}
+    if [[ "$verbose" -ge 5 ]]; then
+      ${vars[imod_dir]}/${subm_cmd}
+    else
+      ${vars[imod_dir]}/${subm_cmd} >> $outlog 2>&1
+    fi
     local subm_code=$?
 # # #     echo "create_odd_even_files: subm_code='$subm_code'"
+    vprint "\n      Finished running submfg" "4+" "${outlog}"
 
     # Auto-rotate if necessary
     get_rotate_axis "$tomogram_3d"
     if [[ $rot_flag == "-rx" ]] ; then
-      vprint "\n      Autorotating '$tomogram_3d'" "4+" "${outlog}"
+      vprint "" "5+" "${outlog}"
+      vprint "      Autorotating '$tomogram_3d'" "4+" "${outlog}"
       mv $tomogram_3d ${tomogram_3d}.BAK
       local trim_cmd="trimvol ${rot_flag} $tomogram_3d.BAK $tomogram_3d"
       vprint "        $trim_cmd" "4+" "${outlog}"
