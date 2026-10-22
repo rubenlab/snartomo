@@ -654,7 +654,7 @@ function check_other_snartomos() {
 #     Look for other SNARTomo processes
 #   
 #   Positional variables:
-#     1) (optional) output log
+#     1. (optional) output log
 #   
 #   Calls functions:
 #     vprint
@@ -663,6 +663,7 @@ function check_other_snartomos() {
 #     temp_share_dir
 #     my_info
 #     vars
+#     warn_log
 #   
 ###############################################################################
   
@@ -673,7 +674,11 @@ function check_other_snartomos() {
   
   echo -e "StartingTime:     $(date +"$time_format")" >  $my_info
   echo -e "WorkingDirectory: $PWD"                    >> $my_info
-  echo -e "GpusRequested:    ${vars[gpus]}"           >> $my_info
+
+  # Don't need testing jobs to block GPUs
+  if [[ "${vars[testing]}" == false ]]; then
+    echo -e "GpusRequested:    ${vars[gpus]}"           >> $my_info
+  fi
   
   IFS=' ' read -r -a my_gpus <<< "${vars[gpus]}"
   
@@ -704,23 +709,23 @@ function check_other_snartomos() {
             done
             
             if [[ "$found_match" == true ]] ; then
+              local their_dir=$(grep "WorkingDirectory:" $their_info | xargs | cut -d' ' -f2-)
               if [[ "${vars[testing]}" == true ]] || [[ "${vars[force]}" == true ]] ; then
-                local their_dir=$(grep "WorkingDirectory:" $their_info | xargs | cut -d' ' -f2-)
-                vprint "WARNING! SNARTomo process ${test_pid} (directory '$their_dir') already using same GPUs. Continuing...\n" "1+" "${outlog}"
+                vprint "WARNING! SNARTomo process ${test_pid} (directory '$their_dir') already using same GPUs. Continuing...\n" "1+" "${outlog} =${warn_log}"
               else
-                vprint "ERROR!! SNARTomo process ${test_pid} (directory '$their_dir') already using same GPUs!" "0+" "${outlog}"
+                vprint "ERROR!! SNARTomo process ${test_pid} (directory '$their_dir') already using same GPUs!" "0+" "${outlog} =${warn_log}"
                 do_continue=false
               fi
               
-              vprint "  GPUs requested here           \t: ${vars[gpus]}" "1+" "${outlog}"
-              vprint "  GPUs requested by PID #${test_pid}\t: ${their_gpus}" "1+" "${outlog}"
+              vprint "  GPUs requested here           \t: ${vars[gpus]}" "1+" "${outlog} =${warn_log}"
+              vprint "  GPUs requested by PID #${test_pid}\t: ${their_gpus}" "1+" "${outlog} =${warn_log}"
               
               if [[ "${vars[force]}" == false ]] ; then
-                vprint "  Use the '--force' flag to override, if you're sure you know what you're doing." "1+" "${outlog}"
+                vprint "  Use the '--force' flag to override, if you're sure you know what you're doing." "1+" "${outlog} =${warn_log}"
               fi
               
               if [[ "${do_continue}" == true ]]; then
-                vprint "  Please consider using different GPUs...\n" "1+" "${outlog}"
+                vprint "  Please consider using different GPUs...\n" "1+" "${outlog} =${warn_log}"
               else
                 vprint "\nExiting...\n" "0+" "${outlog}"
                 exit
@@ -728,9 +733,9 @@ function check_other_snartomos() {
             fi
             # End overlap-found IF-THEN
           else
-            vprint "WARNING! Another SNARTomo process (PID ${test_pid}) found" "0+" "${outlog}"
-            vprint "  Command line: $(ps -p ${test_pid} -o args=)" "0+" "${outlog}"
-            vprint "  Please consider using different GPUs if not already...\n" "0+" "${outlog}"
+            vprint "WARNING! Another SNARTomo process (PID ${test_pid}) found" "0+" "${outlog} =${warn_log}"
+            vprint "  Command line: $(ps -p ${test_pid} -o args=)" "0+" "${outlog} =${warn_log}"
+            vprint "  Please consider using different GPUs if not already...\n" "0+" "${outlog} =${warn_log}"
           fi
           # End found-info IF-THEN
         
@@ -780,6 +785,8 @@ function targets_init() {
 #     mc2_movies
 #     vars
 #     mdoc_array
+#     main_log
+#     warn_log
 #   
 ###############################################################################
   
