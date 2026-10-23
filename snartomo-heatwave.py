@@ -1569,14 +1569,14 @@ class MdocTreeView(QtWidgets.QMainWindow):
             for fn in current_list:
                 # Check for prepended slice number
                 if voltype=='stack' and fn.split()[0] == '-z':
-                    if self.debug: print(f"DEBUG: 1556: fn.split()='{fn.split()}'")
+                    if self.debug: print(f"DEBUG: 1572: fn.split()='{fn.split()}'")
                     insert_menuopt= self.right_click_menu.addAction(self.tr(f"Open {type_string} at slice #{fn.split()[1]}: {os.path.basename(fn)}"))
                 else:
                     insert_menuopt= self.right_click_menu.addAction(self.tr(f"Open {type_string}: {os.path.basename(fn)}"))
                 
                 if voltype=='png':
                     insert_menuopt.triggered.connect( partial(self.openImgView, fn) )
-                if voltype=='fid':
+                elif voltype=='fid':
                     insert_menuopt.triggered.connect( partial(self.openFiducialMod, fn) )
                 else:
                     insert_menuopt.triggered.connect( partial(self.openThreedMod, fn) )
